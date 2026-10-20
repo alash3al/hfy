@@ -37,8 +37,6 @@ type api struct {
 	rt   *agent.Runtime
 }
 
-//go:fix inline
-
 func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *api {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -427,5 +425,69 @@ func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	}
 	if code, _ := a.do("GET", "/v1/sessions/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
 		t.Fatalf("unknown session: %d", code)
+	}
+}
+
+// The auth webhook picks the agent per caller: each turn runs with that
+// agent's prompt, model and vars, and its events are authored by that agent.
+func TestWebhookPicksTheAgent(t *testing.T) {
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]string
+		json.NewDecoder(r.Body).Decode(&in)
+		switch in["key"] {
+		case "buyer":
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": "store", "vars": map[string]any{"shop": "Napoli"}})
+		case "owner":
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u2", "vars": map[string]any{"user": "Sam"}}) // no agent: main
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u3", "agent": "nope"})
+		}
+	}))
+	defer hook.Close()
+	a := start(t, func(c *config.Config) {
+		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
+		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
+			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
+	}, fakeprov.Step{Content: "store here"}, fakeprov.Step{Content: "main here"})
+	sid := a.newSession()
+	base := "/v1/sessions/" + sid
+	events, closeStream := a.stream(base+"/events?key=buyer", nil)
+	defer closeStream()
+
+	if code, out := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "pizza?"}); code != 202 {
+		t.Fatalf("buyer post: %d %v", code, out)
+	}
+	got := waitFor(t, events, completed)
+	if code, out := a.do("POST", base+"/messages", "owner", map[string]any{"text": "status?"}); code != 202 {
+		t.Fatalf("owner post: %d %v", code, out)
+	}
+	got = append(got, waitFor(t, events, completed)...)
+
+	reqs := a.fake.Reqs()
+	if len(reqs) != 2 {
+		t.Fatalf("model calls: %d", len(reqs))
+	}
+	for i, want := range []struct{ model, system string }{{"small", "You are Napoli's store."}, {"m", "You help Sam."}} {
+		sys := reqs[i]["messages"].([]any)[0].(map[string]any)["content"]
+		if reqs[i]["model"] != want.model || sys != want.system {
+			t.Fatalf("turn %d ran as model=%v system=%v", i, reqs[i]["model"], sys)
+		}
+	}
+	replies := map[string]string{} // reply text -> its agent
+	storeTurns := 0
+	for _, ev := range got {
+		actor := ev.Env["actor"].(map[string]any)
+		switch {
+		case ev.Type == "message.text" && actor["type"] == "agent":
+			replies[ev.Env["data"].(map[string]any)["text"].(string)] = actor["ref"].(string)
+		case ev.Type == "turn" && ev.Env["data"].(map[string]any)["agent"] == "store" && actor["ref"] == "u1":
+			storeTurns++
+		}
+	}
+	if replies["store here"] != "store" || replies["main here"] != "main" || storeTurns != 1 {
+		t.Fatalf("reply authors: %v, store turns recorded: %d", replies, storeTurns)
+	}
+	if code, _ := a.do("POST", base+"/messages", "stranger", map[string]any{"text": "hi"}); code != http.StatusForbidden {
+		t.Fatalf("an unknown agent must fail closed, got %d", code)
 	}
 }

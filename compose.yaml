@@ -1,6 +1,7 @@
-# One instance = one agent = one tenant. Run another copy of this stack for
-# another app. `serve --work` runs API and workers together; for scale, run
-# `serve` and `queue:work` as separate services.
+# One instance = one app (one tenant); its agents are configured under agent
+# and agents. Run another copy of this stack for another app. `serve --work`
+# runs API and workers together; for scale, run `serve` and `queue:work` as
+# separate services.
 services:
   db:
     image: pgvector/pgvector:pg17          # pgvector 0.8.0+ is required

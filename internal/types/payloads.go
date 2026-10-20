@@ -9,6 +9,7 @@ import (
 type Turn struct {
 	Vars  map[string]string `json:"vars"`
 	Scope string            `json:"scope"`
+	Agent string            `json:"agent,omitempty"` // the agent that runs the turn ("" = main)
 }
 
 func (Turn) EventType() EventType { return EventTurn }
@@ -98,6 +99,9 @@ type ToolResult struct {
 	CallID  string `json:"call_id"`
 	Content string `json:"content"`
 	IsError bool   `json:"is_error,omitempty"`
+	// Structured is the tool's MCP structuredContent, passed through to
+	// clients (e.g. UI components); the model sees Content.
+	Structured json.RawMessage `json:"structured,omitempty"`
 }
 
 func (ToolResult) EventType() EventType { return EventToolResult }

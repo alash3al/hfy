@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alash3al/hfy/internal/types"
 )
 
 func env(m map[string]string) func(string) (string, bool) {
@@ -116,6 +118,39 @@ func TestUnknownKeysAreRejected(t *testing.T) {
 		_, err := Parse([]byte(base+c.yaml), func(string) (string, bool) { return "", false })
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("want %q, got %v", c.want, err)
+		}
+	}
+}
+
+func TestAgentNamesMatchTypes(t *testing.T) {
+	if MainAgent != types.AgentMain || summarizerName != types.AgentSummarizer {
+		t.Fatal("config's agent names drifted from types")
+	}
+}
+
+func TestNamedAgents(t *testing.T) {
+	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\n" +
+		"agent: {model: p/m, settings: {context_window: 10}}\n"
+	cfg, err := Parse([]byte(base+"agents:\n  store: {model: p/small, system: 'Store {{name}}', vars: {name: {required: true}}, settings: {context_window: 5}, approval: {tools: [\"cart.*\"]}}\n"),
+		func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := cfg.AgentNamed("store"); !ok || a.Model != "p/small" || a.Approval.Timeout.D() == 0 {
+		t.Fatalf("store agent: %+v", a)
+	}
+	if a, ok := cfg.AgentNamed(""); !ok || a.Model != "p/m" {
+		t.Fatal("empty name must be the main agent")
+	}
+	for yaml, want := range map[string]string{
+		"agents: {summarizer: {model: p/m, settings: {context_window: 1}}}\n":                                      "agents.summarizer: name is reserved",
+		"agents: {x: {model: q/m, settings: {context_window: 1}}}\n":                                               `agents.x.model: unknown provider "q"`,
+		"agents: {x: {model: p/m}}\n":                                                                              "agents.x.settings.context_window is required",
+		"agents: {x: {model: p/m, settings: {context_window: 1}, system: '{{nope}}'}}\n":                           "agents.x.system uses {{nope}}",
+		"agents: {x: {model: p/m, settings: {context_window: 1}}}\nsubagents: {x: {description: d, model: p/m}}\n": "subagents.x: name is reserved or taken",
+	} {
+		if _, err := Parse([]byte(base+yaml), func(string) (string, bool) { return "", false }); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want %q, got %v", yaml, want, err)
 		}
 	}
 }

@@ -46,9 +46,9 @@ type Spec struct {
 	Limits      config.Limits
 	MCP         []string        // nil = all servers, through tool search
 	Harness     map[string]bool // harness tools this agent may use
+	Top         bool            // a configured agent that runs turns (not a sub-agent or the summarizer)
+	Approval    *config.Approval
 }
-
-func (s *Spec) isMain() bool { return s.Name == types.AgentMain }
 
 // Runtime is everything the loop needs besides the turn itself.
 type Runtime struct {
@@ -58,7 +58,7 @@ type Runtime struct {
 	MCP   *mcp.Manager
 
 	Providers map[string]*provider.Client
-	Main      *Spec
+	Agents    map[string]*Spec // the configured agents by name; "main" is the default
 	Subs      map[string]*Spec
 	Summ      *Spec // nil when no summarizer is configured
 	Embedder  *provider.Client
@@ -72,7 +72,7 @@ type Runtime struct {
 func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime, error) {
 	rt := &Runtime{
 		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), MCP: mgr,
-		Providers: map[string]*provider.Client{}, Subs: map[string]*Spec{},
+		Providers: map[string]*provider.Client{}, Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
 		harness: mcp.NewLocal(harness.Server),
 	}
 	for name, p := range cfg.Providers {
@@ -83,15 +83,19 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		return &Spec{Name: name, Client: rt.Providers[prov], Model: m, Settings: st, System: system,
 			Limits: lim, MCP: servers, Harness: map[string]bool{}}
 	}
-	a := cfg.Agent
-	rt.Main = spec(types.AgentMain, a.Model, a.Settings, a.System, a.Limits, a.MCP)
-	if a.MCP == nil {
-		rt.Main.Harness[harness.ToolSearch] = true
-	}
 	if cfg.Embeddings != nil {
 		prov, m := config.SplitModel(cfg.Embeddings.Model)
 		rt.Embedder, rt.EmbModel = rt.Providers[prov], m
-		rt.Main.Harness[harness.SessionSearch] = true
+	}
+	for name, a := range cfg.AllAgents() {
+		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
+		s.Top, s.Approval = true, a.Approval
+		s.Harness[harness.ToolSearch] = a.MCP == nil
+		s.Harness[harness.SessionSearch] = cfg.Embeddings != nil
+		for sub := range cfg.Subagents {
+			s.Harness[sub] = true // every agent may delegate to every sub-agent
+		}
+		rt.Agents[name] = s
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Subagents)) {
 		sc := cfg.Subagents[name]
@@ -101,7 +105,6 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 			s.Harness[harness.ToolSearch] = true
 		}
 		rt.Subs[name] = s
-		rt.Main.Harness[name] = true
 	}
 	if sm := cfg.Summarizer; sm != nil {
 		system := sm.System

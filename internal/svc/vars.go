@@ -68,7 +68,7 @@ func Render(tmpl string, vars map[string]string) string {
 
 // ValidateAttachments checks references at post time, so a bad attachment is a
 // 400 and not a failed turn.
-func ValidateAttachments(cfg *config.Config, atts []types.Attachment) error {
+func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.Attachment) error {
 	if len(atts) == 0 {
 		return nil
 	}
@@ -93,7 +93,7 @@ func ValidateAttachments(cfg *config.Config, atts []types.Attachment) error {
 		if !ok {
 			return badf("attachment type %q is not allowed", at.Mime)
 		}
-		if strings.HasPrefix(at.Mime, "image/") && !cfg.Agent.Settings.Vision {
+		if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
 			return badf("the agent cannot see images (settings.vision is false)")
 		}
 	}

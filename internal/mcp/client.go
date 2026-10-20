@@ -130,7 +130,7 @@ func (c *Client) Tools(ctx context.Context) ([]Tool, error) {
 	return out, nil
 }
 
-func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage) (Result, error) {
+func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, meta *TurnMeta) (Result, error) {
 	c.mu.Lock()
 	sess, err := c.connect()
 	c.mu.Unlock()
@@ -141,7 +141,11 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage) (R
 		args = json.RawMessage(`{}`)
 	}
 	// Cancelling ctx makes the SDK send notifications/cancelled to the server.
-	res, err := sess.CallTool(ctx, &sdk.CallToolParams{Name: tool, Arguments: args})
+	params := &sdk.CallToolParams{Name: tool, Arguments: args}
+	if meta != nil {
+		params.Meta = sdk.Meta{MetaKey: meta}
+	}
+	res, err := sess.CallTool(ctx, params)
 	if err != nil {
 		if ctx.Err() == nil { // a transport failure, not a cancellation
 			c.mu.Lock()
@@ -152,7 +156,11 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage) (R
 		}
 		return Result{}, err
 	}
-	return Result{Content: flatten(res), IsError: res.IsError}, nil
+	out := Result{Content: flatten(res), IsError: res.IsError}
+	if res.StructuredContent != nil {
+		out.Structured, _ = json.Marshal(res.StructuredContent)
+	}
+	return out, nil
 }
 
 // Close ends the connection (and the child process for local servers).

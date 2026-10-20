@@ -165,6 +165,7 @@ type caller struct {
 	actorID int64
 	scope   string
 	vars    map[string]string
+	agent   string // the configured agent serving this caller ("" = main)
 	session db.SessionRow
 }
 
@@ -181,6 +182,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 		ctx := c.Request().Context()
 		actorType, ref, scope := types.ActorAnonymous, types.NoScope, types.NoScope
 		var vars map[string]string
+		agent := ""
 		if s.auth != nil {
 			key := bearer(c)
 			if key == "" {
@@ -196,7 +198,11 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 			case err != nil:
 				return echo.NewHTTPError(http.StatusForbidden, "forbidden")
 			}
-			actorType, ref, scope, vars = types.ActorExternal, id.Actor, id.Scope, id.Vars
+			if _, ok := s.cfg.AgentNamed(id.Agent); !ok {
+				slog.Error("auth webhook picked an unknown agent", "agent", id.Agent)
+				return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
+			}
+			actorType, ref, scope, vars, agent = types.ActorExternal, id.Actor, id.Scope, id.Vars, id.Agent
 		}
 		sess, err := s.store.SessionByUUID(ctx, sid)
 		if err != nil {
@@ -206,7 +212,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 		if err != nil {
 			return err
 		}
-		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, session: sess})
+		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, agent: agent, session: sess})
 		return next(c)
 	}
 }

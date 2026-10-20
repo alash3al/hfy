@@ -10,8 +10,6 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-//go:fix inline
-
 func TestResolveVars(t *testing.T) {
 	decl := map[string]config.Var{
 		"name":  {Required: true, MaxLength: 5},
@@ -58,7 +56,7 @@ func TestValidateAttachments(t *testing.T) {
 	cfg := &config.Config{Agent: config.Agent{Settings: config.Settings{Vision: true}},
 		Attachments: &config.Attachments{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
 	ok := []types.Attachment{{URL: "https://cdn.example.com/a.png", Mime: "image/png"}, {URL: "https://b.s3.amazonaws.com/x.pdf", Mime: "application/pdf"}}
-	if err := svc.ValidateAttachments(cfg, ok); err != nil {
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err != nil {
 		t.Fatal(err)
 	}
 	bad := map[string]types.Attachment{
@@ -70,16 +68,16 @@ func TestValidateAttachments(t *testing.T) {
 		"credentials":        {URL: "https://user:pw@cdn.example.com/a.png", Mime: "image/png"},
 	}
 	for name, a := range bad {
-		if err := svc.ValidateAttachments(cfg, []types.Attachment{a}); err == nil {
+		if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{a}); err == nil {
 			t.Errorf("%s: must be rejected", name)
 		}
 	}
 	cfg.Agent.Settings.Vision = false
-	if err := svc.ValidateAttachments(cfg, ok[:1]); err == nil || !strings.Contains(err.Error(), "vision") {
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok[:1]); err == nil || !strings.Contains(err.Error(), "vision") {
 		t.Errorf("images need vision: %v", err)
 	}
 	cfg.Attachments = nil
-	if err := svc.ValidateAttachments(cfg, ok); err == nil {
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err == nil {
 		t.Error("no attachments config means rejected")
 	}
 }

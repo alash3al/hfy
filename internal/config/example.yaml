@@ -50,7 +50,7 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #   types: [image/png, image/jpeg, image/webp]
 #   max_bytes: 5MB
 
-agent:                               # the one agent clients talk to
+agent:                               # the default agent ("main")
   model: local/gemma3:1b             # <provider>/<model>
   settings: { temperature: 0.2, context_window: 8192, vision: false }
   system: |
@@ -67,7 +67,14 @@ agent:                               # the one agent clients talk to
   #   timeout: 10m
   # mcp: [files, search]             # optional; omit = all MCP servers via tool search
 
-# subagents:                         # exposed to the main agent as harness.<name>
+# agents:                            # more agents, same fields as agent; the auth
+#   store:                           # webhook picks one per caller: {"agent": "store"}
+#     model: local/gemma3:1b
+#     settings: { context_window: 8192 }
+#     system: You answer for {{shop}}.
+#     vars: { shop: { required: true } }
+
+# subagents:                         # every agent may call them as harness.<name>
 #   refunds:
 #     description: Decides whether an order is eligible for a refund
 #     model: local/gemma3:1b

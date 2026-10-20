@@ -88,8 +88,6 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, sess: sess, user: user}
 }
 
-//go:fix inline
-
 func (e *env) post(text string) (turnID int64) {
 	e.t.Helper()
 	vars, err := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil, nil)
@@ -507,5 +505,39 @@ func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
 	if s.ActiveTurnID != nil {
 		t.Fatal("active turn must be cleared")
+	}
+}
+
+// Every tool call tells the tool server who is acting and where (MCP _meta),
+// so it can authorize the call itself; structured results reach clients.
+func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w1", Name: "files__whoami", Args: `{}`}}},
+		fakeprov.Step{Content: "done"})
+	turn := e.post("who am I?")
+	e.waitState(turn, types.StateCompleted)
+
+	results := e.find(turn, types.EventToolResult)
+	if len(results) != 1 {
+		t.Fatalf("results: %v", results)
+	}
+	var meta map[string]json.RawMessage // the SDK adds its own io.modelcontextprotocol/ keys
+	if err := json.Unmarshal([]byte(results[0]["content"].(string)), &meta); err != nil {
+		t.Fatalf("the tool did not get _meta: %v %v", results[0]["content"], err)
+	}
+	var got struct {
+		Session, Turn, Agent, Scope string
+		CallID                      string `json:"call_id"`
+		Actor                       struct{ Type, Ref string }
+		Vars                        map[string]string
+	}
+	ok := json.Unmarshal(meta["io.github.alash3al.hfy/turn"], &got) == nil
+	turnRow, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
+	if !ok || got.Session != e.sess.UUID.String() || got.Turn != turnRow.UUID.String() || got.CallID != "w1" ||
+		got.Agent != "main" || got.Actor.Type != "anonymous" || got.Scope != types.NoScope || got.Vars["who"] != "everyone" {
+		t.Fatalf("turn context: %+v", meta)
+	}
+	if s, _ := json.Marshal(results[0]["structured"]); string(s) != `{"component":"card","title":"Margherita"}` {
+		t.Fatalf("structured result: %s", s)
 	}
 }

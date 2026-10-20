@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
@@ -79,10 +80,11 @@ func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provide
 
 // turnSink persists the main agent's run as events under its turn.
 type turnSink struct {
-	rt    *Runtime
-	env   *TurnEnv
-	actor int64
-	ctx   context.Context // the turn's context, for batched deltas
+	rt       *Runtime
+	env      *TurnEnv
+	actor    int64
+	approval *config.Approval // the turn's agent's policy (nil = none)
+	ctx      context.Context  // the turn's context, for batched deltas
 
 	flushMu sync.Mutex // one flush at a time, so no delta lands after its step's message
 	mu      sync.Mutex
@@ -93,8 +95,8 @@ type turnSink struct {
 	lastReq int64
 }
 
-func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, actor int64) *turnSink {
-	return &turnSink{rt: rt, env: env, actor: actor, ctx: ctx}
+func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, spec *Spec, actor int64) *turnSink {
+	return &turnSink{rt: rt, env: env, actor: actor, approval: spec.Approval, ctx: ctx}
 }
 
 func (s *turnSink) append(ctx context.Context, p types.Payload, req *int64) error {
@@ -211,11 +213,11 @@ func (s *turnSink) CallStarted(ctx context.Context, c CallInfo) error {
 }
 
 func (s *turnSink) CallFinished(ctx context.Context, c CallInfo, r mcp.Result) error {
-	return s.append(ctx, types.ToolResult{CallID: c.ID, Content: r.Content, IsError: r.IsError}, nil)
+	return s.append(ctx, types.ToolResult{CallID: c.ID, Content: r.Content, IsError: r.IsError, Structured: r.Structured}, nil)
 }
 
 func (s *turnSink) NeedsApproval(full string) bool {
-	a := s.rt.Cfg.Agent.Approval
+	a := s.approval
 	if a == nil {
 		return false
 	}
@@ -229,7 +231,7 @@ func (s *turnSink) NeedsApproval(full string) bool {
 
 // RequestApproval pauses the turn; no worker waits.
 func (s *turnSink) RequestApproval(ctx context.Context, c CallInfo) error {
-	return s.rt.Svc.RequestApproval(ctx, s.env.SessionID, s.env.TurnID, c.ID)
+	return s.rt.Svc.RequestApproval(ctx, s.env.SessionID, s.env.TurnID, c.ID, s.approval.Timeout.D())
 }
 
 func (s *turnSink) Record(kind types.OutboundKind) func(provider.Record) int64 {

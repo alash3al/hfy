@@ -34,16 +34,17 @@ func (s *Server) postMessage(c *echo.Context) error {
 	if strings.TrimSpace(req.Text) == "" && len(req.Attachments) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "text or attachments required")
 	}
-	if err := svc.ValidateAttachments(s.cfg, req.Attachments); err != nil {
+	agent, _ := s.cfg.AgentNamed(cl.agent) // checked when the caller was resolved
+	if err := svc.ValidateAttachments(s.cfg, agent, req.Attachments); err != nil {
 		return err
 	}
 	// Webhook vars override client vars; the client's are untrusted data.
-	vars, err := svc.ResolveVars(s.cfg.Agent.Vars, req.Vars, cl.vars)
+	vars, err := svc.ResolveVars(agent.Vars, req.Vars, cl.vars)
 	if err != nil {
 		return err
 	}
 	turn, err := s.svc.Post(c.Request().Context(), svc.PostInput{
-		SessionID: cl.session.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars,
+		SessionID: cl.session.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars, Agent: cl.agent,
 		Text: req.Text, Attachments: req.Attachments,
 	})
 	if err != nil {

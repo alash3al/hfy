@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,17 +60,21 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if view.Cancelled {
 		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 	}
-	if d := rt.Main.Limits.Timeout.D(); d > 0 {
-		var stop context.CancelFunc
-		tctx, stop = context.WithTimeoutCause(tctx, d, errTimeout)
-		defer stop()
-	}
-
 	t, err := turn.Payload[types.Turn]()
 	if err != nil {
 		return err
 	}
-	mainActor, err := rt.Svc.AgentActor(ctx, types.AgentMain)
+	spec, ok := rt.Agents[cmp.Or(t.Agent, types.AgentMain)]
+	if !ok { // removed from the config after the turn was posted
+		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
+			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", t.Agent)})
+	}
+	if d := spec.Limits.Timeout.D(); d > 0 {
+		var stop context.CancelFunc
+		tctx, stop = context.WithTimeoutCause(tctx, d, errTimeout)
+		defer stop()
+	}
+	mainActor, err := rt.Svc.AgentActor(ctx, spec.Name)
 	if err != nil {
 		return err
 	}
@@ -77,17 +82,23 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
+	sess, err := rt.Store.SessionByID(ctx, turn.SessionID)
+	if err != nil {
+		return err
+	}
 	env := &TurnEnv{SessionID: turn.SessionID, TurnID: turn.ID, Scope: turn.Scope, Vars: t.Vars,
-		Total: &usageAcc{u: used, calls: int(calls)}}
-	sink := newTurnSink(tctx, rt, env, mainActor)
-	l := newLoop(rt, rt.Main, sink, env, "")
+		Total:       &usageAcc{u: used, calls: int(calls)},
+		SessionUUID: sess.UUID.String(), TurnUUID: turn.UUID.String(),
+		Actor: mcp.ActorMeta{Type: turn.ActorType, Ref: turn.ActorRef}}
+	sink := newTurnSink(tctx, rt, env, spec, mainActor)
+	l := newLoop(rt, spec, sink, env, "")
 	l.steps = int(calls)
 
 	runErr := rt.resolveDangling(tctx, l, sink, view, job.Attempts)
 	var res Result
 	if runErr == nil {
 		var bc *BuiltContext
-		if bc, runErr = rt.BuildContext(tctx, turn.SessionID, turn.ID, rt.Main); runErr == nil {
+		if bc, runErr = rt.BuildContext(tctx, turn.SessionID, turn.ID, spec); runErr == nil {
 			l.system, l.msgs, l.lastPrompt = bc.System, bc.Msgs, estimateTokens(bc.System, bc.Msgs)
 			l.deriveActivated(tctx)
 			l.prepare = rt.summarizeHook(env)
@@ -152,7 +163,7 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 			tool, ok := rt.findTool(ctx, c.Name)
 			res := errResult(fmt.Sprintf("tool %q is no longer available", c.Name))
 			if ok {
-				res = l.exec(ctx, tool, c.Arguments)
+				res = l.exec(ctx, tool, c.Arguments, c.CallID)
 				if err := ctx.Err(); err != nil {
 					return err
 				}

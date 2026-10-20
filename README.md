@@ -81,8 +81,10 @@ Server to server (`Authorization: Bearer <server.secret>`):
 
 Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
 `auth` configured, hfy sends `POST {key, session_id}` to your webhook and
-expects `200 {actor, scope?, vars?}`; `401`/`403`, any other status, an error
-or a timeout denies. Without `auth` the caller is `anonymous` and unguessable
+expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
+error or a timeout denies. `agent` names the configured agent that serves this
+caller (`agents.<name>`; default `main`), so one deployment can run, say, a
+store agent for buyers and an admin agent for staff; an unknown name denies. Without `auth` the caller is `anonymous` and unguessable
 session ids are the only protection.
 
 - `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
@@ -139,7 +141,10 @@ One envelope for the stream and for history:
 
 Render text by appending `text.delta` under its turn; the durable
 `message.text` replaces them. Pair `tool_call` and `tool_result` by
-`data.call_id`. Ignore event types you don't know.
+`data.call_id`; a `tool_result` may carry `data.structured` (the tool's MCP
+`structuredContent`, e.g. a UI component to render). The agent behind a turn
+is `turn.data.agent`, and its events' `actor.ref`. Ignore event types you
+don't know.
 
 `v` is the version of `data`'s shape for that type. Additive changes (a new
 optional field) keep the version; a breaking change bumps it. Events are
@@ -166,11 +171,16 @@ event as stored.
   (`steps`, `total_tokens`, `timeout`) end the turn when hit.
 - **Approvals.** Calls matching `agent.approval.tools` (`<server>.<tool>`
   patterns, `harness.*` works) pause the turn; nothing waits in a worker. After
-  `approval.timeout` the call is rejected. Approval covers the main agent's
-  calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
+  `approval.timeout` the call is rejected. Each agent has its own `approval`.
+  Approval covers an agent's own calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
   can reach a guarded tool, guard the sub-agent itself (`harness.<name>`).
 - **Sub-agents** are tools (`harness__<name>`), isolated (task text only), depth 1;
-  their usage counts toward the parent's turn.
+  their usage counts toward the parent's turn. Every agent may call them.
+- **Tool servers know who is calling.** Every MCP tool call carries `_meta`
+  `"io.github.alash3al.hfy/turn": {session, turn, call_id, agent, actor: {type,
+  ref}, scope, vars}`, so your MCP server can authorize each call itself (the
+  actor is whoever started the turn; `vars` include the webhook's). Return
+  `structuredContent` for data meant for the client; the model sees the text.
 - **Memory.** The summarizer appends a `summary` event when the prompt reaches
   `context_window` (history is never deleted). With `embeddings` configured,
   `harness__session_search` finds earlier messages of the same `scope`.

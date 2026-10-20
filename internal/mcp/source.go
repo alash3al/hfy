@@ -23,8 +23,30 @@ type Tool struct {
 func (t Tool) FullName() string { return t.Server + "." + t.Name }
 
 type Result struct {
-	Content string
-	IsError bool
+	Content    string          // what the model sees
+	Structured json.RawMessage // the tool's structuredContent, for clients (e.g. UI components)
+	IsError    bool
+}
+
+// MetaKey is the _meta key every tool call carries (reverse DNS, as the MCP
+// spec asks): who is acting, in which session and turn, so a tool server can
+// authorize the call itself. Its value is a TurnMeta.
+const MetaKey = "io.github.alash3al.hfy/turn"
+
+// TurnMeta is the per-call context sent under MetaKey.
+type TurnMeta struct {
+	Session string            `json:"session"` // session uuid
+	Turn    string            `json:"turn"`    // turn uuid
+	CallID  string            `json:"call_id"`
+	Agent   string            `json:"agent"` // the agent (or sub-agent) making the call
+	Actor   ActorMeta         `json:"actor"` // who started the turn
+	Scope   string            `json:"scope"`
+	Vars    map[string]string `json:"vars,omitempty"`
+}
+
+type ActorMeta struct {
+	Type string `json:"type"`
+	Ref  string `json:"ref"`
 }
 
 // Source serves the tools of one MCP server (external) or the in-process harness server.
@@ -33,7 +55,7 @@ type Source interface {
 	// Endpoint is the remote URL for remote servers, "" otherwise.
 	Endpoint() string
 	Tools(ctx context.Context) ([]Tool, error)
-	Call(ctx context.Context, tool string, args json.RawMessage) (Result, error)
+	Call(ctx context.Context, tool string, args json.RawMessage, meta *TurnMeta) (Result, error)
 }
 
 var wireUnsafe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
@@ -106,7 +128,7 @@ func (m *Manager) Tools(ctx context.Context, servers []string) (tools []Tool, er
 }
 
 // Call runs <server>.<tool>.
-func (m *Manager) Call(ctx context.Context, full string, args json.RawMessage) (Result, error) {
+func (m *Manager) Call(ctx context.Context, full string, args json.RawMessage, meta *TurnMeta) (Result, error) {
 	server, tool, ok := strings.Cut(full, ".")
 	if !ok {
 		return Result{}, fmt.Errorf("tool name %q must look like <server>.<tool>", full)
@@ -115,7 +137,7 @@ func (m *Manager) Call(ctx context.Context, full string, args json.RawMessage) (
 	if !found {
 		return Result{}, fmt.Errorf("unknown server %q", server)
 	}
-	return s.Call(ctx, tool, args)
+	return s.Call(ctx, tool, args, meta)
 }
 
 // Local is an in-process Source; the harness server is one.
@@ -147,7 +169,8 @@ func (l *Local) Tools(context.Context) ([]Tool, error) {
 	return append([]Tool(nil), l.tools...), nil
 }
 
-func (l *Local) Call(ctx context.Context, tool string, args json.RawMessage) (Result, error) {
+// Call runs a built-in; they read the turn from ctx, not from meta.
+func (l *Local) Call(ctx context.Context, tool string, args json.RawMessage, _ *TurnMeta) (Result, error) {
 	l.mu.RLock()
 	h, ok := l.handlers[tool]
 	l.mu.RUnlock()

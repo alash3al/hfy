@@ -6,10 +6,12 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +31,8 @@ type Config struct {
 	MCP         map[string]MCPServer `yaml:"mcp"`
 	Embeddings  *Embeddings          `yaml:"embeddings"`
 	Attachments *Attachments         `yaml:"attachments"`
-	Agent       Agent                `yaml:"agent"`
+	Agent       Agent                `yaml:"agent"`  // the default agent, named "main"
+	Agents      map[string]Agent     `yaml:"agents"` // more agents; the auth webhook picks one by name
 	Subagents   map[string]Subagent  `yaml:"subagents"`
 	Summarizer  *Summarizer          `yaml:"summarizer"`
 	Metrics     *Metrics             `yaml:"metrics"`
@@ -282,6 +285,11 @@ func (c *Config) applyDefaults() {
 	if c.Agent.Approval != nil && c.Agent.Approval.Timeout == 0 {
 		c.Agent.Approval.Timeout = Duration(10 * time.Minute)
 	}
+	for _, a := range c.Agents {
+		if a.Approval != nil && a.Approval.Timeout == 0 {
+			a.Approval.Timeout = Duration(10 * time.Minute) // a pointer: this sets the map's copy too
+		}
+	}
 	if c.Summarizer != nil && c.Summarizer.KeepRecent == 0 {
 		c.Summarizer.KeepRecent = 3
 	}
@@ -367,40 +375,47 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// agent
-	checkModel("agent", c.Agent.Model)
-	if c.Agent.Settings.ContextWindow < 1 {
-		bad("agent.settings.context_window is required")
-	}
-	checkMCP("agent", c.Agent.MCP)
-	for n, v := range c.Agent.Vars {
-		if !varNameRe.MatchString(n) {
-			bad("agent.vars.%s: invalid name", n)
+	// agents: "agent" (named main) and every entry under "agents"
+	agents := c.AllAgents()
+	for _, name := range slices.Sorted(maps.Keys(agents)) {
+		a := agents[name]
+		where := "agents." + name
+		if name == MainAgent {
+			where = "agent"
+		} else if name == summarizerName || !nameRe.MatchString(name) || strings.Contains(name, "__") {
+			bad("%s: name is reserved or invalid (use [a-zA-Z0-9_-], no double underscore)", where)
 		}
-		if v.Required && v.Default != nil {
-			bad("agent.vars.%s: required and default are mutually exclusive", n)
+		checkModel(where, a.Model)
+		if a.Settings.ContextWindow < 1 {
+			bad("%s.settings.context_window is required", where)
 		}
-	}
-	checkPlaceholders := func(where, text string, vars map[string]Var) {
-		for _, m := range placeholRe.FindAllStringSubmatch(text, -1) {
-			if _, ok := vars[m[1]]; !ok {
-				bad("%s.system uses {{%s}} which is not declared under agent.vars", where, m[1])
+		checkMCP(where, a.MCP)
+		for n, v := range a.Vars {
+			if !varNameRe.MatchString(n) {
+				bad("%s.vars.%s: invalid name", where, n)
+			}
+			if v.Required && v.Default != nil {
+				bad("%s.vars.%s: required and default are mutually exclusive", where, n)
 			}
 		}
-	}
-	checkPlaceholders("agent", c.Agent.System, c.Agent.Vars)
-	if c.Agent.Approval != nil {
-		for _, p := range c.Agent.Approval.Tools {
-			if _, err := path.Match(p, ""); err != nil {
-				bad("agent.approval.tools: bad pattern %q", p)
+		for _, m := range placeholRe.FindAllStringSubmatch(a.System, -1) {
+			if _, ok := a.Vars[m[1]]; !ok {
+				bad("%s.system uses {{%s}} which is not declared under %s.vars", where, m[1], where)
+			}
+		}
+		if a.Approval != nil {
+			for _, p := range a.Approval.Tools {
+				if _, err := path.Match(p, ""); err != nil {
+					bad("%s.approval.tools: bad pattern %q", where, p)
+				}
 			}
 		}
 	}
 
 	for name, s := range c.Subagents {
 		where := "subagents." + name
-		if name == "main" || name == "summarizer" {
-			bad("%s: name is reserved", where)
+		if _, taken := agents[name]; taken || name == summarizerName {
+			bad("%s: name is reserved or taken by an agent (agents and sub-agents share one namespace)", where)
 		}
 		if !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("%s: names use [a-zA-Z0-9_-] and no double underscore", where)
@@ -426,6 +441,32 @@ func (c *Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// MainAgent is the default agent's name; sub-agents and the summarizer share
+// the agent namespace with it. (config imports nothing internal; a test keeps
+// these equal to types.AgentMain and types.AgentSummarizer.)
+const (
+	MainAgent      = "main"
+	summarizerName = "summarizer"
+)
+
+// AllAgents returns every agent by name; the default "agent" is "main".
+func (c *Config) AllAgents() map[string]*Agent {
+	all := map[string]*Agent{MainAgent: &c.Agent}
+	for name, a := range c.Agents {
+		all[name] = &a
+	}
+	return all
+}
+
+// AgentNamed returns the agent the auth webhook picked ("" = main).
+func (c *Config) AgentNamed(name string) (*Agent, bool) {
+	if name == "" {
+		name = MainAgent
+	}
+	a, ok := c.AllAgents()[name]
+	return a, ok
 }
 
 // SplitModel splits "<provider>/<model>" (the model part may contain slashes).

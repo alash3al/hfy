@@ -4,6 +4,7 @@ package fakemcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"time"
 
@@ -29,6 +30,12 @@ func MaybeRun() {
 	sdk.AddTool(s, &sdk.Tool{Name: "write_file", Description: "Pretend to write a file"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "wrote " + in.Text}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "whoami", Description: "Echo the request _meta; return a UI component"},
+		func(ctx context.Context, req *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			meta, _ := json.Marshal(req.Params.Meta)
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(meta)}}},
+				map[string]any{"component": "card", "title": "Margherita"}, nil
 		})
 	sdk.AddTool(s, &sdk.Tool{Name: "boom", Description: "Always fails"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {

@@ -74,6 +74,10 @@ type TurnEnv struct {
 	Scope     string
 	Vars      map[string]string
 	Total     *usageAcc // the whole turn, sub-agents included
+	// Sent to tool servers on every call (mcp.MetaKey): public ids and who
+	// started the turn, so tools can authorize the call themselves.
+	SessionUUID, TurnUUID string
+	Actor                 mcp.ActorMeta
 }
 
 type loop struct {
@@ -97,7 +101,7 @@ type loop struct {
 func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv, system string) *loop {
 	l := &loop{rt: rt, spec: spec, sink: sink, env: env, system: system,
 		activated: map[string]bool{}, counts: map[string]int{}}
-	if spec.isMain() {
+	if spec.Top {
 		l.total = env.Total
 	} else {
 		l.total = &usageAcc{}
@@ -243,7 +247,7 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			}
 			return callOutcome{paused: true}, nil
 		default:
-			res = l.exec(ctx, tool, args)
+			res = l.exec(ctx, tool, args, info.ID)
 			if err := ctx.Err(); err != nil {
 				return callOutcome{}, err // cancelled mid-call: leave it to be marked interrupted
 			}
@@ -277,10 +281,13 @@ func toolText(r mcp.Result) string {
 func errResult(msg string) mcp.Result { return mcp.Result{Content: msg, IsError: true} }
 
 // exec runs a tool through the one tool path and records remote calls.
-func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage) mcp.Result {
+func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, callID string) mcp.Result {
 	ctx = withCall(ctx, &callCtx{spec: l.spec, env: l.env, loop: l})
 	start := time.Now()
-	res, err := l.rt.MCP.Call(ctx, tool.FullName(), args)
+	res, err := l.rt.MCP.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
+		Session: l.env.SessionUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
+		Actor: l.env.Actor, Scope: l.env.Scope, Vars: l.env.Vars,
+	})
 	if err != nil {
 		res = errResult(err.Error())
 	}
