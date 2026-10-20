@@ -63,10 +63,15 @@ func (s *Store) Enqueue(ctx context.Context, q DBTX, j NewJob) (bool, error) {
 	return true, err
 }
 
-// PendingTurnJob reports whether a run_turn job for the session is queued or running.
-func (s *Store) PendingTurnJob(ctx context.Context, q DBTX, session int64) (bool, error) {
+// PendingTurnJob reports whether a run_turn job for the session is in one of
+// the given states.
+func (s *Store) PendingTurnJob(ctx context.Context, q DBTX, session int64, states ...types.JobState) (bool, error) {
+	ss := make([]string, len(states))
+	for i, st := range states {
+		ss[i] = string(st)
+	}
 	var ok bool
-	err := q.QueryRow(ctx, s.q("PendingTurnJob"), pgx.NamedArgs{"key": SessionKey(session)}).Scan(&ok)
+	err := q.QueryRow(ctx, s.q("PendingTurnJob"), pgx.NamedArgs{"key": SessionKey(session), "states": ss}).Scan(&ok)
 	return ok, err
 }
 

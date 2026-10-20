@@ -1,0 +1,79 @@
+package provider_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/provider/fakeprov"
+)
+
+func TestChatStreamingToolCallsAndUsage(t *testing.T) {
+	f := fakeprov.New(t, fakeprov.Step{
+		Content: "hello world", Reasoning: "thinking",
+		Calls:  []fakeprov.Call{{ID: "c1", Name: "files__read", Args: `{"path":"/a"}`}},
+		Prompt: 42, Output: 7,
+	})
+	c := provider.New("p", f.URL1(), "key", time.Second)
+	var text, reasoning strings.Builder
+	var recs []provider.Record
+	resp, err := c.Chat(context.Background(), provider.Request{Model: "m", Messages: []provider.Message{{Role: "user", Content: "hi"}}}, provider.Opts{
+		OnText: func(s string) { text.WriteString(s) }, OnReasoning: func(s string) { reasoning.WriteString(s) },
+		Record: func(r provider.Record) int64 { recs = append(recs, r); return 9 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "hello world" || text.String() != "hello world" || reasoning.String() != "thinking" {
+		t.Fatalf("content %q %q %q", resp.Content, text.String(), reasoning.String())
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Arguments != `{"path":"/a"}` || resp.ToolCalls[0].ID != "c1" {
+		t.Fatalf("calls %+v", resp.ToolCalls)
+	}
+	if resp.PromptTokens != 42 || resp.Usage.Output != 7 || resp.RequestID != 9 {
+		t.Fatalf("usage %+v", resp)
+	}
+	if len(recs) != 1 || strings.Contains(string(recs[0].Request), "key") {
+		t.Fatalf("records %+v", recs)
+	}
+}
+
+func TestChatNonStreamAndRetry(t *testing.T) {
+	f := fakeprov.New(t,
+		fakeprov.Step{Status: 503},
+		fakeprov.Step{Status: 429},
+		fakeprov.Step{NoStream: true, Content: "finally"},
+	)
+	c := provider.New("p", f.URL1(), "", time.Second)
+	var attempts []int
+	resp, err := c.Chat(context.Background(), provider.Request{Model: "m"}, provider.Opts{
+		MaxAttempts: 3, Backoff: time.Millisecond,
+		Record: func(r provider.Record) int64 { attempts = append(attempts, r.Attempt); return 1 },
+	})
+	if err != nil || resp.Content != "finally" {
+		t.Fatalf("%v %+v", err, resp)
+	}
+	if len(attempts) != 3 {
+		t.Fatalf("each attempt must be recorded, got %v", attempts)
+	}
+}
+
+func TestChatClientErrorDoesNotRetry(t *testing.T) {
+	f := fakeprov.New(t, fakeprov.Step{Status: 400}, fakeprov.Step{Content: "never"})
+	c := provider.New("p", f.URL1(), "", time.Second)
+	_, err := c.Chat(context.Background(), provider.Request{Model: "m"}, provider.Opts{MaxAttempts: 3, Backoff: time.Millisecond})
+	if err == nil || len(f.Reqs()) != 1 {
+		t.Fatalf("err=%v requests=%d", err, len(f.Reqs()))
+	}
+}
+
+func TestEmbed(t *testing.T) {
+	f := fakeprov.New(t)
+	c := provider.New("p", f.URL1(), "", time.Second)
+	v, err := c.Embed(context.Background(), "e", []string{"a b", "c"}, nil)
+	if err != nil || len(v) != 2 || len(v[0]) != 3 {
+		t.Fatalf("%v %v", v, err)
+	}
+}

@@ -31,3 +31,16 @@ func (s *Store) AddSessionUsage(ctx context.Context, q DBTX, session int64, in, 
 		pgx.NamedArgs{"id": session, "input": in, "output": out, "cached": cached})
 	return err
 }
+
+func (s *Store) SessionByID(ctx context.Context, id int64) (SessionRow, error) {
+	return one[SessionRow](s.Pool.Query(ctx, s.q("SelectSessionByID"), pgx.NamedArgs{"id": id}))
+}
+
+// OpenTurns returns ids of turns that are not in a terminal state, oldest first.
+func (s *Store) OpenTurns(ctx context.Context, q DBTX, session int64, limit int) ([]int64, error) {
+	rows, err := q.Query(ctx, s.q("OpenTurns"), pgx.NamedArgs{"session": session, "limit": limit})
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}
