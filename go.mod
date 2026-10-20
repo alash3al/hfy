@@ -4,8 +4,10 @@ go 1.27.3
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/labstack/echo/v5 v5.4.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.29.0
+	github.com/urfave/cli/v3 v3.14.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
