@@ -212,15 +212,9 @@ func (s *turnSink) NeedsApproval(full string) bool {
 	return false
 }
 
-// RequestApproval records the request and pauses the turn; no worker waits.
+// RequestApproval pauses the turn; no worker waits.
 func (s *turnSink) RequestApproval(ctx context.Context, c CallInfo) error {
-	if err := s.append(ctx, types.ApprovalRequested{CallID: c.ID}, nil); err != nil {
-		return err
-	}
-	if err := s.append(ctx, types.TurnStateEvent{State: types.StateAwaitingApproval}, nil); err != nil {
-		return err
-	}
-	return s.rt.Svc.ScheduleApprovalTimeout(ctx, s.env.TurnID, c.ID)
+	return s.rt.Svc.RequestApproval(ctx, s.env.SessionID, s.env.TurnID, c.ID)
 }
 
 func (s *turnSink) Record(kind types.OutboundKind) func(provider.Record) int64 {

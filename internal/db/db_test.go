@@ -81,7 +81,7 @@ func TestJobsClaimAndConcurrency(t *testing.T) {
 	if j3, _ := s.ClaimJob(ctx, "turns", time.Minute); j3 != nil {
 		t.Fatalf("claim 3 should find nothing, got %+v", j3)
 	}
-	s.CompleteJob(ctx, j1.ID)
+	s.CompleteJob(ctx, j1.ID, j1.Attempts)
 	if j3, _ := s.ClaimJob(ctx, "turns", time.Minute); j3 == nil {
 		t.Fatal("after completion the next session:1 job must be claimable")
 	}
@@ -101,7 +101,7 @@ func TestReapAndRetry(t *testing.T) {
 	if j == nil || j.Attempts != 2 {
 		t.Fatalf("second claim: %+v", j)
 	}
-	st, _ := s.RetryJob(ctx, j.ID, 0, "boom")
+	st, _ := s.RetryJob(ctx, j.ID, j.Attempts, 0, "boom")
 	if st != types.JobFailed {
 		t.Fatalf("exhausted job must fail, got %s", st)
 	}
@@ -169,5 +169,45 @@ func TestEmbeddingsSearch(t *testing.T) {
 	}
 	if hits, _ := s.SearchEmbeddings(ctx, "other", []float32{1, 0, 0}, 5); len(hits) != 0 {
 		t.Fatal("scope filter leaked")
+	}
+}
+
+// A worker whose lease expired must not complete, retry or extend the job once
+// another worker has claimed it again: the attempt number fences it out.
+func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
+	s := dbtest.New(t, nil)
+	ctx := context.Background()
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 1, Key: "session:1", MaxAttempts: 5})
+	stale, _ := s.ClaimJob(ctx, "turns", 50*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	if _, err := s.ReapJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := s.ClaimJob(ctx, "turns", time.Minute)
+	if fresh == nil || fresh.Attempts != 2 {
+		t.Fatalf("reclaim: %+v", fresh)
+	}
+
+	if ok, err := s.HeartbeatJob(ctx, stale.ID, stale.Attempts, time.Hour); err != nil || ok {
+		t.Fatalf("stale heartbeat must report the lease lost: ok=%v err=%v", ok, err)
+	}
+	if err := s.CompleteJob(ctx, stale.ID, stale.Attempts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RetryJob(ctx, stale.ID, stale.Attempts, 0, "late failure"); err != nil && !db.IsNotFound(err) {
+		t.Fatal(err)
+	}
+	var state string
+	s.Pool.QueryRow(ctx, "SELECT state FROM jobs WHERE id = $1", stale.ID).Scan(&state)
+	if state != string(types.JobRunning) {
+		t.Fatalf("the stale worker changed the reclaimed job to %q", state)
+	}
+	// The session's next job must still be blocked behind the running one.
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 2, Key: "session:1"})
+	if j, _ := s.ClaimJob(ctx, "turns", time.Minute); j != nil {
+		t.Fatalf("two jobs of one session running at once: %+v", j)
+	}
+	if ok, _ := s.HeartbeatJob(ctx, fresh.ID, fresh.Attempts, time.Minute); !ok {
+		t.Fatal("the current owner's heartbeat must succeed")
 	}
 }

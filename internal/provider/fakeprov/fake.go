@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Step is one scripted chat answer.
@@ -22,6 +23,8 @@ type Step struct {
 	Output    int64 // default 5
 	NoStream  bool  // answer with a plain JSON body
 	Delay     chan struct{}
+	// ChunkDelay is slept before every streamed chunk (a slow generation).
+	ChunkDelay time.Duration
 }
 
 type Call struct {
@@ -121,6 +124,7 @@ func (f *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	fl := w.(http.Flusher)
 	send := func(delta map[string]any, finish any) {
+		time.Sleep(step.ChunkDelay)
 		b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}})
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		fl.Flush()

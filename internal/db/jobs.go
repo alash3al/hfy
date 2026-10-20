@@ -96,23 +96,38 @@ func (s *Store) ClaimJob(ctx context.Context, queue string, lease time.Duration)
 	return &j, nil
 }
 
-func (s *Store) HeartbeatJob(ctx context.Context, id int64, lease time.Duration) error {
-	_, err := s.Pool.Exec(ctx, s.q("HeartbeatJob"), pgx.NamedArgs{"id": id, "lease": interval(lease)})
-	return err
+// The attempt number fences a job's owner: each claim increments it, so a
+// worker whose lease expired and whose job was claimed again can no longer
+// extend, complete, retry or release it.
+
+// HeartbeatJob extends the lease. It returns false when the caller no longer
+// owns the job (its lease expired and the job was reaped or claimed again).
+func (s *Store) HeartbeatJob(ctx context.Context, id int64, attempt int, lease time.Duration) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, s.q("HeartbeatJob"), pgx.NamedArgs{"id": id, "attempt": attempt, "lease": interval(lease)})
+	return tag.RowsAffected() == 1, err
 }
 
-func (s *Store) CompleteJob(ctx context.Context, id int64) error {
-	_, err := s.Pool.Exec(ctx, s.q("CompleteJob"), pgx.NamedArgs{"id": id})
+func (s *Store) CompleteJob(ctx context.Context, id int64, attempt int) error {
+	_, err := s.Pool.Exec(ctx, s.q("CompleteJob"), pgx.NamedArgs{"id": id, "attempt": attempt})
 	return err
 }
 
 // RetryJob re-queues a failed job after delay, or marks it failed when attempts
-// are exhausted. It returns the new state.
-func (s *Store) RetryJob(ctx context.Context, id int64, delay time.Duration, errText string) (types.JobState, error) {
+// are exhausted. It returns the new state, or a not-found error when the
+// caller no longer owns the job.
+func (s *Store) RetryJob(ctx context.Context, id int64, attempt int, delay time.Duration, errText string) (types.JobState, error) {
 	var st string
 	err := s.Pool.QueryRow(ctx, s.q("RetryJob"),
-		pgx.NamedArgs{"id": id, "delay": interval(delay), "error": errText}).Scan(&st)
+		pgx.NamedArgs{"id": id, "attempt": attempt, "delay": interval(delay), "error": errText}).Scan(&st)
 	return types.JobState(st), err
+}
+
+// ReleaseJob hands a job interrupted by shutdown back to the queue at once,
+// instead of waiting for its lease to expire. A job on its last attempt is
+// left to the reaper, which fails it.
+func (s *Store) ReleaseJob(ctx context.Context, id int64, attempt int) error {
+	_, err := s.Pool.Exec(ctx, s.q("ReleaseJob"), pgx.NamedArgs{"id": id, "attempt": attempt})
+	return err
 }
 
 // ReapJobs requeues running jobs whose lease expired (failing those out of

@@ -121,15 +121,21 @@ Render text by appending `text.delta` under its turn; the durable
   A turn paused for approval keeps the session blocked.
 - **Crash recovery.** An expired lease re-runs the turn from its events. A tool
   call in flight when a worker died is never re-run: it gets
-  `tool_call.interrupted` and the model is told.
+  `tool_call.interrupted` and the model is told. A worker that lost its lease
+  (stalled, then reaped) is cancelled at its next heartbeat and can no longer
+  complete or retry the job. Graceful shutdown hands running jobs straight back.
 - **Loop rules.** Tool errors, invalid arguments and unknown tools come back to
   the model as error results (an unknown tool lists the valid names). The same
   call a third time is refused with advice; a sixth ends the turn. Model calls
-  retry on 429, 5xx and network errors up to `queue.max_attempts`. `limits`
+  retry on 429, 5xx and network errors up to `queue.max_attempts`. A provider's
+  `timeout` is the longest silence allowed (before the answer starts, then
+  between streamed chunks), so long answers are never cut off. `limits`
   (`steps`, `total_tokens`, `timeout`) end the turn when hit.
 - **Approvals.** Calls matching `agent.approval.tools` (`<server>.<tool>`
   patterns, `harness.*` works) pause the turn; nothing waits in a worker. After
-  `approval.timeout` the call is rejected.
+  `approval.timeout` the call is rejected. Approval covers the main agent's
+  calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
+  can reach a guarded tool, guard the sub-agent itself (`harness.<name>`).
 - **Sub-agents** are tools (`harness__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn.
 - **Memory.** The summarizer appends a `summary` event when the prompt reaches

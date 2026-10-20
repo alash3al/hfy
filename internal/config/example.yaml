@@ -20,7 +20,7 @@ storage:                             # sessions, events, jobs, trace, vectors (p
 # retention:                         # optional; default shown
 #   trace: 30d                       # ephemeral events + outbound_requests
 
-providers:                           # OpenAI-compatible: URL + key + request timeout
+providers:                           # OpenAI-compatible: URL + key + idle timeout
   local:
     url: http://localhost:11434/v1
     timeout: 60s

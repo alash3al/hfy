@@ -477,3 +477,35 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 		t.Fatalf("later turns get a placeholder, got %v", first)
 	}
 }
+
+// A stop that commits while the model is answering (its NOTIFY not yet
+// delivered) must still win over an approval pause that follows.
+func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
+	block := make(chan struct{})
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Queue.Workers = 0
+		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
+	}, fakeprov.Step{Delay: block, Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a"}`}}})
+	turn := e.post("go")
+	done := make(chan error, 1)
+	go func() { done <- e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}) }()
+	e.waitState(turn, types.StateRunning)
+	time.Sleep(200 * time.Millisecond) // the model call is in flight
+
+	// What Stop commits, minus the notification, which has not arrived yet.
+	row, _ := e.store.EventByID(e.ctx, turn)
+	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: e.user,
+		Scope: row.Scope, Payload: types.TurnCancelRequested{}})
+	close(block)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if e.state(turn) != types.StateStopped {
+		t.Fatalf("state: %s\n%s", e.state(turn), e.dump(turn))
+	}
+	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
+	if s.ActiveTurnID != nil {
+		t.Fatal("active turn must be cleared")
+	}
+}

@@ -5,6 +5,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -112,30 +113,39 @@ func (w *Worker) claim(ctx context.Context) *db.JobRow {
 	return nil
 }
 
+// errLeaseLost cancels a handler whose job was reaped and may run elsewhere.
+var errLeaseLost = errors.New("job lease lost")
+
 func (w *Worker) run(parent context.Context, job db.JobRow) {
 	h, ok := w.handlers[job.Type]
 	if !ok {
 		w.fail(parent, job, fmt.Errorf("no handler for job type %q", job.Type))
 		return
 	}
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
 	done := make(chan struct{})
-	go w.heartbeat(ctx, job.ID, done)
+	go w.heartbeat(ctx, job, cancel, done)
 
 	err := safely(func() error { return h(ctx, job) })
 	close(done)
 
-	// Shutdown mid-job: leave it running; the lease expires and the reaper requeues it.
-	if err != nil && parent.Err() != nil {
-		return
-	}
 	wctx := context.WithoutCancel(parent)
-	if err != nil {
+	switch {
+	case err != nil && parent.Err() != nil:
+		// Shutdown mid-job: hand it back now rather than when its lease expires.
+		if rerr := w.store.ReleaseJob(wctx, job.ID, job.Attempts); rerr != nil {
+			slog.Error("release job", "job", job.ID, "err", rerr)
+		}
+		return
+	case errors.Is(context.Cause(ctx), errLeaseLost):
+		slog.Warn("job lease lost; its new owner finishes it", "job", job.ID, "type", job.Type)
+		return
+	case err != nil:
 		w.fail(wctx, job, err)
 		return
 	}
-	if err := w.store.CompleteJob(wctx, job.ID); err != nil {
+	if err := w.store.CompleteJob(wctx, job.ID, job.Attempts); err != nil {
 		slog.Error("complete job", "job", job.ID, "err", err)
 	}
 	w.Wake() // the same session may have a queued job behind this one
@@ -145,7 +155,10 @@ func (w *Worker) fail(ctx context.Context, job db.JobRow, err error) {
 	ctx = context.WithoutCancel(ctx)
 	slog.Error("job failed", "job", job.ID, "type", job.Type, "attempt", job.Attempts, "err", err)
 	delay := min(time.Duration(job.Attempts*job.Attempts)*2*time.Second, time.Minute)
-	state, rerr := w.store.RetryJob(ctx, job.ID, delay, err.Error())
+	state, rerr := w.store.RetryJob(ctx, job.ID, job.Attempts, delay, err.Error())
+	if db.IsNotFound(rerr) {
+		return // reaped meanwhile: no longer ours to retry
+	}
 	if rerr != nil {
 		slog.Error("retry job", "job", job.ID, "err", rerr)
 		return
@@ -161,7 +174,9 @@ func (w *Worker) runExhausted(ctx context.Context, job db.JobRow, err error) {
 	}
 }
 
-func (w *Worker) heartbeat(ctx context.Context, id int64, done <-chan struct{}) {
+// heartbeat extends the lease every lease/3 and cancels the handler if the
+// job is no longer ours.
+func (w *Worker) heartbeat(ctx context.Context, job db.JobRow, cancel context.CancelCauseFunc, done <-chan struct{}) {
 	t := time.NewTicker(w.lease / 3)
 	defer t.Stop()
 	for {
@@ -171,8 +186,13 @@ func (w *Worker) heartbeat(ctx context.Context, id int64, done <-chan struct{}) 
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := w.store.HeartbeatJob(context.WithoutCancel(ctx), id, w.lease); err != nil {
-				slog.Warn("heartbeat", "job", id, "err", err)
+			ok, err := w.store.HeartbeatJob(context.WithoutCancel(ctx), job.ID, job.Attempts, w.lease)
+			switch {
+			case err != nil:
+				slog.Warn("heartbeat", "job", job.ID, "err", err)
+			case !ok:
+				cancel(errLeaseLost)
+				return
 			}
 		}
 	}

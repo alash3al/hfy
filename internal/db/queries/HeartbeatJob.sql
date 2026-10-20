@@ -1,1 +1,2 @@
-UPDATE jobs SET lease_until = now() + @lease::interval WHERE id = @id AND state = 'running'
+UPDATE jobs SET lease_until = now() + @lease::interval
+WHERE id = @id AND state = 'running' AND attempts = @attempt

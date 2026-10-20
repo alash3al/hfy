@@ -1,8 +1,9 @@
 // Package hfy is a simple harness as a service: one agent, served over HTTP,
 // durable on Postgres. It can run as the hfy binary or be embedded:
 //
-//	cfg, _ := config.Load("harness.yaml")   // internal/config via the CLI
-//	hfy.New(cfg).Run(ctx)
+//	cfg, err := hfy.LoadConfig("harness.yaml")
+//	if err != nil { ... }
+//	err = hfy.New(cfg).Run(ctx)
 package hfy
 
 import (

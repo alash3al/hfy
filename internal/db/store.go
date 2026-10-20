@@ -64,7 +64,7 @@ var queryNames = []string{
 	"SetActiveTurn", "SetSummary", "AddSessionUsage", "InsertEvent", "SelectEventByID",
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
-	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReapJobs",
+	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs",
 	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
 }

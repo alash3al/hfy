@@ -24,67 +24,6 @@ func wireJoin(server, tool string) string {
 	return mcp.WireName(mcp.Tool{Server: server, Name: tool})
 }
 
-// turnView is what a run needs to know about the events already in a turn.
-type turnView struct {
-	state     types.TurnState
-	cancelled bool
-	calls     []types.ToolCall
-	done      map[string]bool // call ids with a result or an interrupted marker
-	requested map[string]bool
-	decided   map[string]types.ApprovalDecided
-}
-
-func viewOf(events []db.EventRow) turnView {
-	v := turnView{done: map[string]bool{}, requested: map[string]bool{}, decided: map[string]types.ApprovalDecided{}}
-	for _, e := range events {
-		switch e.Type {
-		case types.EventTurnState:
-			var s types.TurnStateEvent
-			if json.Unmarshal(e.Data, &s) == nil {
-				v.state = s.State
-			}
-		case types.EventTurnCancelRequested:
-			v.cancelled = true
-		case types.EventToolCall:
-			var c types.ToolCall
-			if json.Unmarshal(e.Data, &c) == nil {
-				v.calls = append(v.calls, c)
-			}
-		case types.EventToolResult:
-			var r types.ToolResult
-			if json.Unmarshal(e.Data, &r) == nil {
-				v.done[r.CallID] = true
-			}
-		case types.EventToolCallInterrupted:
-			var r types.ToolCallInterrupted
-			if json.Unmarshal(e.Data, &r) == nil {
-				v.done[r.CallID] = true
-			}
-		case types.EventApprovalRequested:
-			var a types.ApprovalRequested
-			if json.Unmarshal(e.Data, &a) == nil {
-				v.requested[a.CallID] = true
-			}
-		case types.EventApprovalDecided:
-			var a types.ApprovalDecided
-			if json.Unmarshal(e.Data, &a) == nil {
-				v.decided[a.CallID] = a
-			}
-		}
-	}
-	return v
-}
-
-// resumable reports whether a paused turn has a decision waiting to be applied.
-func (v turnView) resumable() bool {
-	for _, c := range v.calls {
-		if _, ok := v.decided[c.CallID]; ok && !v.done[c.CallID] {
-			return true
-		}
-	}
-	return false
-}
-
 // RunTurn is the run_turn job: start (or resume) a turn and run the agent loop.
 func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.JobRow) error {
 	turn, err := rt.Store.EventByID(ctx, p.TurnEventID)
@@ -108,8 +47,8 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	view := viewOf(events)
-	if view.state.Terminal() || (view.state == types.StateAwaitingApproval && !view.resumable()) {
+	view := svc.ViewOf(events)
+	if view.State.Terminal() || (view.State == types.StateAwaitingApproval && !view.Resumable()) {
 		return nil
 	}
 	ok, err := rt.Svc.StartTurn(ctx, turn.SessionID, turn.ID)
@@ -119,10 +58,10 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if events, err = rt.Store.TurnEvents(ctx, rt.Store.Pool, turn.ID); err != nil {
 		return err
 	}
-	view = viewOf(events)
+	view = svc.ViewOf(events)
 
 	fresh := context.WithoutCancel(ctx)
-	if view.cancelled {
+	if view.Cancelled {
 		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 	}
 	if d := rt.Main.Limits.Timeout.D(); d > 0 {
@@ -169,7 +108,7 @@ func (rt *Runtime) finish(parent, tctx context.Context, sink *turnSink, turn db.
 		switch {
 		case parent.Err() != nil:
 			return runErr // shutting down: the lease expires and the turn resumes elsewhere
-		case errors.Is(cause, errStopped):
+		case errors.Is(cause, errStopped), errors.Is(runErr, svc.ErrStopRequested):
 			sink.FlushPartial(fresh)
 			rt.markInterrupted(fresh, sink, turn.ID)
 			return end(types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
@@ -193,13 +132,13 @@ func (rt *Runtime) finish(parent, tctx context.Context, sink *turnSink, turn db.
 // right before they run, so a call without a result was either in flight when a
 // worker died (never re-run blindly: it is marked interrupted) or is waiting on
 // an approval decision.
-func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink, v turnView, attempts int) error {
-	for _, c := range v.calls {
-		if v.done[c.CallID] {
+func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink, v svc.TurnView, attempts int) error {
+	for _, c := range v.Calls {
+		if v.Done[c.CallID] {
 			continue
 		}
 		info := CallInfo{ID: c.CallID, Name: c.Name, Args: c.Arguments}
-		d, decided := v.decided[c.CallID]
+		d, decided := v.Decided[c.CallID]
 		switch {
 		case decided && !d.Approve:
 			text := d.Result
@@ -224,7 +163,7 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 			if err := sink.CallFinished(ctx, info, res); err != nil {
 				return err
 			}
-		case v.requested[c.CallID] && !decided:
+		case v.Requested[c.CallID] && !decided:
 			continue
 		default:
 			if err := sink.append(ctx, types.ToolCallInterrupted{CallID: c.CallID}, nil); err != nil {
@@ -252,9 +191,9 @@ func (rt *Runtime) markInterrupted(ctx context.Context, sink *turnSink, turnID i
 		slog.Error("mark interrupted", "turn", turnID, "err", err)
 		return
 	}
-	v := viewOf(events)
-	for _, c := range v.calls {
-		if !v.done[c.CallID] {
+	v := svc.ViewOf(events)
+	for _, c := range v.Calls {
+		if !v.Done[c.CallID] {
 			sink.append(ctx, types.ToolCallInterrupted{CallID: c.CallID}, nil)
 		}
 	}

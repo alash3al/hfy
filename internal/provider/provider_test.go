@@ -77,3 +77,25 @@ func TestEmbed(t *testing.T) {
 		t.Fatalf("%v %v", v, err)
 	}
 }
+
+// The timeout bounds silence, not the whole answer: a long generation that
+// keeps streaming must not be cut off and retried.
+func TestChatTimeoutIsIdleNotTotal(t *testing.T) {
+	f := fakeprov.New(t, fakeprov.Step{Content: "a slow but steady answer", ChunkDelay: 150 * time.Millisecond})
+	c := provider.New("p", f.URL1(), "", 400*time.Millisecond)
+	resp, err := c.Chat(context.Background(), provider.Request{Model: "m"}, provider.Opts{MaxAttempts: 1})
+	if err != nil || resp.Content != "a slow but steady answer" {
+		t.Fatalf("%v %+v", err, resp)
+	}
+
+	stall := make(chan struct{})
+	t.Cleanup(func() { close(stall) })
+	f.Push(fakeprov.Step{Delay: stall})
+	start := time.Now()
+	if _, err := c.Chat(context.Background(), provider.Request{Model: "m"}, provider.Opts{MaxAttempts: 1}); err == nil {
+		t.Fatal("a silent provider must time out")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("timeout took %s", d)
+	}
+}

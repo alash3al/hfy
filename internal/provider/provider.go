@@ -23,7 +23,7 @@ type Client struct {
 	Name    string
 	BaseURL string
 	APIKey  string
-	Timeout time.Duration // per model request
+	Timeout time.Duration // longest silence: until the response starts, then between chunks
 	HTTP    *http.Client
 }
 
@@ -145,11 +145,38 @@ func (c *Client) Chat(ctx context.Context, req Request, o Opts) (*Response, erro
 	return nil, fmt.Errorf("after %d attempts: %w", attempts, lastErr)
 }
 
-func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts) (*Response, error) {
+// errIdle ends a request whose provider went silent for longer than Timeout.
+var errIdle = errors.New("provider idle timeout")
+
+// idleReader re-arms the idle timer whenever data arrives.
+type idleReader struct {
+	r io.Reader
+	t *time.Timer
+	d time.Duration
+}
+
+func (r idleReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.t.Reset(r.d)
+	}
+	return n, err
+}
+
+func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts) (_ *Response, err error) {
+	// The timeout bounds silence, not length: a long answer that keeps
+	// streaming is never cut off.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var idle *time.Timer
 	if c.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.Timeout)
-		defer cancel()
+		idle = time.AfterFunc(c.Timeout, func() { cancel(errIdle) })
+		defer idle.Stop()
+		defer func() {
+			if err != nil && errors.Is(context.Cause(ctx), errIdle) {
+				err = fmt.Errorf("no data from the provider for %s: %w", c.Timeout, err)
+			}
+		}()
 	}
 	url := c.BaseURL + "/chat/completions"
 	start := time.Now()
@@ -179,17 +206,21 @@ func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts)
 		return finish(nil, nil, err)
 	}
 	defer httpResp.Body.Close()
+	var stream io.Reader = httpResp.Body
+	if idle != nil {
+		stream = idleReader{r: httpResp.Body, t: idle, d: c.Timeout}
+	}
 	rec.Status = httpResp.StatusCode
 	if httpResp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(io.LimitReader(httpResp.Body, 8<<10))
+		b, _ := io.ReadAll(io.LimitReader(stream, 8<<10))
 		return finish(nil, nil, &APIError{Status: httpResp.StatusCode, Body: strings.TrimSpace(string(b))})
 	}
 
 	var resp *Response
 	if strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream") {
-		resp, err = readStream(httpResp.Body, o)
+		resp, err = readStream(stream, o)
 	} else {
-		resp, err = readJSON(httpResp.Body, o)
+		resp, err = readJSON(stream, o)
 	}
 	if err != nil {
 		return finish(nil, nil, err)

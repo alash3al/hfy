@@ -3,5 +3,5 @@ SET state = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
     run_at = now() + @delay::interval,
     lease_until = NULL,
     last_error = @error
-WHERE id = @id
+WHERE id = @id AND state = 'running' AND attempts = @attempt
 RETURNING state

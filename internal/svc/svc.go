@@ -5,7 +5,6 @@ package svc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 	"uuid"
@@ -20,6 +19,8 @@ import (
 var (
 	ErrNoActiveTurn      = errors.New("no active turn")
 	ErrNoPendingApproval = errors.New("no pending approval for that call")
+	// ErrStopRequested: a stop arrived before the turn could pause.
+	ErrStopRequested = errors.New("stop requested")
 )
 
 type RunTurnPayload struct {
@@ -112,10 +113,16 @@ type EmbedPayload struct {
 
 // EnqueueEmbed schedules embed_events for the given events (none = backfill),
 // in the caller's transaction, so it can never miss what that transaction wrote.
+// Targeted jobs run in parallel (the upsert is idempotent); backfills, which
+// every booting process enqueues, run one at a time.
 func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX, eventIDs ...int64) error {
+	key := ""
+	if len(eventIDs) == 0 {
+		key = "embed_backfill"
+	}
 	_, err := s.Store.Enqueue(ctx, q, db.NewJob{
 		Type: types.JobEmbedEvents, Queue: types.QueueEmbeddings, Payload: EmbedPayload{EventIDs: eventIDs},
-		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: "embed_events",
+		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: key,
 	})
 	return err
 }
@@ -320,23 +327,8 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, sessionID, actor int64,
 	if err != nil {
 		return err
 	}
-	requested, decided := false, false
-	for _, e := range events {
-		var p struct {
-			CallID string `json:"call_id"`
-		}
-		switch e.Type {
-		case types.EventApprovalRequested, types.EventApprovalDecided:
-			if json.Unmarshal(e.Data, &p) == nil && p.CallID == d.CallID {
-				if e.Type == types.EventApprovalRequested {
-					requested = true
-				} else {
-					decided = true
-				}
-			}
-		}
-	}
-	if !requested || decided {
+	v := ViewOf(events)
+	if _, decided := v.Decided[d.CallID]; !v.Requested[d.CallID] || decided {
 		return ErrNoPendingApproval
 	}
 	turn, err := s.Store.EventByID(ctx, turnID)
@@ -350,16 +342,40 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, sessionID, actor int64,
 	return s.enqueueRun(ctx, tx, sessionID, turnID)
 }
 
-// ScheduleApprovalTimeout enqueues the job that rejects an undecided call.
-func (s *Service) ScheduleApprovalTimeout(ctx context.Context, turnID int64, callID string) error {
-	if s.Cfg.Agent.Approval == nil {
-		return nil
+// RequestApproval pauses the running turn on a tool call. The request, the
+// awaiting_approval state and the timeout job commit together under the
+// session lock, so a stop that committed first wins (ErrStopRequested) and a
+// crash cannot leave a pause without its timeout.
+func (s *Service) RequestApproval(ctx context.Context, sessionID, turnID int64, callID string) error {
+	main, err := s.AgentActor(ctx, types.AgentMain)
+	if err != nil {
+		return err
 	}
-	at := time.Now().Add(s.Cfg.Agent.Approval.Timeout.D())
-	_, err := s.Store.Enqueue(ctx, s.Store.Pool, db.NewJob{
-		Type: types.JobApprovalTimeout, Queue: types.QueueTurns,
-		Payload: ApprovalTimeoutPayload{TurnEventID: turnID, CallID: callID}, RunAt: &at,
-		MaxAttempts: s.Cfg.Queue.MaxAttempts,
+	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := s.Store.LockSession(ctx, tx, sessionID); err != nil {
+			return err
+		}
+		events, err := s.Store.TurnEvents(ctx, tx, turnID)
+		if err != nil {
+			return err
+		}
+		if ViewOf(events).Cancelled {
+			return ErrStopRequested
+		}
+		scope := events[0].Scope // the turn event comes first
+		for _, p := range []types.Payload{types.ApprovalRequested{CallID: callID},
+			types.TurnStateEvent{State: types.StateAwaitingApproval}} {
+			if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &turnID,
+				ActorID: main, Scope: scope, Payload: p}); err != nil {
+				return err
+			}
+		}
+		at := time.Now().Add(s.Cfg.Agent.Approval.Timeout.D())
+		_, err = s.Store.Enqueue(ctx, tx, db.NewJob{
+			Type: types.JobApprovalTimeout, Queue: types.QueueTurns,
+			Payload: ApprovalTimeoutPayload{TurnEventID: turnID, CallID: callID}, RunAt: &at,
+			MaxAttempts: s.Cfg.Queue.MaxAttempts,
+		})
+		return err
 	})
-	return err
 }
