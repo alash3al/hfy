@@ -13,6 +13,7 @@ import (
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -140,46 +141,55 @@ func (s *Service) appendTo(ctx context.Context, tx pgx.Tx, turn db.EventRow, act
 // session, clears the active pointer and chains to the next queued turn.
 // It is idempotent: a turn that already ended is left alone.
 func (s *Service) EndTurn(ctx context.Context, sessionID, turnID int64, st types.TurnStateEvent) error {
-	return s.Store.Tx(ctx, func(tx pgx.Tx) error { return s.endTurnTx(ctx, tx, sessionID, turnID, st) })
+	var ended bool
+	err := s.Store.Tx(ctx, func(tx pgx.Tx) (err error) {
+		ended, err = s.endTurnTx(ctx, tx, sessionID, turnID, st)
+		return err
+	})
+	if err == nil && ended {
+		metrics.Turns.WithLabelValues(string(st.State)).Inc()
+	}
+	return err
 }
 
-func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID int64, st types.TurnStateEvent) error {
+// endTurnTx reports whether it ended the turn (false: it had already ended).
+func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID int64, st types.TurnStateEvent) (bool, error) {
 	sess, err := s.Store.LockSession(ctx, tx, sessionID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if cur, err := s.Store.TurnStateOf(ctx, tx, turnID); err != nil {
-		return err
+		return false, err
 	} else if cur != nil && cur.State.Terminal() {
-		return nil
+		return false, nil
 	}
 	turn, err := s.Store.EventByID(ctx, tx, turnID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	main, err := s.AgentActor(ctx, types.AgentMain)
 	if err != nil {
-		return err
+		return false, err
 	}
 	usage, _, err := s.Store.TurnUsage(ctx, tx, turnID, main)
 	if err != nil {
-		return err
+		return false, err
 	}
 	st.Usage = &usage
 	if err := s.appendTo(ctx, tx, turn, main, st); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.Store.AddSessionUsage(ctx, tx, sessionID, usage.Input, usage.Output, usage.Cached); err != nil {
-		return err
+		return false, err
 	}
 	if sess.ActiveTurnID != nil && *sess.ActiveTurnID == turnID {
 		if err := s.Store.SetActiveTurn(ctx, tx, sessionID, nil); err != nil {
-			return err
+			return false, err
 		}
 	} else if sess.ActiveTurnID != nil {
-		return nil // another turn is active; it will chain on its own
+		return true, nil // another turn is active; it will chain on its own
 	}
-	return s.chainNext(ctx, tx, sessionID, turnID)
+	return true, s.chainNext(ctx, tx, sessionID, turnID)
 }
 
 // chainNext enqueues run_turn for the oldest queued turn after the one that
@@ -238,7 +248,9 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 	if err != nil {
 		return err
 	}
-	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
+	var ended []types.TurnState // counted once committed
+	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
+		ended = ended[:0]
 		sess, err := s.Store.LockSession(ctx, tx, sessionID)
 		if err != nil {
 			return err
@@ -259,6 +271,7 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 				types.TurnStateEvent{State: types.StateCancelled, Reason: "stop requested"}); err != nil {
 				return err
 			}
+			ended = append(ended, types.StateCancelled)
 		}
 		if err := s.Store.CancelQueuedTurnJobs(ctx, tx, sessionID); err != nil {
 			return err
@@ -278,10 +291,20 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			return err
 		}
 		if st != nil && st.State == types.StateAwaitingApproval { // no worker runs it
-			return s.endTurnTx(ctx, tx, sessionID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+			stopped, err := s.endTurnTx(ctx, tx, sessionID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+			if stopped {
+				ended = append(ended, types.StateStopped)
+			}
+			return err
 		}
 		return s.Store.NotifyCancel(ctx, tx, active.ID)
 	})
+	if err == nil {
+		for _, st := range ended {
+			metrics.Turns.WithLabelValues(string(st)).Inc()
+		}
+	}
+	return err
 }
 
 // Approve records a client's decision on a pending tool call and resumes the turn.

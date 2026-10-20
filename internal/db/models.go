@@ -35,6 +35,7 @@ type EventRow struct {
 	Scope      string          `db:"scope"`
 	Type       types.EventType `db:"type"`
 	Data       json.RawMessage `db:"data"`
+	V          int             `db:"v"` // payload version (see types.register)
 	Ephemeral  bool            `db:"ephemeral"`
 	RequestID  *int64          `db:"request_id"`
 	CreatedAt  time.Time       `db:"created_at"`
@@ -57,6 +58,7 @@ func (e EventRow) Envelope() types.Event {
 		Actor: types.Actor{
 			ID: e.ActorUUID, Type: types.ActorType(e.ActorType), Ref: e.ActorRef,
 		},
+		V:         e.V,
 		Data:      e.Data,
 		CreatedAt: e.CreatedAt,
 	}
@@ -68,6 +70,9 @@ func Decode[T types.Payload](e EventRow) (T, error) {
 	var p T
 	if e.Type != p.EventType() {
 		return p, fmt.Errorf("event %d is %q, not %q", e.ID, e.Type, p.EventType())
+	}
+	if want := types.Version(e.Type); e.V != want {
+		return p, fmt.Errorf("event %d is %s v%d; this hfy reads v%d (written by a newer version?)", e.ID, e.Type, e.V, want)
 	}
 	if err := json.Unmarshal(e.Data, &p); err != nil {
 		return p, fmt.Errorf("decode event %d (%s): %w", e.ID, e.Type, err)

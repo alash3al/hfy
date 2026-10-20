@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -145,6 +146,11 @@ func (c *Client) Chat(ctx context.Context, req Request, o Opts) (*Response, erro
 	return nil, fmt.Errorf("after %d attempts: %w", attempts, lastErr)
 }
 
+func observe(provider, kind string, start time.Time, err error) {
+	metrics.ProviderRequests.WithLabelValues(provider, kind, metrics.Outcome(err != nil)).Inc()
+	metrics.Since(metrics.ProviderDuration.WithLabelValues(provider, kind), start)
+}
+
 // errIdle ends a request whose provider went silent for longer than Timeout.
 var errIdle = errors.New("provider idle timeout")
 
@@ -183,6 +189,7 @@ func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts)
 	rec := Record{URL: url, Request: redactBody(body), Attempt: attempt}
 	finish := func(resp *Response, raw json.RawMessage, err error) (*Response, error) {
 		rec.LatencyMS = int(time.Since(start).Milliseconds())
+		observe(c.Name, "chat", start, err)
 		rec.Response = raw
 		if err != nil {
 			rec.Error = err.Error()
@@ -490,6 +497,7 @@ func (c *Client) Embed(ctx context.Context, model string, inputs []string, rec f
 	record := Record{URL: url, Request: json.RawMessage(body), Attempt: 1}
 	finish := func(raw json.RawMessage, err error) {
 		record.LatencyMS = int(time.Since(start).Milliseconds())
+		observe(c.Name, "embedding", start, err)
 		record.Response = raw
 		if err != nil {
 			record.Error = err.Error()

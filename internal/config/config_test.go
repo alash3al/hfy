@@ -104,3 +104,18 @@ func TestUnits(t *testing.T) {
 		t.Error("garbage must be rejected")
 	}
 }
+
+func TestUnknownKeysAreRejected(t *testing.T) {
+	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\n"
+	for _, c := range []struct{ yaml, want string }{
+		{"agent:\n  model: p/m\n  settings: {context_window: 10}\n  aproval: {tools: [\"files.*\"]}\n", `line 7: unknown key "aproval" in config.agent`},
+		{"agent: {model: p/m, settings: {context_window: 10, temprature: 0.2}}\n", `unknown key "temprature" in config.agent.settings`},
+		{"mcp: {files: {type: local, comand: [x]}}\nagent: {model: p/m, settings: {context_window: 10}}\n", `unknown key "comand" in config.mcp.files`},
+		{"agent: {model: p/m, settings: {context_window: 10}}\nretension: {trace: 1d}\n", `unknown key "retension" in config`},
+	} {
+		_, err := Parse([]byte(base+c.yaml), func(string) (string, bool) { return "", false })
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("want %q, got %v", c.want, err)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"sync"
 	"text/template"
@@ -64,7 +65,7 @@ var queryNames = []string{
 	"SetActiveTurn", "SetSummary", "AddSessionUsage", "InsertEvent", "SelectEventByID",
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
-	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs",
+	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
 	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
 }
@@ -204,6 +205,9 @@ func (s *Store) Migrate(ctx context.Context, cmd string) (string, error) {
 		for _, r := range res {
 			fmt.Fprintf(&out, "applied %s\n", r.Source.Path)
 		}
+		if err == nil {
+			s.warnIfSchemaIsNewer(ctx, p)
+		}
 		return out.String(), err
 	case "down":
 		res, err := p.Down(ctx)
@@ -219,6 +223,21 @@ func (s *Store) Migrate(ctx context.Context, cmd string) (string, error) {
 		return out.String(), err
 	}
 	return "", fmt.Errorf("unknown migrate command %q (up|down|status)", cmd)
+}
+
+// warnIfSchemaIsNewer flags a binary running against a schema migrated by a
+// newer hfy. That is allowed (rolling deploys): migrations must stay
+// compatible with the previous release, adding before removing.
+func (s *Store) warnIfSchemaIsNewer(ctx context.Context, p *goose.Provider) {
+	dbv, err := p.GetDBVersion(ctx)
+	if err != nil {
+		return
+	}
+	srcs := p.ListSources()
+	if known := srcs[len(srcs)-1].Version; dbv > known {
+		slog.Warn("database schema is newer than this hfy; running in compatibility mode",
+			"schema", dbv, "known", known)
+	}
 }
 
 // The boot lock uses the two-int advisory keyspace; per-session append locks use

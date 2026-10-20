@@ -111,6 +111,7 @@ type Event struct {
 	Type      EventType       `json:"type"`
 	Parent    *uuid.UUID      `json:"parent"`
 	Actor     Actor           `json:"actor"`
+	V         int             `json:"v"` // version of data's shape for this type
 	Data      json.RawMessage `json:"data"`
 	CreatedAt time.Time       `json:"created_at"`
 }

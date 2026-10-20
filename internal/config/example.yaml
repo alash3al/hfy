@@ -12,6 +12,9 @@ server:
 storage:                             # sessions, events, jobs, trace, vectors (pgvector 0.8.0+)
   url: ${DATABASE_URL}
 
+# metrics:                           # optional; omit = off. Every process (serve and
+#   listen: "127.0.0.1:9090"         # queue:work) serves /metrics, /healthz, /readyz here
+
 # queue:                             # optional; defaults shown
 #   workers: 4
 #   lease: 30s

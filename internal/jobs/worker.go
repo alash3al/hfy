@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -98,8 +99,12 @@ func (w *Worker) loop(ctx context.Context) {
 
 // claim tries the queues in priority order and returns the first job found.
 func (w *Worker) claim(ctx context.Context) *db.JobRow {
+	handled := make([]types.JobType, 0, len(w.handlers))
+	for t := range w.handlers {
+		handled = append(handled, t)
+	}
 	for _, q := range w.queues {
-		job, err := w.store.ClaimJob(ctx, q, w.lease)
+		job, err := w.store.ClaimJob(ctx, q, handled, w.lease)
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.Error("claim job", "queue", q, "err", err)
@@ -117,18 +122,16 @@ func (w *Worker) claim(ctx context.Context) *db.JobRow {
 var errLeaseLost = errors.New("job lease lost")
 
 func (w *Worker) run(parent context.Context, job db.JobRow) {
-	h, ok := w.handlers[job.Type]
-	if !ok {
-		w.fail(parent, job, fmt.Errorf("no handler for job type %q", job.Type))
-		return
-	}
+	h := w.handlers[job.Type] // claimed only because it is handled
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	done := make(chan struct{})
 	go w.heartbeat(ctx, job, cancel, done)
 
+	start := time.Now()
 	err := safely(func() error { return h(ctx, job) })
 	close(done)
+	metrics.Since(metrics.JobDuration.WithLabelValues(string(job.Type)), start)
 
 	wctx := context.WithoutCancel(parent)
 	switch {
@@ -137,9 +140,11 @@ func (w *Worker) run(parent context.Context, job db.JobRow) {
 		if rerr := w.store.ReleaseJob(wctx, job.ID, job.Attempts); rerr != nil {
 			slog.Error("release job", "job", job.ID, "err", rerr)
 		}
+		count(job, "released")
 		return
 	case errors.Is(context.Cause(ctx), errLeaseLost):
 		slog.Warn("job lease lost; its new owner finishes it", "job", job.ID, "type", job.Type)
+		count(job, "lost")
 		return
 	case err != nil:
 		w.fail(wctx, job, err)
@@ -148,6 +153,7 @@ func (w *Worker) run(parent context.Context, job db.JobRow) {
 	if err := w.store.CompleteJob(wctx, job.ID, job.Attempts); err != nil {
 		slog.Error("complete job", "job", job.ID, "err", err)
 	}
+	count(job, "done")
 	w.Wake() // the same session may have a queued job behind this one
 }
 
@@ -158,15 +164,23 @@ func (w *Worker) fail(ctx context.Context, job db.JobRow, err error) {
 	delay := min(time.Duration(job.Attempts*job.Attempts)*2*time.Second, time.Minute)
 	state, rerr := w.store.RetryJob(ctx, job.ID, job.Attempts, delay, err.Error())
 	if db.IsNotFound(rerr) {
-		return // reaped meanwhile: no longer ours to retry
+		count(job, "lost") // reaped meanwhile: no longer ours to retry
+		return
 	}
 	if rerr != nil {
 		slog.Error("retry job", "job", job.ID, "err", rerr)
 		return
 	}
 	if state == types.JobFailed {
+		count(job, "failed")
 		w.runExhausted(ctx, job, err)
+		return
 	}
+	count(job, "retry")
+}
+
+func count(job db.JobRow, outcome string) {
+	metrics.Jobs.WithLabelValues(string(job.Type), outcome).Inc()
 }
 
 func (w *Worker) runExhausted(ctx context.Context, job db.JobRow, err error) {
@@ -219,6 +233,7 @@ func (w *Worker) reaper(ctx context.Context) {
 		}
 		for _, j := range jobs {
 			slog.Warn("lease expired", "job", j.ID, "type", j.Type, "state", j.State)
+			count(j, "expired")
 			if j.State == types.JobFailed {
 				w.runExhausted(ctx, j, fmt.Errorf("lease expired after %d attempts", j.Attempts))
 			}

@@ -70,9 +70,13 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 		return EventRow{}, fmt.Errorf("encode %s: %w", in.Payload.EventType(), err)
 	}
 	typ := in.Payload.EventType()
+	v := types.Version(typ)
+	if v == 0 {
+		return EventRow{}, fmt.Errorf("event type %q is not registered", typ)
+	}
 	row, err := one[EventRow](q.Query(ctx, s.q("InsertEvent"), pgx.NamedArgs{
 		"session_id": in.SessionID, "parent_id": in.ParentID, "actor_id": in.ActorID,
-		"scope": in.Scope, "type": string(typ), "data": data,
+		"scope": in.Scope, "type": string(typ), "data": data, "v": v,
 		"ephemeral": types.Ephemeral(typ), "request_id": in.RequestID,
 	}))
 	if err != nil {
@@ -83,7 +87,31 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 }
 
 func (s *Store) EventByID(ctx context.Context, q DBTX, id int64) (EventRow, error) {
-	return one[EventRow](q.Query(ctx, s.q("SelectEventByID"), pgx.NamedArgs{"id": id}))
+	rows, err := events(q.Query(ctx, s.q("SelectEventByID"), pgx.NamedArgs{"id": id}))
+	if err == nil && len(rows) == 0 {
+		err = pgx.ErrNoRows
+	}
+	if err != nil {
+		return EventRow{}, err
+	}
+	return rows[0], nil
+}
+
+// events collects event rows and upgrades payloads written with an older
+// version to the current shape, in memory: stored events are never rewritten.
+// Every event read goes through here.
+func events(rows pgx.Rows, err error) ([]EventRow, error) {
+	out, err := collect[EventRow](rows, err)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		e := &out[i]
+		if e.Data, e.V, err = types.Upgrade(e.Type, e.V, e.Data); err != nil {
+			return nil, fmt.Errorf("event %d: %w", e.ID, err)
+		}
+	}
+	return out, nil
 }
 
 // EventIDByUUID maps a public event uuid (cursor, Last-Event-ID) to its internal id.
@@ -95,7 +123,7 @@ func (s *Store) EventIDByUUID(ctx context.Context, session int64, id uuid.UUID) 
 
 // EventsAfter returns up to limit events (durable and ephemeral) after an internal id.
 func (s *Store) EventsAfter(ctx context.Context, session, after int64, limit int) ([]EventRow, error) {
-	return collect[EventRow](s.Pool.Query(ctx, s.q("EventsAfter"),
+	return events(s.Pool.Query(ctx, s.q("EventsAfter"),
 		pgx.NamedArgs{"session": session, "after": after, "limit": limit}))
 }
 
@@ -117,13 +145,13 @@ func (s *Store) HistoryTurnIDs(ctx context.Context, session int64, before *int64
 
 // HistoryEvents returns the durable events of the given turns, grouped by turn.
 func (s *Store) HistoryEvents(ctx context.Context, session int64, turns []int64) ([]EventRow, error) {
-	return collect[EventRow](s.Pool.Query(ctx, s.q("HistoryEvents"),
+	return events(s.Pool.Query(ctx, s.q("HistoryEvents"),
 		pgx.NamedArgs{"session": session, "turns": turns}))
 }
 
 // TurnEvents returns the durable events of one turn (the turn event first).
 func (s *Store) TurnEvents(ctx context.Context, q DBTX, turn int64) ([]EventRow, error) {
-	return collect[EventRow](q.Query(ctx, s.q("TurnEvents"), pgx.NamedArgs{"turn": turn}))
+	return events(q.Query(ctx, s.q("TurnEvents"), pgx.NamedArgs{"turn": turn}))
 }
 
 // TurnIDByUUID resolves a turn uuid within a session.
@@ -136,7 +164,7 @@ func (s *Store) TurnIDByUUID(ctx context.Context, session int64, id uuid.UUID) (
 // LoadContext returns the durable, prompt-relevant events of turns in
 // (afterTurn, uptoTurn], grouped by turn. One query.
 func (s *Store) LoadContext(ctx context.Context, session, afterTurn, uptoTurn int64) ([]EventRow, error) {
-	return collect[EventRow](s.Pool.Query(ctx, s.q("LoadContext"),
+	return events(s.Pool.Query(ctx, s.q("LoadContext"),
 		pgx.NamedArgs{"session": session, "after_turn": afterTurn, "upto_turn": uptoTurn}))
 }
 

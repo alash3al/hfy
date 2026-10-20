@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/metrics"
 )
 
 const (
@@ -34,6 +35,8 @@ func (s *Server) streamEvents(c *echo.Context) error {
 	// Subscribe before replaying so nothing falls between the two.
 	sub, cancel := s.hub.Subscribe(cl.session.ID)
 	defer cancel()
+	metrics.Streams.Inc()
+	defer metrics.Streams.Dec()
 
 	w := c.Response()
 	rc := http.NewResponseController(w)

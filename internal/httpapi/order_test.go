@@ -21,7 +21,7 @@ func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	sess, _ := store.SessionByUUID(ctx, u)
 	actor, _ := store.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
 
-	events, closeStream := a.stream("/sessions/"+sid+"/events", nil)
+	events, closeStream := a.stream("/v1/sessions/"+sid+"/events", nil)
 	defer closeStream()
 
 	// tx1 takes the lower id but commits last

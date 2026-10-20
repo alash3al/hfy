@@ -29,12 +29,12 @@ Or `docker compose up` (see `compose.yaml`; it mounts `./harness.yaml`).
 
 ```sh
 # your backend: create a session and hand its id to the client
-curl -XPOST :8080/sessions -H "Authorization: Bearer $HFY_SERVER_SECRET"
+curl -XPOST :8080/v1/sessions -H "Authorization: Bearer $HFY_SERVER_SECRET"
 # {"id":"7f3c…"}
 
 # the client: open the stream, then post a message
-curl -N :8080/sessions/7f3c…/events
-curl -XPOST :8080/sessions/7f3c…/messages -d '{"text":"hello","vars":{"user_name":"Ann"}}'
+curl -N :8080/v1/sessions/7f3c…/events
+curl -XPOST :8080/v1/sessions/7f3c…/messages -d '{"text":"hello","vars":{"user_name":"Ann"}}'
 # 202 {"turn":"a91e…"}
 ```
 
@@ -56,7 +56,10 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 `hfy config:example` is the reference. In short: `server`, `storage`, `providers`,
 `mcp`, `agent`, plus optional `auth`, `queue`, `retention`, `embeddings`,
-`attachments`, `subagents`, `summarizer`.
+`attachments`, `subagents`, `summarizer`, `metrics`.
+
+- Unknown keys stop startup with their line (`line 12: unknown key "aproval"
+  in config.agent`): a typo never silently disables a setting.
 
 - `${VAR}` / `${VAR:-default}` expand from the environment in string values
   (never keys); a missing variable without a default stops startup and names
@@ -68,9 +71,13 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 ## API
 
+The API is versioned in the path (`/v1`). Within `v1`, changes are additive
+only: new endpoints, new optional fields, new event types. A breaking change
+would come as `/v2`, served alongside `/v1`.
+
 Server to server (`Authorization: Bearer <server.secret>`):
 
-- `POST /sessions` → `201 {"id": uuid}`
+- `POST /v1/sessions` → `201 {"id": uuid}`
 
 Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
 `auth` configured, hfy sends `POST {key, session_id}` to your webhook and
@@ -78,22 +85,41 @@ expects `200 {actor, scope?, vars?}`; `401`/`403`, any other status, an error
 or a timeout denies. Without `auth` the caller is `anonymous` and unguessable
 session ids are the only protection.
 
-- `POST /sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
+- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
-- `GET /sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
+- `GET /v1/sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
-- `GET /sessions/{id}/history?limit=&before=` durable events grouped by turn,
+- `GET /v1/sessions/{id}/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns) and `live_after` (open `/events?after=<live_after>` to continue
   without a gap).
-- `POST /sessions/{id}/approvals` `{call_id, approve, result?}`
-- `POST /sessions/{id}/stop` stops the active turn and cancels queued ones.
-- `GET /healthz`
-
+- `POST /v1/sessions/{id}/approvals` `{call_id, approve, result?}`
+- `POST /v1/sessions/{id}/stop` stops the active turn and cancels queued ones.
 Errors are `{"error": "..."}`: `400` bad input (unknown or missing vars,
 bad attachment), `401`/`403` auth, `404` unknown session, `409` no pending
 approval.
+
+### Operations
+
+- `GET /healthz` liveness: the process answers (never checks dependencies).
+- `GET /readyz` readiness: Postgres is reachable (`503` otherwise).
+- `metrics: {listen: "127.0.0.1:9090"}` opens an operational listener in every
+  process (`serve` and `queue:work`) with `/metrics` (Prometheus), `/healthz`
+  and `/readyz`. It is separate from the public API port.
+
+| Metric | Labels |
+|---|---|
+| `hfy_http_requests_total`, `hfy_http_request_duration_seconds` | `route` (pattern), `method`, `code` |
+| `hfy_event_streams` | open SSE streams on the instance |
+| `hfy_turns_total` | `state` (final) |
+| `hfy_tokens_total` | `agent`, `kind` (`input` `output` `cached`) |
+| `hfy_provider_requests_total`, `hfy_provider_request_duration_seconds` | `provider`, `kind` (`chat` `embedding`), `outcome` |
+| `hfy_tool_calls_total`, `hfy_tool_call_duration_seconds` | `server`, `outcome` |
+| `hfy_jobs_total`, `hfy_job_duration_seconds` | `type`, `outcome` (`done` `retry` `failed` `lost` `released` `expired`) |
+| `hfy_jobs` | `queue`, `state` (`queued` `running`), across all instances |
+
+Plus the Go runtime and process collectors.
 
 ### Events
 
@@ -101,7 +127,7 @@ One envelope for the stream and for history:
 
 ```json
 {"id":"…","type":"tool_call","parent":"<turn uuid>","actor":{"uuid":"…","type":"agent","ref":"main"},
- "data":{"name":"files.read","call_id":"c1","arguments":{}},"created_at":"…"}
+ "v":1,"data":{"name":"files.read","call_id":"c1","arguments":{}},"created_at":"…"}
 ```
 
 `turn` (root; `parent` is null) · `turn.state` (`queued` `running`
@@ -114,6 +140,13 @@ One envelope for the stream and for history:
 Render text by appending `text.delta` under its turn; the durable
 `message.text` replaces them. Pair `tool_call` and `tool_result` by
 `data.call_id`. Ignore event types you don't know.
+
+`v` is the version of `data`'s shape for that type. Additive changes (a new
+optional field) keep the version; a breaking change bumps it. Events are
+stored forever and never rewritten: hfy upgrades older versions to the
+current shape when it reads them, so clients only ever see the current `v`.
+The exception is a rolling deploy, where an older instance may serve a newer
+event as stored.
 
 ## How it behaves
 
@@ -179,6 +212,12 @@ binary. `hfy.New(cfg).Run(ctx)` embeds the harness in another Go program.
   runs out (`TestMutationsNeedOneConnection`).
 - **Writes that belong together commit together**: an event and the job it
   implies (an embed, a run, an approval timeout) share a transaction.
+- **Stored data is versioned.** Event payloads carry `v` and are upgraded on
+  read (`types.register`); fields read by SQL are frozen. A breaking change to
+  a job payload is a new job type: workers claim only types they handle.
+  Migrations stay compatible with the previous release (add first, remove a
+  release later), so old and new instances can share a database during a
+  deploy; an instance older than the schema logs a warning.
 - **Jobs are fenced by attempt.** Handlers are retried and may be cut off, so
   they resume from the log and never repeat side effects blindly.
 - **No silent failure.** An error is returned, or logged with its session and

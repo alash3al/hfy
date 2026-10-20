@@ -13,6 +13,7 @@ import (
 
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/harness"
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -162,6 +163,9 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		}
 		l.steps++
 		l.addUsage(resp.Usage)
+		for kind, n := range map[string]int64{"input": resp.Usage.Input, "output": resp.Usage.Output, "cached": resp.Usage.Cached} {
+			metrics.Tokens.WithLabelValues(l.spec.Name, kind).Add(float64(n))
+		}
 		l.lastPrompt = resp.PromptTokens
 		text := types.Clean(resp.Content)
 		if err := l.sink.Step(ctx, StepOut{Reasoning: types.Clean(resp.Reasoning), Text: text,
@@ -280,6 +284,8 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage) mc
 	if err != nil {
 		res = errResult(err.Error())
 	}
+	metrics.ToolCalls.WithLabelValues(tool.Server, metrics.Outcome(res.IsError)).Inc()
+	metrics.Since(metrics.ToolDuration.WithLabelValues(tool.Server), start)
 	if src, ok := l.rt.MCP.Source(tool.Server); ok && src.Endpoint() != "" {
 		req, _ := json.Marshal(map[string]any{"tool": tool.Name, "arguments": json.RawMessage(args)})
 		rec := provider.Record{URL: src.Endpoint(), Request: req, Attempt: 1, LatencyMS: int(time.Since(start).Milliseconds())}

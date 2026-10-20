@@ -25,6 +25,10 @@ services:
       - ./harness.yaml:/etc/hfy/harness.yaml:ro
     ports:
       - "8080:8080"
+    healthcheck:                           # readiness: the database is reachable
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      retries: 3
 
 volumes:
   pgdata:

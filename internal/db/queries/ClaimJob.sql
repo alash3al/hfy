@@ -1,7 +1,7 @@
 UPDATE jobs SET state = 'running', attempts = attempts + 1, lease_until = now() + @lease::interval
 WHERE id = (
     SELECT j.id FROM jobs j
-    WHERE j.state = 'queued' AND j.queue = @queue AND j.run_at <= now()
+    WHERE j.state = 'queued' AND j.queue = @queue AND j.type = ANY(@types::text[]) AND j.run_at <= now()
       AND NOT EXISTS (
           SELECT 1 FROM jobs r
           WHERE r.concurrency_key = j.concurrency_key AND r.state = 'running')

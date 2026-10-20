@@ -3,12 +3,16 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/labstack/echo/v5"
@@ -16,6 +20,7 @@ import (
 	"github.com/alash3al/hfy/internal/auth"
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -36,14 +41,18 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	}
 	e := echo.New()
 	e.HTTPErrorHandler = srv.handleError
+	e.Use(observe)
 	srv.echo = e
 
-	e.GET("/healthz", func(c *echo.Context) error { return c.JSON(http.StatusOK, map[string]string{"status": "ok"}) })
+	// Operational endpoints are unversioned; the API is under /v1.
+	e.GET("/healthz", echo.WrapHandler(http.HandlerFunc(Healthz)))
+	e.GET("/readyz", echo.WrapHandler(Readyz(store)))
 
-	server := e.Group("", srv.requireSecret)
+	v1 := e.Group("/v1")
+	server := v1.Group("", srv.requireSecret)
 	server.POST("/sessions", srv.createSession)
 
-	client := e.Group("/sessions/:id", srv.requireClient)
+	client := v1.Group("/sessions/:id", srv.requireClient)
 	client.POST("/messages", srv.postMessage)
 	client.GET("/events", srv.streamEvents)
 	client.GET("/history", srv.history)
@@ -53,6 +62,53 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 }
 
 func (s *Server) Handler() http.Handler { return s.echo }
+
+// Healthz is liveness: the process serves requests. It never checks
+// dependencies, so a database outage does not restart every instance.
+func Healthz(w http.ResponseWriter, _ *http.Request) {
+	writeStatus(w, http.StatusOK, "ok")
+}
+
+// Readyz is readiness: this instance can reach Postgres.
+func Readyz(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := store.Pool.Ping(ctx); err != nil {
+			writeStatus(w, http.StatusServiceUnavailable, "database unreachable")
+			return
+		}
+		writeStatus(w, http.StatusOK, "ok")
+	}
+}
+
+func writeStatus(w http.ResponseWriter, code int, status string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+// observe records request counts and latency by route pattern (never the raw
+// path, which would be one series per session).
+func observe(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		start := time.Now()
+		err := next(c)
+		if err != nil {
+			c.Echo().HTTPErrorHandler(c, err) // settles the status code
+		}
+		_, code := echo.ResolveResponseStatus(c.Response(), err)
+		route, method := c.Path(), c.Request().Method
+		if route == "" {
+			route = "unmatched"
+		}
+		metrics.HTTPRequests.WithLabelValues(route, method, strconv.Itoa(code)).Inc()
+		if !strings.HasSuffix(route, "/events") { // streams last minutes; not latency
+			metrics.Since(metrics.HTTPDuration.WithLabelValues(route, method), start)
+		}
+		return err
+	}
+}
 
 type errorBody struct {
 	Error string `json:"error"`
@@ -64,10 +120,13 @@ func (s *Server) handleError(c *echo.Context, err error) {
 	}
 	code, msg := http.StatusInternalServerError, "internal error"
 	var he *echo.HTTPError
+	var sc echo.HTTPStatusCoder // Echo's own errors (404, 405) are a private type
 	var bad *svc.BadRequestError
 	switch {
 	case errors.As(err, &he):
 		code, msg = he.Code, he.Message
+	case errors.As(err, &sc):
+		code, msg = sc.StatusCode(), strings.ToLower(http.StatusText(sc.StatusCode()))
 	case errors.As(err, &bad):
 		code, msg = http.StatusBadRequest, bad.Msg
 	case errors.Is(err, svc.ErrNoPendingApproval):

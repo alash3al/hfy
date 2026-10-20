@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,20 +70,20 @@ func TestJobsClaimAndConcurrency(t *testing.T) {
 	if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 3, Key: "session:2"}); err != nil {
 		t.Fatal(err)
 	}
-	j1, err := s.ClaimJob(ctx, "turns", time.Minute)
+	j1, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
 	if err != nil || j1 == nil || j1.Attempts != 1 {
 		t.Fatalf("claim 1: %+v %v", j1, err)
 	}
 	// session:1 has a running job, so the second claim must skip its queued job.
-	j2, err := s.ClaimJob(ctx, "turns", time.Minute)
+	j2, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
 	if err != nil || j2 == nil || *j2.ConcurrencyKey != "session:2" {
 		t.Fatalf("claim 2 should pick session:2, got %+v %v", j2, err)
 	}
-	if j3, _ := s.ClaimJob(ctx, "turns", time.Minute); j3 != nil {
+	if j3, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j3 != nil {
 		t.Fatalf("claim 3 should find nothing, got %+v", j3)
 	}
 	s.CompleteJob(ctx, j1.ID, j1.Attempts)
-	if j3, _ := s.ClaimJob(ctx, "turns", time.Minute); j3 == nil {
+	if j3, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j3 == nil {
 		t.Fatal("after completion the next session:1 job must be claimable")
 	}
 }
@@ -91,13 +92,13 @@ func TestReapAndRetry(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobEmbedEvents, Queue: "embeddings", Payload: struct{}{}, MaxAttempts: 2})
-	j, _ := s.ClaimJob(ctx, "embeddings", 50*time.Millisecond)
+	j, _ := s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	reaped, err := s.ReapJobs(ctx)
 	if err != nil || len(reaped) != 1 || reaped[0].State != types.JobQueued {
 		t.Fatalf("reap: %+v %v", reaped, err)
 	}
-	j, _ = s.ClaimJob(ctx, "embeddings", 50*time.Millisecond)
+	j, _ = s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
 	if j == nil || j.Attempts != 2 {
 		t.Fatalf("second claim: %+v", j)
 	}
@@ -178,12 +179,12 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 1, Key: "session:1", MaxAttempts: 5})
-	stale, _ := s.ClaimJob(ctx, "turns", 50*time.Millisecond)
+	stale, _ := s.ClaimJob(ctx, "turns", allTypes, 50*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	if _, err := s.ReapJobs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	fresh, _ := s.ClaimJob(ctx, "turns", time.Minute)
+	fresh, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
 	if fresh == nil || fresh.Attempts != 2 {
 		t.Fatalf("reclaim: %+v", fresh)
 	}
@@ -204,10 +205,57 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 	}
 	// The session's next job must still be blocked behind the running one.
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 2, Key: "session:1"})
-	if j, _ := s.ClaimJob(ctx, "turns", time.Minute); j != nil {
+	if j, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j != nil {
 		t.Fatalf("two jobs of one session running at once: %+v", j)
 	}
 	if ok, _ := s.HeartbeatJob(ctx, fresh.ID, fresh.Attempts, time.Minute); !ok {
 		t.Fatal("the current owner's heartbeat must succeed")
+	}
+}
+
+// Stored events carry their payload version. A row from a newer hfy (a rolling
+// deploy) is served as stored, but never interpreted by this binary.
+func TestEventVersions(t *testing.T) {
+	s := dbtest.New(t, nil)
+	ctx := context.Background()
+	sess, _ := s.CreateSession(ctx)
+	actor, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
+	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
+	if err != nil || turn.V != types.Version(types.EventTurn) {
+		t.Fatalf("append: v%d %v", turn.V, err)
+	}
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO session_events (session_id, parent_id, actor_id, scope, type, data, v)
+		VALUES ($1, $2, $3, 'n/a', 'message.text', '{"text":"hi","lang":"en"}', 9)`, sess.ID, turn.ID, actor); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.TurnEvents(ctx, s.Pool, turn.ID)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("%d events, %v", len(evs), err)
+	}
+	newer := evs[1]
+	if newer.V != 9 || newer.Envelope().V != 9 {
+		t.Fatalf("a newer payload must keep its version: %d", newer.V)
+	}
+	if _, err := db.Decode[types.MessageText](newer); err == nil || !strings.Contains(err.Error(), "v9") {
+		t.Fatalf("decoding a newer payload must fail loudly, got %v", err)
+	}
+	if mt, err := db.Decode[types.Turn](evs[0]); err != nil {
+		t.Fatalf("current payload: %v %v", mt, err)
+	}
+}
+
+var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobEmbedEvents, types.JobRetentionClean}
+
+// A worker only claims job types it can run: an older worker in a rolling
+// deploy leaves a newer job type alone instead of failing it.
+func TestClaimOnlyHandledTypes(t *testing.T) {
+	s := dbtest.New(t, nil)
+	ctx := context.Background()
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: "run_turn.v2", Queue: "turns", Payload: 1})
+	if j, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute); err != nil || j != nil {
+		t.Fatalf("claimed an unknown job type: %+v %v", j, err)
+	}
+	if j, _ := s.ClaimJob(ctx, "turns", []types.JobType{"run_turn.v2"}, time.Minute); j == nil {
+		t.Fatal("a worker that handles the type must claim it")
 	}
 }

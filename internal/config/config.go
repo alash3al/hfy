@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,6 +33,13 @@ type Config struct {
 	Agent       Agent                `yaml:"agent"`
 	Subagents   map[string]Subagent  `yaml:"subagents"`
 	Summarizer  *Summarizer          `yaml:"summarizer"`
+	Metrics     *Metrics             `yaml:"metrics"`
+}
+
+// Metrics is the operational listener every process (serve and queue:work)
+// opens: /metrics, /healthz and /readyz, kept off the public API port.
+type Metrics struct {
+	Listen string `yaml:"listen"`
 }
 
 type Server struct {
@@ -151,6 +159,9 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 	}
 	if root.Kind == 0 {
 		return nil, errors.New("config is empty")
+	}
+	if err := checkKeys(&root, reflect.TypeFor[Config](), "config"); err != nil {
+		return nil, err
 	}
 	if err := expandNode(&root, lookup); err != nil {
 		return nil, err
@@ -293,6 +304,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth != nil && c.Auth.Webhook == "" {
 		bad("auth.webhook is required when auth is set")
+	}
+	if c.Metrics != nil && c.Metrics.Listen == "" {
+		bad("metrics.listen is required when metrics is set")
 	}
 	if c.Queue.Workers < 1 || c.Queue.MaxAttempts < 1 {
 		bad("queue.workers and queue.max_attempts must be at least 1")

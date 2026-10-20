@@ -73,7 +73,7 @@ func TestWorkerStopsAHandlerThatLostItsLease(t *testing.T) {
 	if _, err := s.Pool.Exec(ctx, "UPDATE jobs SET state = 'queued', lease_until = NULL"); err != nil {
 		t.Fatal(err)
 	}
-	other, _ := s.ClaimJob(ctx, "turns", time.Minute)
+	other, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
 	if other == nil {
 		t.Fatal("reclaim failed")
 	}
@@ -111,8 +111,10 @@ func TestWorkerReleasesJobsOnShutdown(t *testing.T) {
 	<-started
 	cancel()
 	<-done
-	j, err := s.ClaimJob(context.Background(), "turns", time.Minute)
+	j, err := s.ClaimJob(context.Background(), "turns", allTypes, time.Minute)
 	if err != nil || j == nil {
 		t.Fatalf("the job must be claimable at once after shutdown: %+v %v", j, err)
 	}
 }
+
+var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobEmbedEvents, types.JobRetentionClean}

@@ -22,6 +22,7 @@ import (
 	"github.com/alash3al/hfy/internal/httpapi"
 	"github.com/alash3al/hfy/internal/jobs"
 	"github.com/alash3al/hfy/internal/mcp"
+	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -89,6 +90,8 @@ func (a *App) Serve(ctx context.Context, work bool) error {
 	}
 	defer inst.close()
 
+	stopOps := a.serveOps(ctx, inst)
+	defer stopOps()
 	hub := httpapi.NewHub(inst.store)
 	api := httpapi.New(a.cfg, inst.store, inst.rt.Svc, hub)
 	srv := &http.Server{
@@ -132,6 +135,8 @@ func (a *App) Work(ctx context.Context, queues []string, workers int) error {
 	if workers <= 0 {
 		workers = a.cfg.Queue.Workers
 	}
+	stopOps := a.serveOps(ctx, inst)
+	defer stopOps()
 	w := a.worker(inst, queues)
 	var wg sync.WaitGroup
 	wg.Go(func() { inst.rt.ListenCancel(ctx) })
@@ -139,6 +144,31 @@ func (a *App) Work(ctx context.Context, queues []string, workers int) error {
 	w.Run(ctx, workers)
 	wg.Wait()
 	return nil
+}
+
+// serveOps starts the operational listener (metrics.listen) if configured and
+// returns its stop function. A failure to listen is logged, not fatal: the
+// harness keeps serving without metrics.
+func (a *App) serveOps(ctx context.Context, inst *instance) (stop func()) {
+	metrics.SetQueueDepth(inst.store.JobCounts)
+	if a.cfg.Metrics == nil {
+		return func() {}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	mux.HandleFunc("GET /healthz", httpapi.Healthz)
+	mux.Handle("GET /readyz", httpapi.Readyz(inst.store))
+	srv := &http.Server{Addr: a.cfg.Metrics.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("metrics listener", "addr", a.cfg.Metrics.Listen, "err", err)
+		}
+	}()
+	return func() {
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdown)
+	}
 }
 
 func (a *App) worker(inst *instance, queues []string) *jobs.Worker {

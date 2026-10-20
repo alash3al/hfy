@@ -98,7 +98,7 @@ func (a *api) do(method, path, bearer string, body any) (int, map[string]any) {
 
 func (a *api) newSession() string {
 	a.t.Helper()
-	code, out := a.do("POST", "/sessions", "topsecret", nil)
+	code, out := a.do("POST", "/v1/sessions", "topsecret", nil)
 	if code != 201 {
 		a.t.Fatalf("create session: %d %v", code, out)
 	}
@@ -182,10 +182,10 @@ func completed(ev sseEvent) bool {
 
 func TestServerSecretGuardsSessionCreation(t *testing.T) {
 	a := start(t, nil)
-	if code, _ := a.do("POST", "/sessions", "", nil); code != 401 {
+	if code, _ := a.do("POST", "/v1/sessions", "", nil); code != 401 {
 		t.Fatalf("no secret: %d", code)
 	}
-	if code, _ := a.do("POST", "/sessions", "wrong", nil); code != 401 {
+	if code, _ := a.do("POST", "/v1/sessions", "wrong", nil); code != 401 {
 		t.Fatalf("wrong secret: %d", code)
 	}
 	a.newSession()
@@ -194,7 +194,7 @@ func TestServerSecretGuardsSessionCreation(t *testing.T) {
 func TestMessageStreamResumeAndHistory(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "hello from the agent"}, fakeprov.Step{Content: "second answer"})
 	sid := a.newSession()
-	base := "/sessions/" + sid
+	base := "/v1/sessions/" + sid
 
 	// validation: required var, undeclared var, empty message
 	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "hi"}); code != 400 {
@@ -213,7 +213,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 		"attachments": []map[string]string{{"url": "https://cdn.example.com/a.png", "mime": "image/png"}}}); code != 400 {
 		t.Fatalf("attachments without config: %d", code)
 	}
-	if code, _ := a.do("GET", "/sessions/"+"not-a-uuid"+"/history", "", nil); code != 404 {
+	if code, _ := a.do("GET", "/v1/sessions/"+"not-a-uuid"+"/history", "", nil); code != 404 {
 		t.Fatalf("bad id: %d", code)
 	}
 
@@ -336,7 +336,7 @@ func TestWebhookAuth(t *testing.T) {
 		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
 	}, fakeprov.Step{Content: "hi alice"})
 	sid := a.newSession()
-	base := "/sessions/" + sid
+	base := "/v1/sessions/" + sid
 
 	for key, want := range map[string]int{"": 401, "expired": 401, "nope": 403, "garbage": 403} {
 		if code, _ := a.do("GET", base+"/history", key, nil); code != want {
@@ -364,7 +364,7 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
 	}, fakeprov.Step{Content: "hi alice"})
 	sid := a.newSession()
-	base := "/sessions/" + sid
+	base := "/v1/sessions/" + sid
 
 	// the key may also arrive as ?key= (EventSource) and reaches the webhook with the session id
 	events, closeStream := a.stream(base+"/events?key=alice-token", nil)
@@ -414,7 +414,7 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	a := start(t, nil)
 	sid := a.newSession()
-	base := "/sessions/" + sid
+	base := "/v1/sessions/" + sid
 	if code, _ := a.do("POST", base+"/approvals", "", map[string]any{"call_id": "x", "approve": true}); code != 409 {
 		t.Fatalf("approve nothing: %d", code)
 	}
@@ -424,7 +424,7 @@ func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	if code, _ := a.do("POST", base+"/stop", "", nil); code != 202 {
 		t.Fatalf("stop idle session: %d", code)
 	}
-	if code, _ := a.do("GET", "/sessions/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
+	if code, _ := a.do("GET", "/v1/sessions/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
 		t.Fatalf("unknown session: %d", code)
 	}
 }

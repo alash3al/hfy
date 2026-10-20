@@ -82,11 +82,17 @@ func (s *Store) CancelQueuedTurnJobs(ctx context.Context, q DBTX, session int64)
 
 func interval(d time.Duration) string { return d.String() }
 
-// ClaimJob takes the next runnable job from a queue, or nil if none. Losing the
-// concurrency_key race (unique violation) also returns nil: the caller moves on.
-func (s *Store) ClaimJob(ctx context.Context, queue string, lease time.Duration) (*JobRow, error) {
+// ClaimJob takes the next runnable job of the given types from a queue, or nil
+// if none. A worker claims only the types it handles, so during a rolling
+// deploy an older worker leaves a newer job type to a newer worker. Losing
+// the concurrency_key race (unique violation) also returns nil.
+func (s *Store) ClaimJob(ctx context.Context, queue string, jobTypes []types.JobType, lease time.Duration) (*JobRow, error) {
+	names := make([]string, len(jobTypes))
+	for i, t := range jobTypes {
+		names[i] = string(t)
+	}
 	j, err := one[JobRow](s.Pool.Query(ctx, s.q("ClaimJob"),
-		pgx.NamedArgs{"queue": queue, "lease": interval(lease)}))
+		pgx.NamedArgs{"queue": queue, "types": names, "lease": interval(lease)}))
 	if IsNotFound(err) || IsUniqueViolation(err) {
 		return nil, nil
 	}
@@ -154,4 +160,23 @@ func (s *Store) DeleteExpired(ctx context.Context, age time.Duration) (int64, er
 		}
 	}
 	return total, nil
+}
+
+// JobCounts returns the number of queued and running jobs by (queue, state).
+func (s *Store) JobCounts(ctx context.Context) (map[[2]string]int64, error) {
+	rows, err := s.Pool.Query(ctx, s.q("JobCounts"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[[2]string]int64{}
+	for rows.Next() {
+		var queue, state string
+		var n int64
+		if err := rows.Scan(&queue, &state, &n); err != nil {
+			return nil, err
+		}
+		out[[2]string{queue, state}] = n
+	}
+	return out, rows.Err()
 }
