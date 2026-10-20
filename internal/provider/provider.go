@@ -146,11 +146,6 @@ func (c *Client) Chat(ctx context.Context, req Request, o Opts) (*Response, erro
 	return nil, fmt.Errorf("after %d attempts: %w", attempts, lastErr)
 }
 
-func observe(provider, kind string, start time.Time, err error) {
-	metrics.ProviderRequests.WithLabelValues(provider, kind, metrics.Outcome(err != nil)).Inc()
-	metrics.Since(metrics.ProviderDuration.WithLabelValues(provider, kind), start)
-}
-
 // errIdle ends a request whose provider went silent for longer than Timeout.
 var errIdle = errors.New("provider idle timeout")
 
@@ -169,81 +164,86 @@ func (r idleReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts) (_ *Response, err error) {
-	// The timeout bounds silence, not length: a long answer that keeps
-	// streaming is never cut off.
+// post makes one POST attempt: idle timeout, headers, status check, metrics
+// and the trace row (rec arrives with URL, Request and Attempt set). read
+// consumes a 2xx body and returns what the trace keeps of it. It returns the
+// trace row id (0 without a recorder).
+func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte, record func(Record) int64,
+	read func(http.Header, io.Reader) (json.RawMessage, error)) (id int64, err error) {
+	// The timeout bounds silence, not length: an answer that keeps streaming
+	// is never cut off.
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	var idle *time.Timer
 	if c.Timeout > 0 {
 		idle = time.AfterFunc(c.Timeout, func() { cancel(errIdle) })
 		defer idle.Stop()
-		defer func() {
-			if err != nil && errors.Is(context.Cause(ctx), errIdle) {
-				err = fmt.Errorf("no data from the provider for %s: %w", c.Timeout, err)
-			}
-		}()
 	}
-	url := c.BaseURL + "/chat/completions"
 	start := time.Now()
-	rec := Record{URL: url, Request: redactBody(body), Attempt: attempt}
-	finish := func(resp *Response, raw json.RawMessage, err error) (*Response, error) {
-		rec.LatencyMS = int(time.Since(start).Milliseconds())
-		observe(c.Name, "chat", start, err)
-		rec.Response = raw
+	defer func() {
+		if err != nil && errors.Is(context.Cause(ctx), errIdle) {
+			err = fmt.Errorf("no data from the provider for %s: %w", c.Timeout, err)
+		}
 		if err != nil {
 			rec.Error = err.Error()
 		}
-		if o.Record != nil {
-			id := o.Record(rec)
-			if resp != nil {
-				resp.RequestID = id
-			}
+		rec.LatencyMS = int(time.Since(start).Milliseconds())
+		metrics.ProviderRequests.WithLabelValues(c.Name, kind, metrics.Outcome(err != nil)).Inc()
+		metrics.Since(metrics.ProviderDuration.WithLabelValues(c.Name, kind), start)
+		if record != nil {
+			id = record(rec)
 		}
-		return resp, err
-	}
+	}()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rec.URL, bytes.NewReader(body))
 	if err != nil {
-		return finish(nil, nil, err)
+		return 0, err
 	}
-	c.headers(httpReq)
-	httpResp, err := c.HTTP.Do(httpReq)
+	req.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return finish(nil, nil, err)
+		return 0, err
 	}
-	defer httpResp.Body.Close()
-	var stream io.Reader = httpResp.Body
+	defer resp.Body.Close()
+	rec.Status = resp.StatusCode
+	var r io.Reader = resp.Body
 	if idle != nil {
-		stream = idleReader{r: httpResp.Body, t: idle, d: c.Timeout}
+		r = idleReader{r: resp.Body, t: idle, d: c.Timeout}
 	}
-	rec.Status = httpResp.StatusCode
-	if httpResp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(io.LimitReader(stream, 8<<10))
-		return finish(nil, nil, &APIError{Status: httpResp.StatusCode, Body: strings.TrimSpace(string(b))})
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(r, 8<<10))
+		return 0, &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
-
-	var resp *Response
-	if strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream") {
-		resp, err = readStream(stream, o)
-	} else {
-		resp, err = readJSON(stream, o)
-	}
-	if err != nil {
-		return finish(nil, nil, err)
-	}
-	assembled, _ := json.Marshal(map[string]any{
-		"content": resp.Content, "reasoning": resp.Reasoning, "tool_calls": resp.ToolCalls,
-		"usage": resp.Usage, "prompt_tokens": resp.PromptTokens, "finish_reason": resp.FinishReason,
-	})
-	return finish(resp, assembled, nil)
+	rec.Response, err = read(resp.Header, r)
+	return 0, err
 }
 
-func (c *Client) headers(r *http.Request) {
-	r.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		r.Header.Set("Authorization", "Bearer "+c.APIKey)
+func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts) (*Response, error) {
+	var resp *Response
+	rec := Record{URL: c.BaseURL + "/chat/completions", Request: redactBody(body), Attempt: attempt}
+	id, err := c.post(ctx, "chat", rec, body, o.Record, func(h http.Header, r io.Reader) (json.RawMessage, error) {
+		var err error
+		if strings.HasPrefix(h.Get("Content-Type"), "text/event-stream") {
+			resp, err = readStream(r, o)
+		} else {
+			resp, err = readJSON(r, o)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{ // the assembled answer, not the raw stream
+			"content": resp.Content, "reasoning": resp.Reasoning, "tool_calls": resp.ToolCalls,
+			"usage": resp.Usage, "prompt_tokens": resp.PromptTokens, "finish_reason": resp.FinishReason,
+		})
+	})
+	if err != nil {
+		return nil, err
 	}
+	resp.RequestID = id
+	return resp, nil
 }
 
 func buildBody(r Request) map[string]any {
@@ -484,44 +484,11 @@ func readJSON(r io.Reader, o Opts) (*Response, error) {
 	return a.done(), nil
 }
 
-// Embed returns one vector per input.
+// Embed returns one vector per input. One attempt: its callers retry (the
+// embed job) or degrade (session_search).
 func (c *Client) Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error) {
-	if c.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.Timeout)
-		defer cancel()
-	}
-	url := c.BaseURL + "/embeddings"
-	body, _ := json.Marshal(map[string]any{"model": model, "input": inputs})
-	start := time.Now()
-	record := Record{URL: url, Request: json.RawMessage(body), Attempt: 1}
-	finish := func(raw json.RawMessage, err error) {
-		record.LatencyMS = int(time.Since(start).Milliseconds())
-		observe(c.Name, "embedding", start, err)
-		record.Response = raw
-		if err != nil {
-			record.Error = err.Error()
-		}
-		if rec != nil {
-			rec(record)
-		}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	body, err := json.Marshal(map[string]any{"model": model, "input": inputs})
 	if err != nil {
-		return nil, err
-	}
-	c.headers(req)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		finish(nil, err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-	record.Status = resp.StatusCode
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if resp.StatusCode/100 != 2 {
-		err := &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(raw[:min(len(raw), 8<<10)]))}
-		finish(nil, err)
 		return nil, err
 	}
 	var out struct {
@@ -530,11 +497,16 @@ func (c *Client) Embed(ctx context.Context, model string, inputs []string, rec f
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		finish(nil, err)
+	trace := Record{URL: c.BaseURL + "/embeddings", Request: body, Attempt: 1}
+	_, err = c.post(ctx, "embedding", trace, body, rec, func(_ http.Header, r io.Reader) (json.RawMessage, error) {
+		if err := json.NewDecoder(io.LimitReader(r, 64<<20)).Decode(&out); err != nil {
+			return nil, fmt.Errorf("bad response: %w", err)
+		}
+		return fmt.Appendf(nil, `{"count":%d}`, len(out.Data)), nil // vectors are not stored in the trace
+	})
+	if err != nil {
 		return nil, err
 	}
-	finish(json.RawMessage(`{"count":`+fmt.Sprint(len(out.Data))+`}`), nil) // vectors are not stored in the trace
 	if len(out.Data) != len(inputs) {
 		return nil, fmt.Errorf("embeddings: got %d vectors for %d inputs", len(out.Data), len(inputs))
 	}
