@@ -103,12 +103,14 @@ func (s *Service) enqueueRun(ctx context.Context, q db.DBTX, session, turn int64
 	return err
 }
 
-// EnqueueEmbed schedules an embed_events job unless one is already waiting.
+// EnqueueEmbed schedules an embed_events job about a second out, unless one
+// that has not started yet is already waiting (it will see this commit).
 func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX) error {
+	at := time.Now().Add(time.Second)
 	_, err := s.Store.Enqueue(ctx, q, db.NewJob{
 		Type: types.JobEmbedEvents, Queue: types.QueueEmbeddings, Payload: struct{}{},
-		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: "embed_events",
-		DedupeStates: []types.JobState{types.JobQueued},
+		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: "embed_events", RunAt: &at,
+		DedupeStates: []types.JobState{types.JobQueued}, DedupeFuture: true,
 	})
 	return err
 }
