@@ -14,16 +14,16 @@ import (
 
 // RegisterJobs wires every job type to its handler.
 func (rt *Runtime) RegisterJobs(w *jobs.Worker) {
-	jobs.Handle(w, types.JobRunTurn, rt.RunTurn)
+	w.Handle(types.JobRunTurn, rt.RunTurn)
 	w.OnExhausted(types.JobRunTurn, rt.OnTurnExhausted)
 
-	jobs.Handle(w, types.JobApprovalTimeout, func(ctx context.Context, p svc.ApprovalTimeoutPayload, _ db.JobRow) error {
+	w.Handle(types.JobApprovalTimeout, func(ctx context.Context, p svc.ApprovalTimeoutPayload, _ db.JobRow) error {
 		return rt.Svc.ApprovalTimeout(ctx, p)
 	})
-	jobs.Handle(w, types.JobEmbedEvents, func(ctx context.Context, p svc.EmbedPayload, _ db.JobRow) error {
+	w.Handle(types.JobEmbedEvents, func(ctx context.Context, p svc.EmbedPayload, _ db.JobRow) error {
 		return rt.embedEvents(ctx, p.EventIDs)
 	})
-	jobs.Handle(w, types.JobRetentionClean, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
+	w.Handle(types.JobRetentionClean, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
 		return rt.retention(ctx)
 	})
 	w.OnExhausted(types.JobRetentionClean, func(ctx context.Context, _ db.JobRow, _ error) {

@@ -41,8 +41,9 @@ func NewWorker(store *db.Store, lease time.Duration, queues []string) *Worker {
 	}
 }
 
-// Handle registers a handler that receives the job payload decoded into P.
-func Handle[P any](w *Worker, t types.JobType, fn func(ctx context.Context, p P, job db.JobRow) error) {
+// Handle registers a handler that receives the job payload decoded into P
+// (inferred from fn).
+func (w *Worker) Handle[P any](t types.JobType, fn func(ctx context.Context, p P, job db.JobRow) error) {
 	w.handlers[t] = func(ctx context.Context, job db.JobRow) error {
 		var p P
 		if len(job.Payload) > 0 {
@@ -73,7 +74,7 @@ func (w *Worker) Run(ctx context.Context, n int) {
 		w.store.Listen(ctx, func(_, _ string) { w.Wake() }, w.Wake, db.ChanJobs)
 	})
 	wg.Go(func() { w.reaper(ctx) })
-	for i := 0; i < n; i++ {
+	for range n {
 		wg.Go(func() { w.loop(ctx) })
 	}
 	wg.Wait()

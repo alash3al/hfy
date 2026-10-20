@@ -167,7 +167,9 @@ func (a *App) serveOps(ctx context.Context, inst *instance) (stop func()) {
 	return func() {
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdown)
+		if err := srv.Shutdown(shutdown); err != nil {
+			slog.Warn("metrics listener shutdown", "err", err)
+		}
 	}
 }
 

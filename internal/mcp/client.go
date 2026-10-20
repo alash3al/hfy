@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -212,7 +214,7 @@ func (t headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // background and failures are logged.
 func StartAll(base context.Context, m *Manager, servers map[string]config.MCPServer) []*Client {
 	var clients []*Client
-	for _, name := range config.SortedKeys(servers) {
+	for _, name := range slices.Sorted(maps.Keys(servers)) {
 		c := NewClient(base, name, servers[name])
 		m.Add(c)
 		clients = append(clients, c)

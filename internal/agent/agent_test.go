@@ -52,7 +52,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 			Environment: map[string]string{"HFY_FAKE_MCP": "1"}}},
 		Agent: config.Agent{Model: "fake/m", System: "You help {{who}}.",
 			Settings: config.Settings{ContextWindow: 100000},
-			Vars:     map[string]config.Var{"who": {Default: ptr("everyone")}}},
+			Vars:     map[string]config.Var{"who": {Default: new("everyone")}}},
 	}
 	if tweak != nil {
 		tweak(cfg)
@@ -88,7 +88,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, sess: sess, user: user}
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
 
 func (e *env) post(text string) (turnID int64) {
 	e.t.Helper()

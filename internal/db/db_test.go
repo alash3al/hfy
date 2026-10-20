@@ -42,7 +42,7 @@ func TestEventsAndActors(t *testing.T) {
 	if env.Parent == nil || *env.Parent != turn.UUID || env.Actor.Ref != "u1" {
 		t.Fatalf("bad envelope %+v", env)
 	}
-	if mt, err := db.Decode[types.MessageText](msg); err != nil || mt.Text != "hi" {
+	if mt, err := msg.Payload[types.MessageText](); err != nil || mt.Text != "hi" {
 		t.Fatalf("payload: %v %v", mt, err)
 	}
 	hist, _ := s.HistoryEvents(ctx, sess.ID, []int64{turn.ID})
@@ -62,7 +62,7 @@ func TestEventsAndActors(t *testing.T) {
 func TestJobsClaimAndConcurrency(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: map[string]int{"n": i}, Key: "session:1"}); err != nil {
 			t.Fatal(err)
 		}
@@ -92,13 +92,13 @@ func TestReapAndRetry(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobEmbedEvents, Queue: "embeddings", Payload: struct{}{}, MaxAttempts: 2})
-	j, _ := s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
+	s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	reaped, err := s.ReapJobs(ctx)
 	if err != nil || len(reaped) != 1 || reaped[0].State != types.JobQueued {
 		t.Fatalf("reap: %+v %v", reaped, err)
 	}
-	j, _ = s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
+	j, _ := s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
 	if j == nil || j.Attempts != 2 {
 		t.Fatalf("second claim: %+v", j)
 	}
@@ -121,8 +121,7 @@ func TestDedupe(t *testing.T) {
 
 func TestNotify(t *testing.T) {
 	s := dbtest.New(t, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	got := make(chan string, 4)
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
 	time.Sleep(300 * time.Millisecond)
@@ -236,10 +235,10 @@ func TestEventVersions(t *testing.T) {
 	if newer.V != 9 || newer.Envelope().V != 9 {
 		t.Fatalf("a newer payload must keep its version: %d", newer.V)
 	}
-	if _, err := db.Decode[types.MessageText](newer); err == nil || !strings.Contains(err.Error(), "v9") {
+	if _, err := newer.Payload[types.MessageText](); err == nil || !strings.Contains(err.Error(), "v9") {
 		t.Fatalf("decoding a newer payload must fail loudly, got %v", err)
 	}
-	if mt, err := db.Decode[types.Turn](evs[0]); err != nil {
+	if mt, err := evs[0].Payload[types.Turn](); err != nil {
 		t.Fatalf("current payload: %v %v", mt, err)
 	}
 }

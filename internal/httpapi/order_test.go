@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
-	"uuid"
 )
 
 // An event whose transaction commits after a later-numbered event must still

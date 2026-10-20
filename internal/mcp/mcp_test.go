@@ -23,8 +23,7 @@ func fakeServer() config.MCPServer {
 }
 
 func TestLocalClientListsAndCalls(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	m := mcp.NewManager()
 	c := mcp.NewClient(ctx, "files", fakeServer())
 	defer c.Close()

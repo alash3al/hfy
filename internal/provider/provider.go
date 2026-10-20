@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -436,7 +436,7 @@ func (a *assembler) done() *Response {
 	for i := range a.calls {
 		idx = append(idx, i)
 	}
-	sort.Ints(idx) // indices need not start at 0 or be contiguous
+	slices.Sort(idx) // indices need not start at 0 or be contiguous
 	for _, i := range idx {
 		if tc := a.calls[i]; tc != nil && tc.Name != "" {
 			if tc.ID == "" {

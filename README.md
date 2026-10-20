@@ -186,47 +186,52 @@ event as stored.
 
 ```sh
 docker run -d -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy pgvector/pgvector:pg17
-go test ./...            # HFY_TEST_DB overrides postgres://postgres:hfy@127.0.0.1:54330/hfy
+golangci-lint run ./... && go test -race ./...   # exactly what CI runs
 ```
 
-Tests need Go 1.27.3 (`go.mod` selects it) and a Postgres with pgvector; each
-test gets its own database, and tests skip when none is reachable. They use a
-scriptable fake OpenAI server (`internal/provider/fakeprov`) and a fake stdio
-MCP server (`internal/mcp/fakemcp`), so no real model is needed.
+Tests need a Postgres with pgvector (`HFY_TEST_DB` overrides
+`postgres://postgres:hfy@127.0.0.1:54330/hfy`); each test gets its own
+database. Locally they skip without one; CI sets `HFY_TEST_REQUIRE_DB=1` so a
+missing database fails instead. A scriptable fake OpenAI server
+(`internal/provider/fakeprov`) and a fake stdio MCP server
+(`internal/mcp/fakemcp`) stand in for real ones.
 
-Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,auth,svc,provider}`;
+**Toolchain.** `go.mod` pins Go 1.27.3 and the `go` command switches to it,
+but tools built with an older Go reject newer syntax (generic methods) with
+"method must have no type parameters". Build them with the module's toolchain,
+and format with `go fmt` or `golangci-lint fmt`, not a `gofmt` from `PATH`:
+
+```sh
+GOTOOLCHAIN=go1.27.3 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+GOTOOLCHAIN=go1.27.3 go install golang.org/x/tools/gopls@latest
+```
+
+Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,auth,svc,provider,metrics}`;
 migrations, SQL queries, prompts and the example config are embedded in the
 binary. `hfy.New(cfg).Run(ctx)` embeds the harness in another Go program.
 
 ### Conventions
 
-- **The event log is the truth.** State is read by folding events
-  (`svc.ViewOf`, `agent.BuildContext`); events are never updated. Payloads are
-  read back with `db.Decode[T]`, and a payload that does not decode is an error,
-  never skipped.
-- **`svc` owns turn state.** Every `turn.state` change (post, start, pause,
-  stop, approve, end) is a `svc` method that locks the session row; the agent
-  appends only what it produces (text, calls, results, usage).
-- **One transaction, one connection.** Inside `Store.Tx`, every read and write
-  goes through `tx`. A pool read inside a transaction deadlocks once the pool
-  runs out (`TestMutationsNeedOneConnection`).
-- **Writes that belong together commit together**: an event and the job it
-  implies (an embed, a run, an approval timeout) share a transaction.
-- **Stored data is versioned.** Event payloads carry `v` and are upgraded on
-  read (`types.register`); fields read by SQL are frozen. A breaking change to
-  a job payload is a new job type: workers claim only types they handle.
-  Migrations stay compatible with the previous release (add first, remove a
-  release later), so old and new instances can share a database during a
-  deploy; an instance older than the schema logs a warning.
-- **Jobs are fenced by attempt.** Handlers are retried and may be cut off, so
-  they resume from the log and never repeat side effects blindly.
-- **No silent failure.** An error is returned, or logged with its session and
-  turn when nothing can act on it (deltas, traces).
+Each rule says what enforces it. A rule that only lives in prose does not
+survive many contributors, so prefer adding a check to adding a sentence.
+
+| Rule | Enforced by |
+|---|---|
+| **Layering.** Imports follow the table in `arch_test.go`; `httpapi` never imports `agent` (API and workers scale apart), `types` imports nothing. | `TestLayering` |
+| **One transaction, one connection.** A function holding a `pgx.Tx` never touches `.Pool`: a second connection deadlocks once the pool runs out. | `TestTransactionsUseOnlyTheirConnection`, `TestMutationsNeedOneConnection` |
+| **`svc` owns turn state.** Every `turn.state` change is a `svc` method under the session lock; the agent appends only what it produces. | `TestOnlySvcWritesTurnState` |
+| **The event log is the truth.** State is folded from events (`svc.ViewOf`, `agent.BuildContext`); events are never updated; payloads are read with `e.Payload[T]()`, and one that does not decode is an error. | review; `Payload` is the only decoder |
+| **Stored data is versioned.** Payloads carry `v` and are upgraded on read (`types.register`); SQL-read fields are frozen. A breaking job payload change is a new job type. Migrations stay compatible with the previous release (add first, remove a release later). | `TestEventVersions`, `TestClaimOnlyHandledTypes`, review |
+| **Writes that belong together commit together** (an event and the job it implies). | review |
+| **Jobs are fenced by attempt** and resume from the log; side effects are never repeated blindly. | `TestStaleWorkerCannotTouchAReclaimedJob`, crash-recovery tests |
+| **No silent failure.** Errors are returned, or logged with session and turn when nothing can act on them. | `errcheck`; review |
+| **Current Go.** `slices`/`maps`, range-over-int, `new(expr)`, `t.Context()`, generic methods. | `modernize` |
+| **Every `//nolint` names its linter and says why.** | `nolintlint` |
 
 ### Departures from the design handoff
 
-- Generic methods compile on Go 1.27.3 but `go vet`, `gofmt` and gopls reject
-  them, so the same API is generic functions (`db.Decode[T](e)`, `jobs.Handle[P]`).
+- No `Router.On[T]`: the few places that fold events use a plain `switch` on
+  the type, which is less code and easier to follow.
 - The `LISTEN` connection is opened separately instead of being held out of the
   pool (same effect, simpler lifecycle).
 - Decisions the handoff left open: `embeddings:` is optional; sub-agent steps

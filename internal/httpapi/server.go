@@ -85,7 +85,7 @@ func Readyz(store *db.Store) http.HandlerFunc {
 func writeStatus(w http.ResponseWriter, code int, status string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"status": status})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": status}) // the client is gone; nothing to do
 }
 
 // observe records request counts and latency by route pattern (never the raw
@@ -119,15 +119,16 @@ func (s *Server) handleError(c *echo.Context, err error) {
 		return
 	}
 	code, msg := http.StatusInternalServerError, "internal error"
-	var he *echo.HTTPError
-	var sc echo.HTTPStatusCoder // Echo's own errors (404, 405) are a private type
-	var bad *svc.BadRequestError
+	he, isHTTP := errors.AsType[*echo.HTTPError](err)
+	var sc echo.HTTPStatusCoder // Echo's own errors (404, 405) are a private type; not an error type, so no AsType
+	hasCode := errors.As(err, &sc)
+	bad, isBad := errors.AsType[*svc.BadRequestError](err)
 	switch {
-	case errors.As(err, &he):
+	case isHTTP:
 		code, msg = he.Code, he.Message
-	case errors.As(err, &sc):
+	case hasCode:
 		code, msg = sc.StatusCode(), strings.ToLower(http.StatusText(sc.StatusCode()))
-	case errors.As(err, &bad):
+	case isBad:
 		code, msg = http.StatusBadRequest, bad.Msg
 	case errors.Is(err, svc.ErrNoPendingApproval):
 		code, msg = http.StatusConflict, err.Error()

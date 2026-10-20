@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: hfy
+          POSTGRES_DB: hfy
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hfy"
+          --health-interval 2s --health-retries 30
+    env:
+      HFY_TEST_DB: postgres://postgres:hfy@localhost:5432/hfy?sslmode=disable
+      HFY_TEST_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Built with the module's toolchain: tools built with an older Go reject
+      # newer syntax (generic methods).
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+      - name: go.mod is tidy
+        run: go mod tidy -diff
+      - name: lint (formatting, errcheck, staticcheck, modernize, ...)
+        run: golangci-lint run ./...
+      - name: test (includes the architecture rules in arch_test.go)
+        run: go test -race -count=1 ./...

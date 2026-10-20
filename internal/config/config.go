@@ -10,7 +10,6 @@ import (
 	"path"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -433,14 +432,4 @@ func (c *Config) Validate() error {
 func SplitModel(model string) (provider, name string) {
 	provider, name, _ = strings.Cut(model, "/")
 	return
-}
-
-// SortedKeys returns map keys in a stable order.
-func SortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

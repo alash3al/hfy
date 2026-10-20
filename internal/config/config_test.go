@@ -93,7 +93,7 @@ func TestUnits(t *testing.T) {
 	if d, _ := ParseDuration("30d"); d != 30*24*time.Hour {
 		t.Error(d)
 	}
-	for i := 0; i < 200; i++ { // map-order bugs show up only some of the time
+	for range 200 { // map-order bugs show up only some of the time
 		for in, want := range map[string]int64{"5MB": 5 << 20, "512KB": 512 << 10, "1GB": 1 << 30, "7B": 7, "42": 42, "5 mb": 5 << 20} {
 			if got, err := ParseBytes(in); err != nil || got != want {
 				t.Fatalf("ParseBytes(%q) = %d, %v; want %d", in, got, err, want)

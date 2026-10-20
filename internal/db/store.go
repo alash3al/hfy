@@ -245,38 +245,34 @@ func (s *Store) warnIfSchemaIsNewer(ctx context.Context, p *goose.Provider) {
 const bootLockClass, bootLockID = 7261, 1
 
 // Boot is the one step outside goose: it depends on config, not on a schema
-// version. It creates the embeddings table and makes sure one retention job
-// is pending, all under an advisory lock so concurrent boots do not race.
-func (s *Store) Boot(ctx context.Context, maxAttempts int) error {
-	conn, err := s.Pool.Acquire(ctx)
+// version. It creates the embeddings table for the configured dimensions,
+// under a transaction-scoped advisory lock (released at commit or rollback,
+// never leaked), so concurrent boots do not race.
+func (s *Store) Boot(ctx context.Context) error {
+	if s.emb == nil {
+		return nil
+	}
+	raw, err := templatesFS.ReadFile("templates/embeddings.sql")
 	if err != nil {
 		return err
 	}
-	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1, $2)", bootLockClass, bootLockID); err != nil {
+	t, err := template.New("emb").Parse(string(raw))
+	if err != nil {
 		return err
 	}
-	defer conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1, $2)", bootLockClass, bootLockID)
-
-	if s.emb != nil {
-		raw, err := templatesFS.ReadFile("templates/embeddings.sql")
-		if err != nil {
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, map[string]any{"Table": s.EmbTable(), "Dims": s.emb.Dims, "Half": s.half()}); err != nil {
+		return err
+	}
+	return s.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1, $2)", bootLockClass, bootLockID); err != nil {
 			return err
 		}
-		t, err := template.New("emb").Parse(string(raw))
-		if err != nil {
-			return err
-		}
-		var buf bytes.Buffer
-		err = t.Execute(&buf, map[string]any{"Table": s.EmbTable(), "Dims": s.emb.Dims, "Half": s.half()})
-		if err != nil {
-			return err
-		}
-		if _, err := conn.Exec(ctx, buf.String()); err != nil {
+		if _, err := tx.Exec(ctx, buf.String()); err != nil {
 			return fmt.Errorf("create %s: %w", s.EmbTable(), err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // SQL returns an embedded query by name (rendered for the embeddings table).

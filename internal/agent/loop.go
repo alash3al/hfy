@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -346,7 +346,7 @@ func (l *loop) validNames(lookup map[string]mcp.Tool) string {
 	for w := range lookup {
 		names = append(names, w)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	if len(names) > 40 {
 		names = append(names[:40], "...")
 	}

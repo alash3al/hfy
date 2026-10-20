@@ -65,7 +65,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		defer stop()
 	}
 
-	t, err := db.Decode[types.Turn](turn)
+	t, err := turn.Payload[types.Turn]()
 	if err != nil {
 		return err
 	}

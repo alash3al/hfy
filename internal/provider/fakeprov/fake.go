@@ -169,7 +169,7 @@ func (f *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 	data := make([]any, len(req.Input))
 	for i, in := range req.Input {
 		v := make([]float32, f.EmbedDim)
-		for _, word := range strings.Fields(strings.ToLower(in)) {
+		for word := range strings.FieldsSeq(strings.ToLower(in)) {
 			h := fnv.New32a()
 			h.Write([]byte(word))
 			v[int(h.Sum32())%f.EmbedDim]++

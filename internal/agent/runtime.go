@@ -6,8 +6,10 @@ package agent
 import (
 	"context"
 	_ "embed"
+	"maps"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,7 +93,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		rt.Embedder, rt.EmbModel = rt.Providers[prov], m
 		rt.Main.Harness[harness.SessionSearch] = true
 	}
-	for _, name := range config.SortedKeys(cfg.Subagents) {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Subagents)) {
 		sc := cfg.Subagents[name]
 		s := spec(name, sc.Model, sc.Settings, sc.System, sc.Limits, sc.MCP)
 		s.Description = sc.Description
@@ -117,7 +119,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 // Boot runs the config-dependent start-up work: embeddings backfill and the
 // recurring retention job.
 func (rt *Runtime) Boot(ctx context.Context) error {
-	if err := rt.Store.Boot(ctx, rt.Cfg.Queue.MaxAttempts); err != nil {
+	if err := rt.Store.Boot(ctx); err != nil {
 		return err
 	}
 	if rt.Cfg.Embeddings != nil {

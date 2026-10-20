@@ -37,7 +37,7 @@ type api struct {
 	rt   *agent.Runtime
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
 
 func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *api {
 	t.Helper()
@@ -48,7 +48,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 		Queue:     config.Queue{Workers: 2, Lease: config.Duration(5 * time.Second), MaxAttempts: 2},
 		Providers: map[string]config.Provider{"fake": {URL: fake.URL1(), Timeout: config.Duration(10 * time.Second)}},
 		Agent: config.Agent{Model: "fake/m", System: "You help {{user}}.", Settings: config.Settings{ContextWindow: 100000},
-			Vars: map[string]config.Var{"user": {Required: true, MaxLength: 10}, "tone": {Default: ptr("kind")}}},
+			Vars: map[string]config.Var{"user": {Required: true, MaxLength: 10}, "tone": {Default: new("kind")}}},
 	}
 	if tweak != nil {
 		tweak(cfg)
@@ -114,15 +114,16 @@ type sseEvent struct {
 func (a *api) stream(path string, header map[string]string) (<-chan sseEvent, func()) {
 	a.t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, "GET", a.url+path, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, a.url+path, nil)
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:bodyclose // the reader goroutine closes it
 	if err != nil {
 		a.t.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		cancel()
 		a.t.Fatalf("stream status %d", resp.StatusCode)
 	}
@@ -324,11 +325,11 @@ func TestWebhookAuth(t *testing.T) {
 		case "bob-token":
 			json.NewEncoder(w).Encode(map[string]any{"actor": "bob"})
 		case "expired":
-			w.WriteHeader(401)
+			w.WriteHeader(http.StatusUnauthorized)
 		case "garbage":
 			w.Write([]byte("not json"))
 		default:
-			w.WriteHeader(403)
+			w.WriteHeader(http.StatusForbidden)
 		}
 	}))
 	defer hook.Close()
@@ -354,7 +355,7 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&last)
 		if last["key"] != "alice-token" {
-			w.WriteHeader(403)
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"actor": "alice", "scope": "room-1", "vars": map[string]any{"user": "Alice"}})

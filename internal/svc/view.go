@@ -23,29 +23,29 @@ func ViewOf(events []db.EventRow) (TurnView, error) {
 		switch e.Type {
 		case types.EventTurnState:
 			var s types.TurnStateEvent
-			s, err = db.Decode[types.TurnStateEvent](e)
+			s, err = e.Payload[types.TurnStateEvent]()
 			v.State = s.State
 		case types.EventTurnCancelRequested:
 			v.Cancelled = true
 		case types.EventToolCall:
 			var c types.ToolCall
-			c, err = db.Decode[types.ToolCall](e)
+			c, err = e.Payload[types.ToolCall]()
 			v.Calls = append(v.Calls, c)
 		case types.EventToolResult:
 			var r types.ToolResult
-			r, err = db.Decode[types.ToolResult](e)
+			r, err = e.Payload[types.ToolResult]()
 			v.Done[r.CallID] = true
 		case types.EventToolCallInterrupted:
 			var r types.ToolCallInterrupted
-			r, err = db.Decode[types.ToolCallInterrupted](e)
+			r, err = e.Payload[types.ToolCallInterrupted]()
 			v.Done[r.CallID] = true
 		case types.EventApprovalRequested:
 			var a types.ApprovalRequested
-			a, err = db.Decode[types.ApprovalRequested](e)
+			a, err = e.Payload[types.ApprovalRequested]()
 			v.Requested[a.CallID] = true
 		case types.EventApprovalDecided:
 			var a types.ApprovalDecided
-			a, err = db.Decode[types.ApprovalDecided](e)
+			a, err = e.Payload[types.ApprovalDecided]()
 			v.Decided[a.CallID] = a
 		}
 		if err != nil {

@@ -1,13 +1,14 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
-	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/harness"
 	"github.com/alash3al/hfy/internal/provider"
@@ -21,7 +22,7 @@ func (rt *Runtime) registerHarness() {
 	if rt.Cfg.Embeddings != nil {
 		rt.harness.Add(harness.SessionSearchTool(), rt.sessionSearch)
 	}
-	for _, name := range config.SortedKeys(rt.Subs) {
+	for _, name := range slices.Sorted(maps.Keys(rt.Subs)) {
 		sub := rt.Subs[name]
 		rt.harness.Add(harness.SubagentTool(name, sub.Description),
 			func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
@@ -79,7 +80,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 			hits = append(hits, scored{t, n})
 		}
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].n > hits[j].n })
+	slices.SortStableFunc(hits, func(a, b scored) int { return cmp.Compare(b.n, a.n) })
 	if len(hits) > a.Limit {
 		hits = hits[:a.Limit]
 	}

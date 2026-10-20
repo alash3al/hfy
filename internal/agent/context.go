@@ -41,7 +41,7 @@ func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int6
 		}
 		bc.Turns = append(bc.Turns, e.ID)
 		if e.ID == currentTurn {
-			t, err := db.Decode[types.Turn](e)
+			t, err := e.Payload[types.Turn]()
 			if err != nil {
 				return nil, err
 			}
@@ -94,7 +94,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	for _, e := range events {
 		switch e.Type {
 		case types.EventMessageText:
-			m, err := db.Decode[types.MessageText](e)
+			m, err := e.Payload[types.MessageText]()
 			if err != nil {
 				return nil, err
 			}
@@ -105,7 +105,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			}
 			out = append(out, rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec))
 		case types.EventToolCall:
-			c, err := db.Decode[types.ToolCall](e)
+			c, err := e.Payload[types.ToolCall]()
 			if err != nil {
 				return nil, err
 			}
@@ -116,7 +116,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 				ID: c.CallID, Name: mcp.WireNameOf(c.Name), Arguments: argsText(c.Arguments)})
 			pending[c.CallID] = true
 		case types.EventToolResult:
-			r, err := db.Decode[types.ToolResult](e)
+			r, err := e.Payload[types.ToolResult]()
 			if err != nil {
 				return nil, err
 			}
@@ -128,7 +128,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			out = append(out, provider.Message{Role: "tool", ToolCallID: r.CallID,
 				Content: toolText(mcp.Result{Content: r.Content, IsError: r.IsError})})
 		case types.EventToolCallInterrupted:
-			c, err := db.Decode[types.ToolCallInterrupted](e)
+			c, err := e.Payload[types.ToolCallInterrupted]()
 			if err != nil {
 				return nil, err
 			}

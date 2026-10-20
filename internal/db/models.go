@@ -64,9 +64,9 @@ func (e EventRow) Envelope() types.Event {
 	}
 }
 
-// Decode returns an event's payload as T, the payload type of e.Type. It is
+// Payload returns the event's payload as T, the payload type of e.Type. It is
 // the one way events are read back; a failure names the event.
-func Decode[T types.Payload](e EventRow) (T, error) {
+func (e EventRow) Payload[T types.Payload]() (T, error) {
 	var p T
 	if e.Type != p.EventType() {
 		return p, fmt.Errorf("event %d is %q, not %q", e.ID, e.Type, p.EventType())

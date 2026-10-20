@@ -22,7 +22,7 @@ func TestWorkerRunsRetriesAndExhausts(t *testing.T) {
 	var okRuns, badRuns atomic.Int32
 	exhausted := make(chan struct{})
 	type p struct{ N int }
-	jobs.Handle(w, types.JobRunTurn, func(ctx context.Context, p p, j db.JobRow) error {
+	w.Handle(types.JobRunTurn, func(ctx context.Context, p p, j db.JobRow) error {
 		if p.N == 1 {
 			okRuns.Add(1)
 			return nil
@@ -55,7 +55,7 @@ func TestWorkerStopsAHandlerThatLostItsLease(t *testing.T) {
 
 	w := jobs.NewWorker(s, 300*time.Millisecond, []string{"turns"})
 	started, stopped := make(chan struct{}), make(chan error, 1)
-	jobs.Handle(w, types.JobRunTurn, func(ctx context.Context, _ struct{}, j db.JobRow) error {
+	w.Handle(types.JobRunTurn, func(ctx context.Context, _ struct{}, j db.JobRow) error {
 		if j.Attempts > 1 {
 			<-ctx.Done() // the new owner keeps running
 			return ctx.Err()
@@ -100,7 +100,7 @@ func TestWorkerReleasesJobsOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w := jobs.NewWorker(s, time.Minute, []string{"turns"})
 	started := make(chan struct{})
-	jobs.Handle(w, types.JobRunTurn, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
+	w.Handle(types.JobRunTurn, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
 		close(started)
 		<-ctx.Done()
 		return ctx.Err()

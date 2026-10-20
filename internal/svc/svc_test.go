@@ -10,12 +10,12 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-func def(s string) *string { return &s }
+//go:fix inline
 
 func TestResolveVars(t *testing.T) {
 	decl := map[string]config.Var{
 		"name":  {Required: true, MaxLength: 5},
-		"corp":  {Default: def("Acme")},
+		"corp":  {Default: new("Acme")},
 		"extra": {},
 	}
 	got, err := svc.ResolveVars(decl, map[string]string{"name": "bob"}, nil)

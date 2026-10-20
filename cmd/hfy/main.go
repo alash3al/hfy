@@ -62,7 +62,7 @@ func app() *cli.Command {
 						return err
 					}
 					var queues []string
-					for _, q := range strings.Split(cmd.String("queues"), ",") {
+					for q := range strings.SplitSeq(cmd.String("queues"), ",") {
 						if q = strings.TrimSpace(q); q != "" {
 							queues = append(queues, q)
 						}

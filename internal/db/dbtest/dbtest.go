@@ -28,6 +28,9 @@ func New(t testing.TB, emb *db.Embeddings) *db.Store {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, admin)
 	if err != nil {
+		if os.Getenv("HFY_TEST_REQUIRE_DB") != "" { // CI: a missing database must fail, not skip
+			t.Fatalf("no test postgres: %v", err)
+		}
 		t.Skipf("no test postgres: %v", err)
 	}
 	defer conn.Close(ctx)
@@ -49,7 +52,7 @@ func New(t testing.TB, emb *db.Embeddings) *db.Store {
 	if _, err := s.Migrate(ctx, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Boot(ctx, 3); err != nil {
+	if err := s.Boot(ctx); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

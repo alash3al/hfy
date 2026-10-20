@@ -79,7 +79,7 @@ func TestOperationalEndpoints(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- hfy.New(cfg).Serve(ctx, true) }()
 	defer func() { cancel(); <-done }()
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if code, _ := get(t, "http://"+api+"/healthz"); code == 200 {
 			break
 		}

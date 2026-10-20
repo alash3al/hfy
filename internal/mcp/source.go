@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -101,7 +101,7 @@ func (m *Manager) Tools(ctx context.Context, servers []string) (tools []Tool, er
 		}
 		tools = append(tools, ts...)
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].FullName() < tools[j].FullName() })
+	slices.SortFunc(tools, func(a, b Tool) int { return strings.Compare(a.FullName(), b.FullName()) })
 	return tools, errs
 }
 

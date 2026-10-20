@@ -2,8 +2,9 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -24,31 +25,26 @@ func checkKeys(n *yaml.Node, t reflect.Type, path string) error {
 	}
 	switch t.Kind() {
 	case reflect.Map:
-		for i := 0; i < len(n.Content); i += 2 {
-			if err := checkKeys(n.Content[i+1], t.Elem(), path+"."+n.Content[i].Value); err != nil {
+		for kv := range slices.Chunk(n.Content, 2) {
+			if err := checkKeys(kv[1], t.Elem(), path+"."+kv[0].Value); err != nil {
 				return err
 			}
 		}
 	case reflect.Struct:
 		fields := map[string]reflect.Type{}
-		for i := 0; i < t.NumField(); i++ {
-			if name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); name != "" && name != "-" {
-				fields[name] = t.Field(i).Type
+		for field := range t.Fields() {
+			if name, _, _ := strings.Cut(field.Tag.Get("yaml"), ","); name != "" && name != "-" {
+				fields[name] = field.Type
 			}
 		}
-		for i := 0; i < len(n.Content); i += 2 {
-			k := n.Content[i]
+		for kv := range slices.Chunk(n.Content, 2) {
+			k := kv[0]
 			ft, ok := fields[k.Value]
 			if !ok {
-				known := make([]string, 0, len(fields))
-				for name := range fields {
-					known = append(known, name)
-				}
-				sort.Strings(known)
-				return fmt.Errorf("line %d: unknown key %q in %s (known: %s)",
-					k.Line, k.Value, strings.TrimPrefix(path, "."), strings.Join(known, ", "))
+				return fmt.Errorf("line %d: unknown key %q in %s (known: %s)", k.Line, k.Value,
+					strings.TrimPrefix(path, "."), strings.Join(slices.Sorted(maps.Keys(fields)), ", "))
 			}
-			if err := checkKeys(n.Content[i+1], ft, path+"."+k.Value); err != nil {
+			if err := checkKeys(kv[1], ft, path+"."+k.Value); err != nil {
 				return err
 			}
 		}

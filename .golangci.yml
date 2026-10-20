@@ -1,0 +1,28 @@
+version: "2"
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - modernize       # current Go idioms (slices, maps, range-over-int, new(expr), ...)
+    - errorlint       # errors are compared and unwrapped with errors.Is/As
+    - bodyclose
+    - sloglint        # one slog style: key-value pairs
+    - usestdlibvars
+    - nolintlint      # every //nolint names its linter and says why
+  settings:
+    modernize:
+      disable: [stringsbuilder]   # += over a few short strings reads better
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+  exclusions:
+    presets: [std-error-handling]   # Close, Flush, fmt.Fprint* on response writers
+    rules:
+      - path: (_test\.go|internal/(provider/fakeprov|mcp/fakemcp|db/dbtest)/)
+        linters: [errcheck]         # test setup failures surface as assertion failures
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/alash3al/hfy]
