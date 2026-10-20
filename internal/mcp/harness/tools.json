@@ -1,0 +1,33 @@
+{
+  "tool_search": {
+    "description": "Find tools by keyword. Returns matching tool names with descriptions and argument schemas; the tools you find become callable on your next step. Use this before saying you cannot do something.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "Keywords describing what you need, e.g. \"read file\" or \"search web\""},
+        "limit": {"type": "integer", "description": "Maximum results (default 8)"}
+      },
+      "required": ["query"]
+    }
+  },
+  "session_search": {
+    "description": "Search earlier conversations by meaning. Returns the most similar past messages that you are allowed to see, with who said them and when. Use it to recall facts, decisions or preferences from before.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "What to look for, in natural language"},
+        "limit": {"type": "integer", "description": "Maximum results (default 5)"}
+      },
+      "required": ["query"]
+    }
+  },
+  "subagent": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "task": {"type": "string", "description": "A complete, self-contained task. The specialist sees nothing else from this conversation."}
+      },
+      "required": ["task"]
+    }
+  }
+}

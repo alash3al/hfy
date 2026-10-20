@@ -1,0 +1,1 @@
+The user rejected this tool call, so it was not run.

@@ -5,6 +5,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 	"uuid"
 )
@@ -164,4 +165,10 @@ func (u Usage) Total() int64 { return u.Input + u.Output }
 type Attachment struct {
 	URL  string `json:"url"`
 	Mime string `json:"mime"`
+}
+
+// Clean makes model and tool output safe to store: invalid UTF-8 is replaced
+// and NUL bytes (rejected by Postgres jsonb) are dropped.
+func Clean(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "\x00", "")
 }

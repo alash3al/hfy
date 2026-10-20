@@ -1,0 +1,1 @@
+This tool call was interrupted before it finished (the server restarted or crashed). It may or may not have taken effect. Do not assume it succeeded; check the current state before repeating it.

@@ -1,0 +1,1 @@
+Summarize the conversation so far. Keep facts, decisions, names, preferences and open questions. Be concise and write in plain prose or short bullet points. Output only the summary.

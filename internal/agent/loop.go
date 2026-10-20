@@ -1,0 +1,467 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/alash3al/hfy/internal/mcp"
+	"github.com/alash3al/hfy/internal/mcp/harness"
+	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/types"
+)
+
+var (
+	errStopped = errors.New("stopped by request")
+	errTimeout = errors.New("turn timeout")
+)
+
+const (
+	repeatWarn  = 3 // the third identical call is refused with advice
+	repeatAbort = 6 // the sixth ends the turn
+	maxResult   = 100_000
+)
+
+// Outcome is how a loop run ended (cancellation is returned as an error).
+type Outcome int
+
+const (
+	Done Outcome = iota
+	Paused
+	Failed
+)
+
+type Result struct {
+	Outcome Outcome
+	Final   string
+	Reason  string
+}
+
+// usageAcc is a mutex-guarded usage total shared with sub-agents.
+type usageAcc struct {
+	mu    sync.Mutex
+	u     types.Usage
+	calls int
+}
+
+func (a *usageAcc) add(u types.Usage) {
+	a.mu.Lock()
+	a.u.Add(u)
+	a.calls++
+	a.mu.Unlock()
+}
+
+func (a *usageAcc) snapshot() (types.Usage, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.u, a.calls
+}
+
+// TurnEnv is the per-turn context shared by the main loop and its sub-agents.
+type TurnEnv struct {
+	SessionID int64
+	TurnID    int64
+	Scope     string
+	Vars      map[string]string
+	Total     *usageAcc // the whole turn, sub-agents included
+}
+
+type loop struct {
+	rt    *Runtime
+	spec  *Spec
+	sink  Sink
+	env   *TurnEnv
+	total *usageAcc // this loop's own usage (== env.Total for the main agent)
+
+	system    string
+	msgs      []provider.Message
+	activated map[string]bool // full names unlocked by tool_search
+	counts    map[string]int
+	steps     int // steps already taken (includes earlier runs of a resumed turn)
+
+	lastPrompt int64
+	// prepare may rebuild msgs before a model call (summarization).
+	prepare func(ctx context.Context, l *loop) error
+}
+
+func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv, system string) *loop {
+	l := &loop{rt: rt, spec: spec, sink: sink, env: env, system: system,
+		activated: map[string]bool{}, counts: map[string]int{}}
+	if spec.isMain() {
+		l.total = env.Total
+	} else {
+		l.total = &usageAcc{}
+	}
+	return l
+}
+
+func (l *loop) addUsage(u types.Usage) {
+	l.total.add(u)
+	if l.total != l.env.Total {
+		l.env.Total.add(u) // sub-agent usage counts toward the parent's turn
+	}
+}
+
+func (l *loop) limitHit() string {
+	lim := l.spec.Limits
+	if lim.Steps > 0 && l.steps >= lim.Steps {
+		return fmt.Sprintf("limit reached: %d steps", lim.Steps)
+	}
+	if lim.TotalTokens > 0 {
+		u, _ := l.total.snapshot()
+		if u.Total() >= lim.TotalTokens {
+			return fmt.Sprintf("limit reached: %d tokens", lim.TotalTokens)
+		}
+	}
+	return ""
+}
+
+func (l *loop) run(ctx context.Context) (Result, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		if why := l.limitHit(); why != "" {
+			return Result{Outcome: Failed, Reason: why}, nil
+		}
+		if l.prepare != nil {
+			if err := l.prepare(ctx, l); err != nil {
+				return Result{}, err
+			}
+		}
+		defs, lookup := l.tools(ctx)
+		req := provider.Request{
+			Model:       l.spec.Model,
+			Messages:    append([]provider.Message{{Role: "system", Content: l.system}}, l.msgs...),
+			Tools:       defs,
+			Temperature: l.spec.Settings.Temperature, TopP: l.spec.Settings.TopP, MaxTokens: l.spec.Settings.MaxTokens,
+		}
+		kind := types.OutboundModel
+		if l.spec.Name == types.AgentSummarizer {
+			kind = types.OutboundSummarizer
+		}
+		resp, err := l.spec.Client.Chat(ctx, req, provider.Opts{
+			MaxAttempts: l.rt.Cfg.Queue.MaxAttempts,
+			OnText:      l.sink.TextDelta, OnReasoning: l.sink.ReasoningDelta,
+			Record: l.sink.Record(kind),
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				return Result{}, ctx.Err()
+			}
+			return Result{Outcome: Failed, Reason: "model call failed: " + err.Error()}, nil
+		}
+		l.steps++
+		l.addUsage(resp.Usage)
+		l.lastPrompt = resp.PromptTokens
+		text := types.Clean(resp.Content)
+		if err := l.sink.Step(ctx, StepOut{Reasoning: types.Clean(resp.Reasoning), Text: text,
+			Usage: resp.Usage, Model: l.spec.Model, RequestID: resp.RequestID}); err != nil {
+			return Result{}, err
+		}
+		asst := provider.Message{Role: "assistant", Content: text}
+		calls := make([]provider.ToolCall, 0, len(resp.ToolCalls))
+		for i, tc := range resp.ToolCalls {
+			if tc.ID == "" {
+				tc.ID = fmt.Sprintf("call_%d_%d", l.steps, i)
+			}
+			calls = append(calls, tc)
+		}
+		asst.ToolCalls = calls
+		l.msgs = append(l.msgs, asst)
+		if len(calls) == 0 {
+			return Result{Outcome: Done, Final: text}, nil
+		}
+		for _, tc := range calls {
+			out, err := l.handleCall(ctx, tc, lookup)
+			if err != nil {
+				return Result{}, err
+			}
+			if out.paused {
+				return Result{Outcome: Paused}, nil
+			}
+			if out.abort != "" {
+				return Result{Outcome: Failed, Reason: out.abort}, nil
+			}
+		}
+	}
+}
+
+type callOutcome struct {
+	paused bool
+	abort  string
+}
+
+func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[string]mcp.Tool) (callOutcome, error) {
+	tool, known := lookup[tc.Name]
+	name := tc.Name
+	if known {
+		name = tool.FullName()
+	}
+	args, argsOK := normalizeArgs(tc.Arguments)
+	info := CallInfo{ID: tc.ID, Name: name, Args: args}
+	if err := l.sink.CallStarted(ctx, info); err != nil {
+		return callOutcome{}, err
+	}
+
+	var res mcp.Result
+	var out callOutcome
+	switch {
+	case !known:
+		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", tc.Name, l.validNames(lookup)))
+	case !argsOK:
+		res = errResult("invalid arguments: they are not valid JSON. Send a JSON object. Schema: " + string(tool.Schema))
+	default:
+		if err := checkArgs(tool.Schema, args); err != nil {
+			res = errResult(fmt.Sprintf("invalid arguments: %v. Schema: %s", err, tool.Schema))
+			break
+		}
+		key := name + "\x00" + compact(args)
+		l.counts[key]++
+		switch n := l.counts[key]; {
+		case n >= repeatAbort:
+			res = errResult(promptRepeated)
+			out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
+		case n >= repeatWarn:
+			res = errResult(promptRepeated)
+		case l.sink.NeedsApproval(name):
+			if err := l.sink.RequestApproval(ctx, info); err != nil {
+				return callOutcome{}, err
+			}
+			return callOutcome{paused: true}, nil
+		default:
+			res = l.exec(ctx, tool, args)
+			if err := ctx.Err(); err != nil {
+				return callOutcome{}, err // cancelled mid-call: leave it to be marked interrupted
+			}
+		}
+	}
+	if err := l.finishCall(ctx, info, res); err != nil {
+		return callOutcome{}, err
+	}
+	return out, nil
+}
+
+// finishCall persists the result and adds it to the model's messages.
+func (l *loop) finishCall(ctx context.Context, info CallInfo, res mcp.Result) error {
+	if err := l.sink.CallFinished(ctx, info, res); err != nil {
+		return err
+	}
+	l.msgs = append(l.msgs, provider.Message{Role: "tool", ToolCallID: info.ID, Content: toolText(res)})
+	if info.Name == harness.Server+"."+harness.ToolSearch && !res.IsError {
+		l.activate(res.Content)
+	}
+	return nil
+}
+
+func toolText(r mcp.Result) string {
+	if r.IsError && !strings.HasPrefix(r.Content, "Error") {
+		return "Error: " + r.Content
+	}
+	return r.Content
+}
+
+func errResult(msg string) mcp.Result { return mcp.Result{Content: msg, IsError: true} }
+
+// exec runs a tool through the one tool path and records remote calls.
+func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage) mcp.Result {
+	ctx = withCall(ctx, &callCtx{spec: l.spec, env: l.env, loop: l})
+	start := time.Now()
+	res, err := l.rt.MCP.Call(ctx, tool.FullName(), args)
+	if err != nil {
+		res = errResult(err.Error())
+	}
+	if src, ok := l.rt.MCP.Source(tool.Server); ok && src.Endpoint() != "" {
+		req, _ := json.Marshal(map[string]any{"tool": tool.Name, "arguments": json.RawMessage(args)})
+		rec := provider.Record{URL: src.Endpoint(), Request: req, Attempt: 1, LatencyMS: int(time.Since(start).Milliseconds())}
+		if err != nil {
+			rec.Error = err.Error()
+		} else {
+			rec.Response, _ = json.Marshal(map[string]any{"is_error": res.IsError, "bytes": len(res.Content)})
+		}
+		l.sink.Record(types.OutboundMCPRemote)(rec)
+	}
+	res.Content = types.Clean(res.Content)
+	if len(res.Content) > maxResult {
+		res.Content = res.Content[:maxResult] + "\n[truncated]"
+	}
+	return res
+}
+
+// tools returns the function definitions shown to the model this step and the
+// wire-name lookup used to resolve its calls.
+func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.Tool) {
+	var shown, all []mcp.Tool
+	hs, _ := l.rt.harness.Tools(ctx)
+	for _, t := range hs {
+		if l.spec.Harness[t.Name] {
+			shown = append(shown, t)
+			all = append(all, t)
+		}
+	}
+	if l.spec.MCP == nil {
+		ext, _ := l.rt.MCP.Tools(ctx, nil)
+		for _, t := range ext {
+			if t.Server == harness.Server {
+				continue
+			}
+			all = append(all, t) // callable if the model names it, shown once found
+			if l.activated[t.FullName()] {
+				shown = append(shown, t)
+			}
+		}
+	} else {
+		ext, _ := l.rt.MCP.Tools(ctx, l.spec.MCP)
+		shown = append(shown, ext...)
+		all = append(all, ext...)
+	}
+	defs := make([]provider.ToolDef, len(shown))
+	for i, t := range shown {
+		defs[i] = provider.ToolDef{Name: mcp.WireName(t), Description: t.Description, Parameters: t.Schema}
+	}
+	lookup := make(map[string]mcp.Tool, len(all))
+	for _, t := range all {
+		lookup[mcp.WireName(t)] = t
+	}
+	return defs, lookup
+}
+
+func (l *loop) validNames(lookup map[string]mcp.Tool) string {
+	var names []string
+	for w := range lookup {
+		names = append(names, w)
+	}
+	sort.Strings(names)
+	if len(names) > 40 {
+		names = append(names[:40], "...")
+	}
+	if l.spec.Harness[harness.ToolSearch] {
+		names = append(names, "(use harness__tool_search to find more)")
+	}
+	return strings.Join(names, ", ")
+}
+
+// activate unlocks the tools named in a tool_search result.
+func (l *loop) activate(content string) {
+	for _, full := range parseSearchNames(content, l.rt) {
+		l.activated[full] = true
+	}
+}
+
+type searchHit struct {
+	Name string `json:"name"`
+}
+
+func parseSearchNames(content string, rt *Runtime) []string {
+	var hits []searchHit
+	if json.Unmarshal([]byte(content), &hits) != nil {
+		return nil
+	}
+	ext, _ := rt.MCP.Tools(context.Background(), nil)
+	byWire := map[string]string{}
+	for _, t := range ext {
+		byWire[mcp.WireName(t)] = t.FullName()
+	}
+	var out []string
+	for _, h := range hits {
+		if full, ok := byWire[h.Name]; ok {
+			out = append(out, full)
+		}
+	}
+	return out
+}
+
+// deriveActivated rebuilds the unlocked set from earlier tool_search results,
+// so a resumed turn shows the same tools.
+func (l *loop) deriveActivated() {
+	searchCalls := map[string]bool{}
+	for _, m := range l.msgs {
+		for _, tc := range m.ToolCalls {
+			if tc.Name == harness.Server+"__"+harness.ToolSearch {
+				searchCalls[tc.ID] = true
+			}
+		}
+		if m.Role == "tool" && searchCalls[m.ToolCallID] {
+			l.activate(m.Content)
+		}
+	}
+}
+
+// normalizeArgs returns storable JSON arguments and whether the model's text was valid JSON.
+func normalizeArgs(raw string) (json.RawMessage, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return json.RawMessage(`{}`), true
+	}
+	if json.Valid([]byte(raw)) {
+		return json.RawMessage(raw), true
+	}
+	b, _ := json.Marshal(types.Clean(raw)) // keep what the model said, as a JSON string
+	return b, false
+}
+
+func compact(b json.RawMessage) string {
+	var buf bytes.Buffer
+	if json.Compact(&buf, b) != nil {
+		return string(b)
+	}
+	return buf.String()
+}
+
+// checkArgs validates arguments against the parts of the schema that matter
+// most to a model that is guessing: required fields and basic types.
+func checkArgs(schema, args json.RawMessage) error {
+	var obj map[string]any
+	if err := json.Unmarshal(args, &obj); err != nil {
+		return errors.New("arguments must be a JSON object")
+	}
+	var s struct {
+		Required   []string                  `json:"required"`
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if len(schema) == 0 || json.Unmarshal(schema, &s) != nil {
+		return nil
+	}
+	var missing []string
+	for _, r := range s.Required {
+		if _, ok := obj[r]; !ok {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
+	}
+	for k, v := range obj {
+		want, _ := s.Properties[k]["type"].(string)
+		if want == "" || jsonType(v) == want || (want == "number" && jsonType(v) == "integer") {
+			continue
+		}
+		return fmt.Errorf("field %q must be of type %s", k, want)
+	}
+	return nil
+}
+
+func jsonType(v any) string {
+	switch t := v.(type) {
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case float64:
+		if t == float64(int64(t)) {
+			return "integer"
+		}
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	}
+	return "null"
+}
