@@ -66,21 +66,22 @@ func (a *App) boot(ctx context.Context, extraConns int) (*instance, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	mgr := mcp.NewManager()
-	clients := mcp.StartAll(ctx, mgr, a.cfg.MCP)
-	rt, err := agent.NewRuntime(a.cfg, store, mgr)
-	if err != nil {
-		store.Close()
+	inst := &instance{store: store, clients: mcp.StartAll(ctx, mgr, a.cfg.MCP)}
+	if inst.rt, err = agent.NewRuntime(a.cfg, store, mgr); err != nil {
+		inst.close()
 		return nil, err
 	}
-	if err := rt.Boot(ctx); err != nil {
-		store.Close()
+	if err := inst.rt.Boot(ctx); err != nil {
+		inst.close()
 		return nil, fmt.Errorf("boot: %w", err)
 	}
-	return &instance{store: store, rt: rt, clients: clients}, nil
+	return inst, nil
 }
 
 // Serve runs the HTTP API and SSE; with work it also runs the workers.
 func (a *App) Serve(ctx context.Context, work bool) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	inst, err := a.boot(ctx, 16)
 	if err != nil {
 		return err
@@ -106,12 +107,13 @@ func (a *App) Serve(ctx context.Context, work bool) error {
 	slog.Info("hfy listening", "addr", a.cfg.Server.Listen, "workers", work)
 
 	select {
-	case err = <-errc:
+	case err = <-errc: // e.g. the address is in use: stop everything else too
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		err = srv.Shutdown(shutdown)
 	}
+	cancel()
 	wg.Wait()
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil

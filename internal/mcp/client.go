@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -24,15 +25,20 @@ type Client struct {
 	cfg  config.MCPServer
 	base context.Context // process lifetime; connections outlive any single request
 
-	mu      sync.Mutex
-	session *sdk.ClientSession
-	tools   []Tool
-	fresh   bool
+	mu       sync.Mutex
+	failedAt time.Time // last failed connect: retry no sooner than retryAfter
+	lastErr  error
+	session  *sdk.ClientSession
+	tools    []Tool
+	fresh    bool
 }
 
 func NewClient(base context.Context, name string, cfg config.MCPServer) *Client {
 	return &Client{name: name, cfg: cfg, base: base}
 }
+
+// retryAfter keeps an unreachable server from adding a connect attempt to every step.
+const retryAfter = 10 * time.Second
 
 func (c *Client) Name() string { return c.name }
 
@@ -46,6 +52,9 @@ func (c *Client) Endpoint() string {
 func (c *Client) connect() (*sdk.ClientSession, error) {
 	if c.session != nil {
 		return c.session, nil
+	}
+	if time.Since(c.failedAt) < retryAfter {
+		return nil, c.lastErr
 	}
 	cl := sdk.NewClient(&sdk.Implementation{Name: "hfy", Version: "1"}, &sdk.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) {
@@ -72,7 +81,8 @@ func (c *Client) connect() (*sdk.ClientSession, error) {
 	}
 	sess, err := cl.Connect(c.base, tr, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect mcp %s: %w", c.name, err)
+		c.failedAt, c.lastErr = time.Now(), fmt.Errorf("connect mcp %s: %w", c.name, err)
+		return nil, c.lastErr
 	}
 	c.session = sess
 	return sess, nil

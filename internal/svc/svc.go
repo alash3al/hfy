@@ -70,8 +70,9 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 			return err
 		}
 		turnUUID = turn.UUID
-		if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ParentID: &turn.ID, ActorID: in.Actor,
-			Scope: in.Scope, Payload: types.MessageText{Text: in.Text, Attachments: in.Attachments}}); err != nil {
+		msg, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ParentID: &turn.ID, ActorID: in.Actor,
+			Scope: in.Scope, Payload: types.MessageText{Text: in.Text, Attachments: in.Attachments}})
+		if err != nil {
 			return err
 		}
 		if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ParentID: &turn.ID, ActorID: main,
@@ -79,7 +80,7 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 			return err
 		}
 		if in.Text != "" && s.Cfg.Embeddings != nil {
-			if err := s.EnqueueEmbed(ctx, tx); err != nil {
+			if err := s.EnqueueEmbed(ctx, tx, msg.ID); err != nil {
 				return err
 			}
 		}
@@ -103,14 +104,18 @@ func (s *Service) enqueueRun(ctx context.Context, q db.DBTX, session, turn int64
 	return err
 }
 
-// EnqueueEmbed schedules an embed_events job about a second out, unless one
-// that has not started yet is already waiting (it will see this commit).
-func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX) error {
-	at := time.Now().Add(time.Second)
+// EmbedPayload names the message.text events to embed; empty means a backfill
+// of everything that has no vector for the configured model.
+type EmbedPayload struct {
+	EventIDs []int64 `json:"event_ids,omitempty"`
+}
+
+// EnqueueEmbed schedules embed_events for the given events (none = backfill),
+// in the caller's transaction, so it can never miss what that transaction wrote.
+func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX, eventIDs ...int64) error {
 	_, err := s.Store.Enqueue(ctx, q, db.NewJob{
-		Type: types.JobEmbedEvents, Queue: types.QueueEmbeddings, Payload: struct{}{},
-		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: "embed_events", RunAt: &at,
-		DedupeStates: []types.JobState{types.JobQueued}, DedupeFuture: true,
+		Type: types.JobEmbedEvents, Queue: types.QueueEmbeddings, Payload: EmbedPayload{EventIDs: eventIDs},
+		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: "embed_events",
 	})
 	return err
 }
@@ -140,7 +145,7 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	if err != nil {
 		return err
 	}
-	usage, _, err := s.Store.TurnUsage(ctx, turnID)
+	usage, _, err := s.Store.TurnUsage(ctx, turnID, main)
 	if err != nil {
 		return err
 	}
@@ -159,12 +164,13 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	} else if sess.ActiveTurnID != nil {
 		return nil // another turn is active; it will chain on its own
 	}
-	return s.chainNext(ctx, tx, sessionID)
+	return s.chainNext(ctx, tx, sessionID, turnID)
 }
 
-// chainNext enqueues run_turn for the oldest queued turn, if no job waits.
-func (s *Service) chainNext(ctx context.Context, tx pgx.Tx, sessionID int64) error {
-	queued, err := s.Store.QueuedTurns(ctx, tx, sessionID, 0)
+// chainNext enqueues run_turn for the oldest queued turn after the one that
+// ended (turns run oldest first, so none is older), if no job waits.
+func (s *Service) chainNext(ctx context.Context, tx pgx.Tx, sessionID, after int64) error {
+	queued, err := s.Store.QueuedTurns(ctx, tx, sessionID, after)
 	if err != nil || len(queued) == 0 {
 		return err
 	}

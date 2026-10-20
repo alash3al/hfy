@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -42,7 +43,24 @@ type NewEvent struct {
 
 // AppendEvent validates and inserts an event and notifies listeners on commit.
 // Events are never updated.
+//
+// Appends to one session are serialized (a transaction-scoped advisory lock on
+// the session id), so a session's event ids commit in id order. The stream and
+// Last-Event-ID resume rely on that: without it, an event that took a lower id
+// but committed later would be skipped forever.
 func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow, error) {
+	if _, ok := q.(*pgxpool.Pool); ok {
+		var row EventRow
+		err := s.Tx(ctx, func(tx pgx.Tx) error {
+			var err error
+			row, err = s.AppendEvent(ctx, tx, in)
+			return err
+		})
+		return row, err
+	}
+	if _, err := q.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", in.SessionID); err != nil {
+		return EventRow{}, err
+	}
 	if err := in.Payload.Validate(); err != nil {
 		return EventRow{}, err
 	}
@@ -144,9 +162,11 @@ func (s *Store) QueuedTurns(ctx context.Context, q DBTX, session, after int64) (
 	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
-// TurnUsage sums the model.usage events of a turn; calls is how many there were.
-func (s *Store) TurnUsage(ctx context.Context, turn int64) (u types.Usage, calls int64, err error) {
-	err = s.Pool.QueryRow(ctx, s.q("TurnUsage"), pgx.NamedArgs{"turn": turn}).
+// TurnUsage sums every model.usage event of a turn (sub-agents and the
+// summarizer included); calls counts only the given actor's (the main agent's
+// steps).
+func (s *Store) TurnUsage(ctx context.Context, turn, actor int64) (u types.Usage, calls int64, err error) {
+	err = s.Pool.QueryRow(ctx, s.q("TurnUsage"), pgx.NamedArgs{"turn": turn, "actor": actor}).
 		Scan(&u.Input, &u.Output, &u.Cached, &calls)
 	return
 }

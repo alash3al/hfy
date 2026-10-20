@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/provider/fakeprov"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -158,4 +159,38 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("condition not met in time")
+}
+
+func TestEmbeddingsTargetedBackfillAndDimensionMismatch(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Embeddings = &config.Embeddings{Model: "fake/e", Dimensions: 3}
+	}, fakeprov.Step{Content: "the reply gets a vector too"})
+	count := func() int {
+		var n int
+		e.store.Pool.QueryRow(e.ctx, "SELECT count(*) FROM embeddings_3").Scan(&n)
+		return n
+	}
+	// Targeted jobs: the user message (from Post) and the agent reply (from the loop).
+	turn := e.post("hello there")
+	e.waitState(turn, types.StateCompleted)
+	waitFor(t, func() bool { return count() == 2 })
+
+	// Backfill: a message written without a job is picked up on the next boot.
+	main, _ := e.store.FindOrCreateActor(e.ctx, types.ActorAgent, "main")
+	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main,
+		Scope: types.NoScope, Payload: types.MessageText{Text: "written behind the queue's back"}})
+	if err := e.rt.Boot(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return count() == 3 })
+
+	// A model whose vectors do not match embeddings.dimensions fails the job loudly.
+	e.fake.EmbedDim = 4
+	e.post("this one cannot be stored")
+	waitFor(t, func() bool {
+		var msg string
+		e.store.Pool.QueryRow(e.ctx, `SELECT coalesce(last_error, '') FROM jobs WHERE type = 'embed_events'
+			AND last_error IS NOT NULL ORDER BY id DESC LIMIT 1`).Scan(&msg)
+		return strings.Contains(msg, "returned 4 dimensions, embeddings.dimensions is 3")
+	})
 }

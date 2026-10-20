@@ -65,7 +65,7 @@ var queryNames = []string{
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReapJobs",
-	"CancelQueuedTurnJobs", "PendingTurnJob", "SelectSessionByID", "OpenTurns", "PruneJobs", "DeleteExpiredEvents",
+	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
 }
 
@@ -221,7 +221,9 @@ func (s *Store) Migrate(ctx context.Context, cmd string) (string, error) {
 	return "", fmt.Errorf("unknown migrate command %q (up|down|status)", cmd)
 }
 
-const bootLockKey = 7_261_950_001
+// The boot lock uses the two-int advisory keyspace; per-session append locks use
+// the bigint one (session ids), so the two never collide.
+const bootLockClass, bootLockID = 7261, 1
 
 // Boot is the one step outside goose: it depends on config, not on a schema
 // version. It creates the embeddings table and makes sure one retention job
@@ -232,10 +234,10 @@ func (s *Store) Boot(ctx context.Context, maxAttempts int) error {
 		return err
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", bootLockKey); err != nil {
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1, $2)", bootLockClass, bootLockID); err != nil {
 		return err
 	}
-	defer conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", bootLockKey)
+	defer conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1, $2)", bootLockClass, bootLockID)
 
 	if s.emb != nil {
 		raw, err := templatesFS.ReadFile("templates/embeddings.sql")

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 	"uuid"
 
 	"github.com/alash3al/hfy/internal/db"
@@ -134,16 +133,16 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 
 	var t types.Turn
 	_ = json.Unmarshal(turn.Data, &t)
-	used, calls, err := rt.Store.TurnUsage(ctx, turn.ID)
+	mainActor, err := rt.Svc.AgentActor(ctx, types.AgentMain)
+	if err != nil {
+		return err
+	}
+	used, calls, err := rt.Store.TurnUsage(ctx, turn.ID, mainActor)
 	if err != nil {
 		return err
 	}
 	env := &TurnEnv{SessionID: turn.SessionID, TurnID: turn.ID, Scope: turn.Scope, Vars: t.Vars,
 		Total: &usageAcc{u: used, calls: int(calls)}}
-	mainActor, err := rt.Svc.AgentActor(ctx, types.AgentMain)
-	if err != nil {
-		return err
-	}
 	sink := newTurnSink(tctx, rt, env, mainActor)
 	l := newLoop(rt, rt.Main, sink, env, "")
 	l.steps = int(calls)
@@ -289,5 +288,3 @@ func estimateTokens(system string, msgs []providerMessage) int64 {
 	}
 	return int64(n / 4)
 }
-
-var _ = time.Second

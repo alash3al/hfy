@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -393,7 +394,12 @@ func (a *assembler) add(c chunk) {
 }
 
 func (a *assembler) done() *Response {
-	for i := 0; i < len(a.calls); i++ {
+	idx := make([]int, 0, len(a.calls))
+	for i := range a.calls {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx) // indices need not start at 0 or be contiguous
+	for _, i := range idx {
 		if tc := a.calls[i]; tc != nil && tc.Name != "" {
 			if tc.ID == "" {
 				tc.ID = fmt.Sprintf("call_%d", i)

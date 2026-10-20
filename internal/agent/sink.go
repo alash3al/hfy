@@ -80,6 +80,7 @@ type turnSink struct {
 	actor int64
 	ctx   context.Context // the turn's context, for batched deltas
 
+	flushMu sync.Mutex // one flush at a time, so no delta lands after its step's message
 	mu      sync.Mutex
 	text    string // pending delta batch
 	reason  string
@@ -93,14 +94,18 @@ func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, actor int64) *t
 }
 
 func (s *turnSink) append(ctx context.Context, p types.Payload, req *int64) error {
+	_, err := s.appendRow(ctx, p, req)
+	return err
+}
+
+func (s *turnSink) appendRow(ctx context.Context, p types.Payload, req *int64) (db.EventRow, error) {
 	var rid *int64
 	if req != nil && *req != 0 {
 		rid = req
 	}
-	_, err := s.rt.Store.AppendEvent(ctx, s.rt.Store.Pool, db.NewEvent{
+	return s.rt.Store.AppendEvent(ctx, s.rt.Store.Pool, db.NewEvent{
 		SessionID: s.env.SessionID, ParentID: &s.env.TurnID, ActorID: s.actor,
 		Scope: s.env.Scope, Payload: p, RequestID: rid})
-	return err
 }
 
 func (s *turnSink) TextDelta(t string) {
@@ -126,6 +131,8 @@ func (s *turnSink) armLocked() {
 }
 
 func (s *turnSink) flush(ctx context.Context) {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
 	s.mu.Lock()
 	text, reason := s.text, s.reason
 	s.text, s.reason, s.timer = "", "", nil
@@ -155,8 +162,14 @@ func (s *turnSink) Step(ctx context.Context, o StepOut) error {
 		}
 	}
 	if o.Text != "" {
-		if err := s.append(ctx, types.MessageText{Text: o.Text}, &o.RequestID); err != nil {
+		row, err := s.appendRow(ctx, types.MessageText{Text: o.Text}, &o.RequestID)
+		if err != nil {
 			return err
+		}
+		if s.rt.Cfg.Embeddings != nil {
+			if err := s.rt.Svc.EnqueueEmbed(ctx, s.rt.Store.Pool, row.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return s.append(ctx, types.ModelUsage{Model: o.Model, Input: o.Usage.Input, Output: o.Usage.Output,

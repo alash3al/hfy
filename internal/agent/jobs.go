@@ -20,8 +20,8 @@ func (rt *Runtime) RegisterJobs(w *jobs.Worker) {
 	jobs.Handle(w, types.JobApprovalTimeout, func(ctx context.Context, p svc.ApprovalTimeoutPayload, _ db.JobRow) error {
 		return rt.Svc.ApprovalTimeout(ctx, p)
 	})
-	jobs.Handle(w, types.JobEmbedEvents, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
-		return rt.embedEvents(ctx)
+	jobs.Handle(w, types.JobEmbedEvents, func(ctx context.Context, p svc.EmbedPayload, _ db.JobRow) error {
+		return rt.embedEvents(ctx, p.EventIDs)
 	})
 	jobs.Handle(w, types.JobRetentionClean, func(ctx context.Context, _ struct{}, _ db.JobRow) error {
 		return rt.retention(ctx)
@@ -54,40 +54,57 @@ func (rt *Runtime) retention(ctx context.Context) error {
 	return err
 }
 
-// embedEvents embeds message.text events that have no vector for the
-// configured model yet, in batches. It is also the backfill.
-func (rt *Runtime) embedEvents(ctx context.Context) error {
+// embedEvents embeds the given message.text events, or with none, backfills
+// every message.text event that has no vector for the configured model yet.
+func (rt *Runtime) embedEvents(ctx context.Context, ids []int64) error {
 	if rt.Embedder == nil {
 		return nil
 	}
-	dims := rt.Cfg.Embeddings.Dimensions
-	rec := rt.recorder(nil, types.OutboundEmbedding)
+	if len(ids) > 0 {
+		batch, err := rt.Store.UnembeddedByIDs(ctx, ids)
+		if err != nil {
+			return err
+		}
+		return rt.embedBatch(ctx, batch)
+	}
 	var after int64
 	for {
 		batch, err := rt.Store.MissingEmbeddings(ctx, after, 32)
 		if err != nil || len(batch) == 0 {
 			return err
 		}
-		texts := make([]string, len(batch))
-		for i, b := range batch {
-			texts[i] = truncate(b.Text, 8000)
-		}
-		vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, texts, rec)
-		if err != nil {
+		if err := rt.embedBatch(ctx, batch); err != nil {
 			return err
-		}
-		for i, b := range batch {
-			if len(vecs[i]) != dims {
-				return fmt.Errorf("embedding model returned %d dimensions, embeddings.dimensions is %d", len(vecs[i]), dims)
-			}
-			scope := types.NoScope
-			if b.Scope != nil {
-				scope = *b.Scope
-			}
-			if err := rt.Store.UpsertEmbedding(ctx, b.ID, scope, vecs[i]); err != nil {
-				return err
-			}
 		}
 		after = batch[len(batch)-1].ID
 	}
+}
+
+func (rt *Runtime) embedBatch(ctx context.Context, batch []db.UnembeddedEvent) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	dims := rt.Cfg.Embeddings.Dimensions
+	rec := rt.recorder(nil, types.OutboundEmbedding)
+	texts := make([]string, len(batch))
+	for i, b := range batch {
+		texts[i] = truncate(b.Text, 8000)
+	}
+	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, texts, rec)
+	if err != nil {
+		return err
+	}
+	for i, b := range batch {
+		if len(vecs[i]) != dims {
+			return fmt.Errorf("embedding model returned %d dimensions, embeddings.dimensions is %d", len(vecs[i]), dims)
+		}
+		scope := types.NoScope
+		if b.Scope != nil {
+			scope = *b.Scope
+		}
+		if err := rt.Store.UpsertEmbedding(ctx, b.ID, scope, vecs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

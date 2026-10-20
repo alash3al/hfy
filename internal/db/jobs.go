@@ -21,9 +21,6 @@ type NewJob struct {
 	// DedupeStates, when set, skips the insert if a job of the same type is
 	// already in one of these states.
 	DedupeStates []types.JobState
-	// DedupeFuture narrows the dedupe to jobs that have not become runnable
-	// yet. Only such a job is guaranteed to start after the caller commits.
-	DedupeFuture bool
 }
 
 // SessionKey is the concurrency key that serializes a session's jobs.
@@ -55,7 +52,6 @@ func (s *Store) Enqueue(ctx context.Context, q DBTX, j NewJob) (bool, error) {
 	err = q.QueryRow(ctx, s.q("EnqueueJob"), pgx.NamedArgs{
 		"type": string(j.Type), "queue": j.Queue, "payload": payload, "run_at": j.RunAt,
 		"max_attempts": j.MaxAttempts, "key": key, "dedupe_states": states,
-		"dedupe_future": j.DedupeFuture,
 	}).Scan(&id)
 	if IsNotFound(err) {
 		return false, nil

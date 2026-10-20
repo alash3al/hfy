@@ -37,6 +37,13 @@ func (s *Store) MissingEmbeddings(ctx context.Context, after int64, limit int) (
 		pgx.NamedArgs{"after": after, "limit": limit, "model": s.emb.Model}))
 }
 
+// UnembeddedByIDs returns those of the given message.text events that have no
+// embedding for the configured model yet.
+func (s *Store) UnembeddedByIDs(ctx context.Context, ids []int64) ([]UnembeddedEvent, error) {
+	return collect[UnembeddedEvent](s.Pool.Query(ctx, s.q("UnembeddedByIDs"),
+		pgx.NamedArgs{"ids": ids, "model": s.emb.Model}))
+}
+
 func (s *Store) UpsertEmbedding(ctx context.Context, eventID int64, scope string, vec []float32) error {
 	_, err := s.Pool.Exec(ctx, s.q("UpsertEmbedding"), pgx.NamedArgs{
 		"id": eventID, "scope": scope, "model": s.emb.Model, "embedding": VectorLiteral(vec),

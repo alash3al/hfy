@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/harness"
 	"github.com/alash3al/hfy/internal/provider"
@@ -20,7 +21,7 @@ func (rt *Runtime) registerHarness() {
 	if rt.Cfg.Embeddings != nil {
 		rt.harness.Add(harness.SessionSearchTool(), rt.sessionSearch)
 	}
-	for _, name := range config_sorted(rt.Subs) {
+	for _, name := range config.SortedKeys(rt.Subs) {
 		sub := rt.Subs[name]
 		rt.harness.Add(harness.SubagentTool(name, sub.Description),
 			func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
@@ -33,15 +34,6 @@ func (rt *Runtime) registerHarness() {
 				return rt.runSubagent(ctx, sub, in.Task)
 			})
 	}
-}
-
-func config_sorted(m map[string]*Spec) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 type searchArgs struct {

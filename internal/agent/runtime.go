@@ -6,13 +6,11 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
@@ -123,7 +121,7 @@ func (rt *Runtime) Boot(ctx context.Context) error {
 		return err
 	}
 	if rt.Cfg.Embeddings != nil {
-		if err := rt.Svc.EnqueueEmbed(ctx, rt.Store.Pool); err != nil {
+		if err := rt.Svc.EnqueueEmbed(ctx, rt.Store.Pool); err != nil { // backfill
 			return err
 		}
 	}
@@ -158,10 +156,6 @@ func inlineImages(c *provider.Client) bool {
 	}
 	return !strings.Contains(h, ".") // docker/k8s service names
 }
-
-func errf(format string, a ...any) error { return fmt.Errorf(format, a...) }
-
-var _ = time.Second
 
 // ListenCancel relays stop requests (NOTIFY from any instance) to the turn
 // running in this process. It blocks until ctx ends.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
 )
 
@@ -73,12 +74,38 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := strings.Join(plan, "\n")
-			t.Log("\n" + text)
 			for _, bad := range c.bad {
 				if strings.Contains(text, bad) {
 					t.Errorf("%s uses %q:\n%s", c.name, bad, text)
 				}
 			}
 		})
+	}
+}
+
+func TestEmbeddingsBackfillUsesTheMessageIndex(t *testing.T) {
+	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
+	ctx := context.Background()
+	for _, q := range []string{
+		`INSERT INTO actors (type, ref) VALUES ('anonymous', 'n/a')`,
+		`INSERT INTO sessions SELECT FROM generate_series(1, 3)`,
+		`INSERT INTO session_events (session_id, actor_id, scope, type, data, ephemeral)
+		 SELECT 1 + g % 3, 1, 'n/a', CASE WHEN g % 10 = 0 THEN 'message.text' ELSE 'text.delta' END,
+		        '{"text":"x"}', g % 10 <> 0
+		 FROM generate_series(1, 30000) g`,
+		`ANALYZE`,
+	} {
+		if _, err := s.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := s.Pool.Query(ctx, "EXPLAIN "+s.SQL("MissingEmbeddings"), pgx.NamedArgs{"after": 0, "limit": 32, "model": "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _ := pgx.CollectRows(rows, pgx.RowTo[string])
+	// Without the partial index the planner walks every event by primary key.
+	if text := strings.Join(plan, "\n"); !strings.Contains(text, "session_events_message_text_idx") {
+		t.Fatalf("backfill does not use the message.text index:\n%s", text)
 	}
 }
