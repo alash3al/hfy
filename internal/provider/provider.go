@@ -283,7 +283,7 @@ func redactBody(body []byte) json.RawMessage {
 				t[i] = walk(e)
 			}
 		case string:
-			if strings.HasPrefix(t, "data:") && len(t) > 64 {
+			if strings.HasPrefix(t, "data:") && strings.Contains(t, ";base64,") {
 				return "[inline attachment]"
 			}
 		}

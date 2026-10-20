@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -408,4 +410,52 @@ func postWithoutWorker(e *env) int64 {
 	e.store.Pool.Exec(e.ctx, "DELETE FROM jobs WHERE type='run_turn'")
 	id, _ := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
 	return id
+}
+
+func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
+	png := []byte("\x89PNG fake image bytes")
+	files := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(png)
+	}))
+	defer files.Close()
+	host := strings.TrimPrefix(files.URL, "http://")
+	host = host[:strings.LastIndex(host, ":")]
+
+	e := setup(t, func(c *config.Config) {
+		c.Agent.Settings.Vision = true
+		c.Attachments = &config.Attachments{AllowedHosts: []string{host}, Types: []string{"image/png"}, MaxBytes: 1 << 20}
+	}, fakeprov.Step{Content: "nice picture"}, fakeprov.Step{Content: "still here"})
+
+	post := func(text string, atts ...types.Attachment) int64 {
+		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil, nil)
+		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: e.user, Scope: types.NoScope, Vars: vars, Text: text, Attachments: atts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
+		return id
+	}
+	t1 := post("look", types.Attachment{URL: files.URL + "/a.png", Mime: "image/png"})
+	e.waitState(t1, types.StateCompleted)
+	// A local provider cannot fetch URLs, so the harness inlines the bytes.
+	user := e.fake.Reqs()[0]["messages"].([]any)[1].(map[string]any)["content"].([]any)
+	img := user[1].(map[string]any)["image_url"].(map[string]any)["url"].(string)
+	if !strings.HasPrefix(img, "data:image/png;base64,") || user[0].(map[string]any)["text"] != "look" {
+		t.Fatalf("first turn content: %v", user)
+	}
+	// The stored trace does not keep the inlined bytes.
+	var leaked int
+	e.store.Pool.QueryRow(e.ctx, `SELECT count(*) FROM outbound_requests WHERE request::text LIKE '%base64,%'`).Scan(&leaked)
+	if leaked != 0 {
+		t.Fatal("inline image bytes were stored in outbound_requests")
+	}
+
+	t2 := post("and now?")
+	e.waitState(t2, types.StateCompleted)
+	msgs := e.fake.Reqs()[1]["messages"].([]any)
+	first := msgs[1].(map[string]any)["content"]
+	if s, ok := first.(string); !ok || !strings.Contains(s, "[image: image/png]") {
+		t.Fatalf("later turns get a placeholder, got %v", first)
+	}
 }

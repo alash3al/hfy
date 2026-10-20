@@ -5,5 +5,5 @@ FROM session_events e
 JOIN actors a ON a.id = e.actor_id
 LEFT JOIN session_events p ON p.id = e.parent_id
 WHERE e.session_id = @session AND e.id > @after
-ORDER BY e.id
+ORDER BY e.session_id, e.id
 LIMIT @limit

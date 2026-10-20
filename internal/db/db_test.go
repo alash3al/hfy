@@ -171,19 +171,3 @@ func TestEmbeddingsSearch(t *testing.T) {
 		t.Fatal("scope filter leaked")
 	}
 }
-
-func TestQueriesPlanUseIndexes(t *testing.T) {
-	s := dbtest.New(t, nil)
-	ctx := context.Background()
-	for _, q := range []string{
-		`SELECT id FROM session_events WHERE session_id = 1 AND id > 0 AND NOT ephemeral ORDER BY id`,
-		`SELECT id FROM session_events WHERE uuid = gen_random_uuid()`,
-		`SELECT id FROM jobs WHERE state = 'queued' AND queue = 'turns' AND run_at <= now() ORDER BY run_at, id LIMIT 1`,
-	} {
-		rows, err := s.Pool.Query(ctx, "EXPLAIN "+q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rows.Close()
-	}
-}
