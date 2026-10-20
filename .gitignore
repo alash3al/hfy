@@ -1,0 +1,5 @@
+HANDOFF.md
+agent.yaml
+.idea/
+/bin/
+*.local.yaml

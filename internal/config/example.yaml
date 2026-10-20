@@ -1,0 +1,79 @@
+# hfy — a simple harness as a service. One agent, served over HTTP.
+# ${VAR} reads the environment, ${VAR:-default} supplies a fallback, $$ is a literal $.
+
+server:
+  listen: ":8080"                    # optional (default :8080)
+  secret: ${HFY_SERVER_SECRET}       # required: protects server-to-server endpoints
+
+# auth:                              # optional; omit = no auth, vars come from the client
+#   webhook: http://localhost:8000/agent-auth
+#   timeout: 2s
+
+storage:                             # sessions, events, jobs, trace, vectors (pgvector 0.8.0+)
+  url: ${DATABASE_URL}
+
+# queue:                             # optional; defaults shown
+#   workers: 4
+#   lease: 30s
+#   max_attempts: 3
+
+# retention:                         # optional; default shown
+#   trace: 30d                       # ephemeral events + outbound_requests
+
+providers:                           # OpenAI-compatible: URL + key + request timeout
+  local:
+    url: http://localhost:11434/v1
+    timeout: 60s
+  # openrouter:
+  #   url: https://openrouter.ai/api/v1
+  #   api_key: ${OPENROUTER_API_KEY}
+
+# mcp:                               # ALL external tools come from here
+#   files:
+#     type: local
+#     command: [mcp-filesystem, /data]
+#     environment: { LOG: "1" }
+#   search:
+#     type: remote
+#     url: https://search.example.com/mcp
+#     headers: { Authorization: "Bearer ${SEARCH_TOKEN}" }
+
+# embeddings:                        # optional; omit = session_search is disabled
+#   model: local/nomic-embed-text
+#   dimensions: 768
+
+# attachments:                       # optional; omit = attachments are rejected
+#   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]
+#   types: [image/png, image/jpeg, image/webp]
+#   max_bytes: 5MB
+
+agent:                               # the one agent clients talk to
+  model: local/gemma3:1b             # <provider>/<model>
+  settings: { temperature: 0.2, context_window: 8192, vision: false }
+  system: |
+    You help {{user_name}} at {{company}}.
+  vars:                              # only declared vars are accepted
+    user_name: { required: true, max_length: 100 }
+    company:   { default: "Acme" }
+  limits:                            # per turn; every field optional
+    steps: 20
+    total_tokens: 20000
+    timeout: 120s
+  # approval:                        # omit = no approvals
+  #   tools: [files.write_*, files.delete_*]
+  #   timeout: 10m
+  # mcp: [files, search]             # optional; omit = all MCP servers via tool search
+
+# subagents:                         # exposed to the main agent as harness.<name>
+#   refunds:
+#     description: Decides whether an order is eligible for a refund
+#     model: local/gemma3:1b
+#     system: You are a refunds specialist. Answer concisely.
+#     mcp: [search]
+#     limits: { steps: 10 }
+
+# summarizer:                        # harness-triggered, never callable by the model
+#   model: local/gemma3:1b
+#   settings: { temperature: 0, context_window: 8192 }
+#   keep_recent: 3                   # last N turns stay verbatim
+#   # system: ...                    # optional; the embedded default is used otherwise
