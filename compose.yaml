@@ -1,0 +1,30 @@
+# One instance = one agent = one tenant. Run another copy of this stack for
+# another app. `serve --work` runs API and workers together; for scale, run
+# `serve` and `queue:work` as separate services.
+services:
+  db:
+    image: pgvector/pgvector:pg17          # pgvector 0.8.0+ is required
+    environment:
+      POSTGRES_PASSWORD: hfy
+      POSTGRES_DB: hfy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hfy"]
+      interval: 3s
+      retries: 20
+
+  hfy:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:hfy@db:5432/hfy?sslmode=disable
+      HFY_SERVER_SECRET: ${HFY_SERVER_SECRET:?set HFY_SERVER_SECRET}
+    volumes:
+      - ./harness.yaml:/etc/hfy/harness.yaml:ro
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

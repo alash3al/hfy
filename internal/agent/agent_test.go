@@ -74,7 +74,9 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	}
 	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance})
 	rt.RegisterJobs(w)
-	go w.Run(ctx, 2)
+	if cfg.Queue.Workers > 0 { // tests that drive RunTurn by hand set Workers to 0
+		go w.Run(ctx, cfg.Queue.Workers)
+	}
 	go rt.ListenCancel(ctx)
 	time.Sleep(200 * time.Millisecond) // let the listeners attach
 
@@ -364,52 +366,68 @@ func TestStopWhileAwaitingApproval(t *testing.T) {
 }
 
 func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} }, fakeprov.Step{Content: "recovered"})
-	// Simulate a worker that died after appending a tool call but before its result.
-	turn := e.post("go") // a worker may already have taken it; make the state deterministic below
-	e.waitState(turn, types.StateCompleted)
-
-	e2 := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} })
-	e2.rt.Boot(e2.ctx)
-	t2 := postWithoutWorker(e2)
-	main, _ := e2.store.FindOrCreateActor(e2.ctx, types.ActorAgent, "main")
-	row, _ := e2.store.EventByID(e2.ctx, t2)
-	e2.rt.Svc.StartTurn(e2.ctx, e2.sess.ID, t2)
-	e2.store.AppendEvent(e2.ctx, e2.store.Pool, db.NewEvent{SessionID: e2.sess.ID, ParentID: &t2, ActorID: main, Scope: row.Scope,
+	// No workers: this test plays the part of the worker that runs again after a crash.
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Queue.Workers = 0
+	}, fakeprov.Step{Content: "I will check first"})
+	turn := e.post("go")
+	if ok, err := e.rt.Svc.StartTurn(e.ctx, e.sess.ID, turn); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	// The first worker appended a tool call and died before writing its result.
+	main, _ := e.store.FindOrCreateActor(e.ctx, types.ActorAgent, "main")
+	row, _ := e.store.EventByID(e.ctx, turn)
+	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main, Scope: row.Scope,
 		Payload: types.ToolCall{Name: "files.write_file", CallID: "lost", Arguments: json.RawMessage(`{"text":"x"}`)}})
-	e2.fake.Push(fakeprov.Step{Content: "I will check first"})
 
-	// the lease expired and the job runs again: attempt 2
-	err := e2.rt.RunTurn(e2.ctx, svc.RunTurnPayload{TurnEventID: t2}, db.JobRow{Attempts: 2})
-	if err != nil {
+	// The lease expired and the job runs again: attempt 2.
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(e2.find(t2, types.EventToolCallInterrupted)); n != 1 {
-		t.Fatalf("interrupted markers: %d\n%s", n, e2.dump(t2))
+	if n := len(e.find(turn, types.EventToolCallInterrupted)); n != 1 {
+		t.Fatalf("interrupted markers: %d\n%s", n, e.dump(turn))
 	}
-	if n := len(e2.find(t2, types.EventToolResult)); n != 0 {
+	if n := len(e.find(turn, types.EventToolResult)); n != 0 {
 		t.Fatal("an in-flight call must never be re-executed")
 	}
-	// the model was told
-	body, _ := json.Marshal(e2.fake.Reqs()[0]["messages"])
+	body, _ := json.Marshal(e.fake.Reqs()[0]["messages"])
 	if !strings.Contains(string(body), "interrupted") {
 		t.Fatalf("model not told about the interruption: %s", body)
 	}
-	e2.waitState(t2, types.StateCompleted)
+	if e.state(turn) != types.StateCompleted {
+		t.Fatalf("state: %s", e.state(turn))
+	}
 }
 
-// postWithoutWorker posts a turn and removes its queued job so tests can drive RunTurn by hand.
-func postWithoutWorker(e *env) int64 {
-	e.t.Helper()
-	e.store.Pool.Exec(e.ctx, "UPDATE jobs SET state='done' WHERE type='run_turn'")
-	e.store.Pool.Exec(e.ctx, "DELETE FROM jobs WHERE type='run_turn'")
-	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: e.user, Scope: types.NoScope, Vars: map[string]string{}, Text: "go"})
-	if err != nil {
-		e.t.Fatal(err)
+func TestApprovedCallIsNotReExecutedAfterACrash(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Queue.Workers = 0
+		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
+	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a"}`}}}, fakeprov.Step{Content: "done"})
+	turn := e.post("go")
+	ctx := e.ctx
+	if err := e.rt.RunTurn(ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
 	}
-	e.store.Pool.Exec(e.ctx, "DELETE FROM jobs WHERE type='run_turn'")
-	id, _ := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
-	return id
+	if e.state(turn) != types.StateAwaitingApproval {
+		t.Fatalf("state: %s", e.state(turn))
+	}
+	if err := e.rt.Svc.Approve(ctx, e.sess.ID, e.user, types.ApprovalDecided{CallID: "w", Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	// The resumed job crashed after the decision: on its second attempt the
+	// approved call may or may not have run, so it must not run again.
+	if err := e.rt.RunTurn(ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.find(turn, types.EventToolResult)); n != 0 {
+		t.Fatalf("approved call re-executed after a crash\n%s", e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventToolCallInterrupted)); n != 1 {
+		t.Fatalf("want one interrupted marker\n%s", e.dump(turn))
+	}
 }
 
 func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {

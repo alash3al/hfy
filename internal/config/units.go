@@ -61,9 +61,13 @@ func (b *ByteSize) UnmarshalYAML(n *yaml.Node) error {
 func ParseBytes(s string) (int64, error) {
 	t := strings.ToUpper(strings.TrimSpace(s))
 	mult := int64(1)
-	for suffix, m := range map[string]int64{"KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30, "B": 1} {
-		if num, ok := strings.CutSuffix(t, suffix); ok {
-			t, mult = strings.TrimSpace(num), m
+	// Longest suffixes first: "5MB" must not match "B". (A map would randomize this.)
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{{"KB", 1 << 10}, {"MB", 1 << 20}, {"GB", 1 << 30}, {"B", 1}} {
+		if num, ok := strings.CutSuffix(t, u.suffix); ok {
+			t, mult = strings.TrimSpace(num), u.mult
 			break
 		}
 	}
