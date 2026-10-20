@@ -127,6 +127,15 @@ func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX, eventIDs ...int64
 	return err
 }
 
+// appendTo appends an event under a turn, copying its scope. Inside a
+// mutation every read and write goes through tx: a second pool connection
+// taken while the transaction holds one deadlocks once the pool is exhausted.
+func (s *Service) appendTo(ctx context.Context, tx pgx.Tx, turn db.EventRow, actor int64, p types.Payload) error {
+	_, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: turn.SessionID, ParentID: &turn.ID,
+		ActorID: actor, Scope: turn.Scope, Payload: p})
+	return err
+}
+
 // EndTurn appends the terminal state of a turn, books its usage on the
 // session, clears the active pointer and chains to the next queued turn.
 // It is idempotent: a turn that already ended is left alone.
@@ -144,7 +153,7 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	} else if cur != nil && cur.State.Terminal() {
 		return nil
 	}
-	turn, err := s.Store.EventByID(ctx, turnID)
+	turn, err := s.Store.EventByID(ctx, tx, turnID)
 	if err != nil {
 		return err
 	}
@@ -152,13 +161,12 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	if err != nil {
 		return err
 	}
-	usage, _, err := s.Store.TurnUsage(ctx, turnID, main)
+	usage, _, err := s.Store.TurnUsage(ctx, tx, turnID, main)
 	if err != nil {
 		return err
 	}
 	st.Usage = &usage
-	if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &turnID, ActorID: main,
-		Scope: turn.Scope, Payload: st}); err != nil {
+	if err := s.appendTo(ctx, tx, turn, main, st); err != nil {
 		return err
 	}
 	if err := s.Store.AddSessionUsage(ctx, tx, sessionID, usage.Input, usage.Output, usage.Cached); err != nil {
@@ -208,7 +216,7 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 		if err != nil || len(open) == 0 || open[0] != turnID {
 			return err // an older turn goes first; its end chains to this one
 		}
-		turn, err := s.Store.EventByID(ctx, turnID)
+		turn, err := s.Store.EventByID(ctx, tx, turnID)
 		if err != nil {
 			return err
 		}
@@ -219,9 +227,7 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 		if st.State == types.StateRunning {
 			return nil // resuming after a crash
 		}
-		_, err = s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &turnID, ActorID: main,
-			Scope: turn.Scope, Payload: types.TurnStateEvent{State: types.StateRunning}})
-		return err
+		return s.appendTo(ctx, tx, turn, main, types.TurnStateEvent{State: types.StateRunning})
 	})
 	return ok, err
 }
@@ -245,12 +251,12 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			if sess.ActiveTurnID != nil && *sess.ActiveTurnID == q {
 				continue
 			}
-			row, err := s.Store.EventByID(ctx, q)
+			turn, err := s.Store.EventByID(ctx, tx, q)
 			if err != nil {
 				return err
 			}
-			if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &q, ActorID: main,
-				Scope: row.Scope, Payload: types.TurnStateEvent{State: types.StateCancelled, Reason: "stop requested"}}); err != nil {
+			if err := s.appendTo(ctx, tx, turn, main,
+				types.TurnStateEvent{State: types.StateCancelled, Reason: "stop requested"}); err != nil {
 				return err
 			}
 		}
@@ -260,23 +266,21 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 		if sess.ActiveTurnID == nil {
 			return nil
 		}
-		active := *sess.ActiveTurnID
-		row, err := s.Store.EventByID(ctx, active)
+		active, err := s.Store.EventByID(ctx, tx, *sess.ActiveTurnID)
 		if err != nil {
 			return err
 		}
-		if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &active, ActorID: actor,
-			Scope: row.Scope, Payload: types.TurnCancelRequested{}}); err != nil {
+		if err := s.appendTo(ctx, tx, active, actor, types.TurnCancelRequested{}); err != nil {
 			return err
 		}
-		st, err := s.Store.TurnStateOf(ctx, tx, active)
+		st, err := s.Store.TurnStateOf(ctx, tx, active.ID)
 		if err != nil {
 			return err
 		}
 		if st != nil && st.State == types.StateAwaitingApproval { // no worker runs it
-			return s.endTurnTx(ctx, tx, sessionID, active, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+			return s.endTurnTx(ctx, tx, sessionID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 		}
-		return s.Store.NotifyCancel(ctx, tx, active)
+		return s.Store.NotifyCancel(ctx, tx, active.ID)
 	})
 }
 
@@ -289,7 +293,7 @@ func (s *Service) Approve(ctx context.Context, sessionID, actor int64, d types.A
 
 // ApprovalTimeout rejects a still-undecided call; it does nothing otherwise.
 func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload) error {
-	turn, err := s.Store.EventByID(ctx, p.TurnEventID)
+	turn, err := s.Store.EventByID(ctx, s.Store.Pool, p.TurnEventID)
 	if err != nil {
 		return err
 	}
@@ -315,31 +319,21 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, sessionID, actor int64,
 	if sess.ActiveTurnID == nil {
 		return ErrNoPendingApproval
 	}
-	turnID := *sess.ActiveTurnID
-	st, err := s.Store.TurnStateOf(ctx, tx, turnID)
+	events, err := s.Store.TurnEvents(ctx, tx, *sess.ActiveTurnID)
 	if err != nil {
 		return err
 	}
-	if st == nil || st.State != types.StateAwaitingApproval {
+	v, err := ViewOf(events)
+	if err != nil {
+		return err
+	}
+	if _, decided := v.Decided[d.CallID]; v.State != types.StateAwaitingApproval || !v.Requested[d.CallID] || decided {
 		return ErrNoPendingApproval
 	}
-	events, err := s.Store.TurnEvents(ctx, tx, turnID)
-	if err != nil {
+	if err := s.appendTo(ctx, tx, events[0], actor, d); err != nil { // events[0] is the turn
 		return err
 	}
-	v := ViewOf(events)
-	if _, decided := v.Decided[d.CallID]; !v.Requested[d.CallID] || decided {
-		return ErrNoPendingApproval
-	}
-	turn, err := s.Store.EventByID(ctx, turnID)
-	if err != nil {
-		return err
-	}
-	if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &turnID, ActorID: actor,
-		Scope: turn.Scope, Payload: d}); err != nil {
-		return err
-	}
-	return s.enqueueRun(ctx, tx, sessionID, turnID)
+	return s.enqueueRun(ctx, tx, sessionID, events[0].ID)
 }
 
 // RequestApproval pauses the running turn on a tool call. The request, the
@@ -359,16 +353,19 @@ func (s *Service) RequestApproval(ctx context.Context, sessionID, turnID int64, 
 		if err != nil {
 			return err
 		}
-		if ViewOf(events).Cancelled {
+		v, err := ViewOf(events)
+		if err != nil {
+			return err
+		}
+		if v.Cancelled {
 			return ErrStopRequested
 		}
-		scope := events[0].Scope // the turn event comes first
-		for _, p := range []types.Payload{types.ApprovalRequested{CallID: callID},
-			types.TurnStateEvent{State: types.StateAwaitingApproval}} {
-			if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sessionID, ParentID: &turnID,
-				ActorID: main, Scope: scope, Payload: p}); err != nil {
-				return err
-			}
+		turn := events[0]
+		if err := s.appendTo(ctx, tx, turn, main, types.ApprovalRequested{CallID: callID}); err != nil {
+			return err
+		}
+		if err := s.appendTo(ctx, tx, turn, main, types.TurnStateEvent{State: types.StateAwaitingApproval}); err != nil {
+			return err
 		}
 		at := time.Now().Add(s.Cfg.Agent.Approval.Timeout.D())
 		_, err = s.Store.Enqueue(ctx, tx, db.NewJob{

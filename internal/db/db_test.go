@@ -41,7 +41,7 @@ func TestEventsAndActors(t *testing.T) {
 	if env.Parent == nil || *env.Parent != turn.UUID || env.Actor.Ref != "u1" {
 		t.Fatalf("bad envelope %+v", env)
 	}
-	if mt, err := types.PayloadOf[types.MessageText](env); err != nil || mt.Text != "hi" {
+	if mt, err := db.Decode[types.MessageText](msg); err != nil || mt.Text != "hi" {
 		t.Fatalf("payload: %v %v", mt, err)
 	}
 	hist, _ := s.HistoryEvents(ctx, sess.ID, []int64{turn.ID})

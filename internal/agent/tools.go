@@ -116,7 +116,7 @@ func (rt *Runtime) sessionSearch(ctx context.Context, raw json.RawMessage) (mcp.
 		return mcp.Result{}, errors.New("session_search needs a turn")
 	}
 	// The harness injects the scope; the model never passes it.
-	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, []string{truncate(a.Query, 8000)},
+	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, []string{truncate(a.Query, maxEmbedChars)},
 		rt.recorder(&cc.env.TurnID, types.OutboundEmbedding))
 	if err != nil {
 		return errResult("search is unavailable: " + err.Error()), nil
@@ -131,6 +131,9 @@ func (rt *Runtime) sessionSearch(ctx context.Context, raw json.RawMessage) (mcp.
 	b, _ := json.Marshal(hits)
 	return mcp.Result{Content: string(b)}, nil
 }
+
+// maxEmbedChars caps text sent to the embedding model (stored and queried alike).
+const maxEmbedChars = 8000
 
 func truncate(s string, n int) string {
 	if len(s) <= n {

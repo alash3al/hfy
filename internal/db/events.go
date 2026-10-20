@@ -7,7 +7,6 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -48,8 +47,10 @@ type NewEvent struct {
 // the session id), so a session's event ids commit in id order. The stream and
 // Last-Event-ID resume rely on that: without it, an event that took a lower id
 // but committed later would be skipped forever.
+//
+// q should be the caller's transaction; anything else gets its own.
 func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow, error) {
-	if _, ok := q.(*pgxpool.Pool); ok {
+	if _, ok := q.(pgx.Tx); !ok {
 		var row EventRow
 		err := s.Tx(ctx, func(tx pgx.Tx) error {
 			var err error
@@ -81,8 +82,8 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 	return row, err
 }
 
-func (s *Store) EventByID(ctx context.Context, id int64) (EventRow, error) {
-	return one[EventRow](s.Pool.Query(ctx, s.q("SelectEventByID"), pgx.NamedArgs{"id": id}))
+func (s *Store) EventByID(ctx context.Context, q DBTX, id int64) (EventRow, error) {
+	return one[EventRow](q.Query(ctx, s.q("SelectEventByID"), pgx.NamedArgs{"id": id}))
 }
 
 // EventIDByUUID maps a public event uuid (cursor, Last-Event-ID) to its internal id.
@@ -165,8 +166,8 @@ func (s *Store) QueuedTurns(ctx context.Context, q DBTX, session, after int64) (
 // TurnUsage sums every model.usage event of a turn (sub-agents and the
 // summarizer included); calls counts only the given actor's (the main agent's
 // steps).
-func (s *Store) TurnUsage(ctx context.Context, turn, actor int64) (u types.Usage, calls int64, err error) {
-	err = s.Pool.QueryRow(ctx, s.q("TurnUsage"), pgx.NamedArgs{"turn": turn, "actor": actor}).
+func (s *Store) TurnUsage(ctx context.Context, q DBTX, turn, actor int64) (u types.Usage, calls int64, err error) {
+	err = q.QueryRow(ctx, s.q("TurnUsage"), pgx.NamedArgs{"turn": turn, "actor": actor}).
 		Scan(&u.Input, &u.Output, &u.Cached, &calls)
 	return
 }

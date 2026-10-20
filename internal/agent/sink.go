@@ -3,9 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"path"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
@@ -66,7 +69,8 @@ func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provide
 			TurnEventID: turnID, Kind: kind, URL: r.URL, Request: r.Request, Response: r.Response,
 			StatusCode: r.Status, LatencyMS: r.LatencyMS, Attempt: r.Attempt, Error: r.Error,
 		})
-		if err != nil {
+		if err != nil { // the call itself goes on; only its trace is lost
+			slog.Warn("record outbound request", "turn", turnID, "kind", kind, "url", r.URL, "err", err)
 			return 0
 		}
 		return id
@@ -94,16 +98,16 @@ func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, actor int64) *t
 }
 
 func (s *turnSink) append(ctx context.Context, p types.Payload, req *int64) error {
-	_, err := s.appendRow(ctx, p, req)
+	_, err := s.appendRow(ctx, s.rt.Store.Pool, p, req)
 	return err
 }
 
-func (s *turnSink) appendRow(ctx context.Context, p types.Payload, req *int64) (db.EventRow, error) {
+func (s *turnSink) appendRow(ctx context.Context, q db.DBTX, p types.Payload, req *int64) (db.EventRow, error) {
 	var rid *int64
 	if req != nil && *req != 0 {
 		rid = req
 	}
-	return s.rt.Store.AppendEvent(ctx, s.rt.Store.Pool, db.NewEvent{
+	return s.rt.Store.AppendEvent(ctx, q, db.NewEvent{
 		SessionID: s.env.SessionID, ParentID: &s.env.TurnID, ActorID: s.actor,
 		Scope: s.env.Scope, Payload: p, RequestID: rid})
 }
@@ -137,11 +141,19 @@ func (s *turnSink) flush(ctx context.Context) {
 	text, reason := s.text, s.reason
 	s.text, s.reason, s.timer = "", "", nil
 	s.mu.Unlock()
+	// Deltas are a live preview; the step's message.text is the record. A lost
+	// delta is logged, not fatal.
 	if reason != "" {
-		s.append(ctx, types.ReasoningDelta{Text: types.Clean(reason)}, nil)
+		s.warn(s.append(ctx, types.ReasoningDelta{Text: types.Clean(reason)}, nil), "reasoning delta")
 	}
 	if text != "" {
-		s.append(ctx, types.TextDelta{Text: types.Clean(text)}, nil)
+		s.warn(s.append(ctx, types.TextDelta{Text: types.Clean(text)}, nil), "text delta")
+	}
+}
+
+func (s *turnSink) warn(err error, what string) {
+	if err != nil && s.ctx.Err() == nil {
+		slog.Warn("append "+what, "session", s.env.SessionID, "turn", s.env.TurnID, "err", err)
 	}
 }
 
@@ -162,14 +174,15 @@ func (s *turnSink) Step(ctx context.Context, o StepOut) error {
 		}
 	}
 	if o.Text != "" {
-		row, err := s.appendRow(ctx, types.MessageText{Text: o.Text}, &o.RequestID)
-		if err != nil {
-			return err
-		}
-		if s.rt.Cfg.Embeddings != nil {
-			if err := s.rt.Svc.EnqueueEmbed(ctx, s.rt.Store.Pool, row.ID); err != nil {
+		err := s.rt.Store.Tx(ctx, func(tx pgx.Tx) error { // the reply and its embed job commit together
+			row, err := s.appendRow(ctx, tx, types.MessageText{Text: o.Text}, &o.RequestID)
+			if err != nil || s.rt.Cfg.Embeddings == nil {
 				return err
 			}
+			return s.rt.Svc.EnqueueEmbed(ctx, tx, row.ID)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return s.append(ctx, types.ModelUsage{Model: o.Model, Input: o.Usage.Input, Output: o.Usage.Output,
@@ -187,7 +200,9 @@ func (s *turnSink) FlushPartial(ctx context.Context) {
 	s.mu.Unlock()
 	s.flush(ctx)
 	if partial != "" {
-		s.append(ctx, types.MessageText{Text: types.Clean(partial)}, nil)
+		if err := s.append(ctx, types.MessageText{Text: types.Clean(partial)}, nil); err != nil {
+			slog.Error("keep partial reply", "session", s.env.SessionID, "turn", s.env.TurnID, "err", err)
+		}
 	}
 }
 

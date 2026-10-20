@@ -165,10 +165,29 @@ Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,auth,svc,provider}`;
 migrations, SQL queries, prompts and the example config are embedded in the
 binary. `hfy.New(cfg).Run(ctx)` embeds the harness in another Go program.
 
+### Conventions
+
+- **The event log is the truth.** State is read by folding events
+  (`svc.ViewOf`, `agent.BuildContext`); events are never updated. Payloads are
+  read back with `db.Decode[T]`, and a payload that does not decode is an error,
+  never skipped.
+- **`svc` owns turn state.** Every `turn.state` change (post, start, pause,
+  stop, approve, end) is a `svc` method that locks the session row; the agent
+  appends only what it produces (text, calls, results, usage).
+- **One transaction, one connection.** Inside `Store.Tx`, every read and write
+  goes through `tx`. A pool read inside a transaction deadlocks once the pool
+  runs out (`TestMutationsNeedOneConnection`).
+- **Writes that belong together commit together**: an event and the job it
+  implies (an embed, a run, an approval timeout) share a transaction.
+- **Jobs are fenced by attempt.** Handlers are retried and may be cut off, so
+  they resume from the log and never repeat side effects blindly.
+- **No silent failure.** An error is returned, or logged with its session and
+  turn when nothing can act on it (deltas, traces).
+
 ### Departures from the design handoff
 
 - Generic methods compile on Go 1.27.3 but `go vet`, `gofmt` and gopls reject
-  them, so the same API is generic functions (`types.PayloadOf[T](e)`).
+  them, so the same API is generic functions (`db.Decode[T](e)`, `jobs.Handle[P]`).
 - The `LISTEN` connection is opened separately instead of being held out of the
   pool (same effect, simpler lifecycle).
 - Decisions the handoff left open: `embeddings:` is optional; sub-agent steps

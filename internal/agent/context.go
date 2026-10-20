@@ -3,9 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"uuid"
 
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
@@ -23,15 +26,9 @@ type BuiltContext struct {
 // BuildContext = the latest summary + the durable events of the turns after
 // the ones it covers, up to and including the current turn. One query.
 func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int64, spec *Spec) (*BuiltContext, error) {
-	summary, err := rt.Store.Summary(ctx, sessionID)
+	summary, after, err := rt.summaryStart(ctx, sessionID)
 	if err != nil {
 		return nil, err
-	}
-	var after int64
-	if summary != nil {
-		if id, err := rt.Store.TurnIDByUUID(ctx, sessionID, mustUUID(summary.CoversUntilTurn)); err == nil {
-			after = id
-		}
 	}
 	events, err := rt.Store.LoadContext(ctx, sessionID, after, currentTurn)
 	if err != nil {
@@ -39,13 +36,17 @@ func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int6
 	}
 	bc := &BuiltContext{Vars: map[string]string{}}
 	for _, e := range events {
-		if e.Type == types.EventTurn {
-			bc.Turns = append(bc.Turns, e.ID)
-			if e.ID == currentTurn {
-				var t types.Turn
-				if json.Unmarshal(e.Data, &t) == nil && t.Vars != nil {
-					bc.Vars = t.Vars
-				}
+		if e.Type != types.EventTurn {
+			continue
+		}
+		bc.Turns = append(bc.Turns, e.ID)
+		if e.ID == currentTurn {
+			t, err := db.Decode[types.Turn](e)
+			if err != nil {
+				return nil, err
+			}
+			if t.Vars != nil {
+				bc.Vars = t.Vars
 			}
 		}
 	}
@@ -53,13 +54,33 @@ func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int6
 	if summary != nil {
 		bc.System += "\n\nSummary of the earlier conversation:\n" + summary.Text
 	}
-	bc.Msgs = rt.messagesFrom(ctx, events, currentTurn, spec)
+	if bc.Msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec); err != nil {
+		return nil, err
+	}
 	return bc, nil
+}
+
+// summaryStart returns the session's latest summary (nil if none) and the id
+// of the last turn it covers (0 if none): context starts after that turn.
+func (rt *Runtime) summaryStart(ctx context.Context, sessionID int64) (*types.Summary, int64, error) {
+	summary, err := rt.Store.Summary(ctx, sessionID)
+	if err != nil || summary == nil {
+		return nil, 0, err
+	}
+	u, err := uuid.Parse(summary.CoversUntilTurn)
+	if err != nil {
+		return nil, 0, fmt.Errorf("summary of session %d: bad covers_until_turn_id: %w", sessionID, err)
+	}
+	after, err := rt.Store.TurnIDByUUID(ctx, sessionID, u)
+	if err != nil {
+		return nil, 0, fmt.Errorf("summary of session %d: covered turn %s: %w", sessionID, u, err)
+	}
+	return summary, after, nil
 }
 
 // messagesFrom turns events into provider messages. Only message.text,
 // tool_call, tool_call.interrupted and tool_result reach the model.
-func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec) []provider.Message {
+func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
 	pending := map[string]bool{}
@@ -69,12 +90,13 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			asst = nil
 		}
 	}
+	interrupted := strings.TrimSpace(promptInterrupted)
 	for _, e := range events {
 		switch e.Type {
 		case types.EventMessageText:
-			var m types.MessageText
-			if json.Unmarshal(e.Data, &m) != nil {
-				continue
+			m, err := db.Decode[types.MessageText](e)
+			if err != nil {
+				return nil, err
 			}
 			flush()
 			if e.ActorType == string(types.ActorAgent) {
@@ -83,44 +105,47 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			}
 			out = append(out, rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec))
 		case types.EventToolCall:
-			var c types.ToolCall
-			if json.Unmarshal(e.Data, &c) != nil {
-				continue
+			c, err := db.Decode[types.ToolCall](e)
+			if err != nil {
+				return nil, err
 			}
 			if asst == nil {
 				asst = &provider.Message{Role: "assistant"}
 			}
 			asst.ToolCalls = append(asst.ToolCalls, provider.ToolCall{
-				ID: c.CallID, Name: wireOf(rt, c.Name), Arguments: argsText(c.Arguments)})
+				ID: c.CallID, Name: mcp.WireNameOf(c.Name), Arguments: argsText(c.Arguments)})
 			pending[c.CallID] = true
 		case types.EventToolResult:
-			var r types.ToolResult
-			if json.Unmarshal(e.Data, &r) != nil || !pending[r.CallID] {
+			r, err := db.Decode[types.ToolResult](e)
+			if err != nil {
+				return nil, err
+			}
+			if !pending[r.CallID] {
 				continue
 			}
 			flush()
 			delete(pending, r.CallID)
-			content := r.Content
-			if r.IsError && !strings.HasPrefix(content, "Error") {
-				content = "Error: " + content
-			}
-			out = append(out, provider.Message{Role: "tool", ToolCallID: r.CallID, Content: content})
+			out = append(out, provider.Message{Role: "tool", ToolCallID: r.CallID,
+				Content: toolText(mcp.Result{Content: r.Content, IsError: r.IsError})})
 		case types.EventToolCallInterrupted:
-			var c types.ToolCallInterrupted
-			if json.Unmarshal(e.Data, &c) != nil || !pending[c.CallID] {
+			c, err := db.Decode[types.ToolCallInterrupted](e)
+			if err != nil {
+				return nil, err
+			}
+			if !pending[c.CallID] {
 				continue
 			}
 			flush()
 			delete(pending, c.CallID)
-			out = append(out, provider.Message{Role: "tool", ToolCallID: c.CallID, Content: strings.TrimSpace(promptInterrupted)})
+			out = append(out, provider.Message{Role: "tool", ToolCallID: c.CallID, Content: interrupted})
 		}
 	}
 	flush()
 	// A call with no result at all (stopped mid-flight) must not break the API contract.
 	for id := range pending {
-		out = append(out, provider.Message{Role: "tool", ToolCallID: id, Content: strings.TrimSpace(promptInterrupted)})
+		out = append(out, provider.Message{Role: "tool", ToolCallID: id, Content: interrupted})
 	}
-	return out
+	return out, nil
 }
 
 // userMessage expands image attachments only in the turn they arrive in; later
@@ -171,13 +196,4 @@ func argsText(raw json.RawMessage) string {
 		return "{}"
 	}
 	return s
-}
-
-// wireOf maps a stored full name ("files.read") to the provider function name.
-func wireOf(rt *Runtime, full string) string {
-	server, tool, ok := strings.Cut(full, ".")
-	if !ok {
-		return full
-	}
-	return wireJoin(server, tool)
 }

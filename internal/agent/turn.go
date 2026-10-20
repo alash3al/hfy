@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"uuid"
 
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
@@ -15,18 +14,9 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-func mustUUID(s string) uuid.UUID {
-	u, _ := uuid.Parse(s)
-	return u
-}
-
-func wireJoin(server, tool string) string {
-	return mcp.WireName(mcp.Tool{Server: server, Name: tool})
-}
-
 // RunTurn is the run_turn job: start (or resume) a turn and run the agent loop.
 func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.JobRow) error {
-	turn, err := rt.Store.EventByID(ctx, p.TurnEventID)
+	turn, err := rt.Store.EventByID(ctx, rt.Store.Pool, p.TurnEventID)
 	if db.IsNotFound(err) {
 		return nil
 	}
@@ -47,7 +37,10 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	view := svc.ViewOf(events)
+	view, err := svc.ViewOf(events)
+	if err != nil {
+		return err
+	}
 	if view.State.Terminal() || (view.State == types.StateAwaitingApproval && !view.Resumable()) {
 		return nil
 	}
@@ -58,7 +51,9 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if events, err = rt.Store.TurnEvents(ctx, rt.Store.Pool, turn.ID); err != nil {
 		return err
 	}
-	view = svc.ViewOf(events)
+	if view, err = svc.ViewOf(events); err != nil {
+		return err
+	}
 
 	fresh := context.WithoutCancel(ctx)
 	if view.Cancelled {
@@ -70,13 +65,15 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		defer stop()
 	}
 
-	var t types.Turn
-	_ = json.Unmarshal(turn.Data, &t)
+	t, err := db.Decode[types.Turn](turn)
+	if err != nil {
+		return err
+	}
 	mainActor, err := rt.Svc.AgentActor(ctx, types.AgentMain)
 	if err != nil {
 		return err
 	}
-	used, calls, err := rt.Store.TurnUsage(ctx, turn.ID, mainActor)
+	used, calls, err := rt.Store.TurnUsage(ctx, rt.Store.Pool, turn.ID, mainActor)
 	if err != nil {
 		return err
 	}
@@ -92,7 +89,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		var bc *BuiltContext
 		if bc, runErr = rt.BuildContext(tctx, turn.SessionID, turn.ID, rt.Main); runErr == nil {
 			l.system, l.msgs, l.lastPrompt = bc.System, bc.Msgs, estimateTokens(bc.System, bc.Msgs)
-			l.deriveActivated()
+			l.deriveActivated(tctx)
 			l.prepare = rt.summarizeHook(env)
 			res, runErr = l.run(tctx)
 		}
@@ -191,10 +188,17 @@ func (rt *Runtime) markInterrupted(ctx context.Context, sink *turnSink, turnID i
 		slog.Error("mark interrupted", "turn", turnID, "err", err)
 		return
 	}
-	v := svc.ViewOf(events)
+	v, err := svc.ViewOf(events)
+	if err != nil {
+		slog.Error("mark interrupted", "turn", turnID, "err", err)
+		return
+	}
 	for _, c := range v.Calls {
-		if !v.Done[c.CallID] {
-			sink.append(ctx, types.ToolCallInterrupted{CallID: c.CallID}, nil)
+		if v.Done[c.CallID] {
+			continue
+		}
+		if err := sink.append(ctx, types.ToolCallInterrupted{CallID: c.CallID}, nil); err != nil {
+			slog.Error("mark interrupted", "turn", turnID, "call", c.CallID, "err", err)
 		}
 	}
 }
@@ -202,11 +206,13 @@ func (rt *Runtime) markInterrupted(ctx context.Context, sink *turnSink, turnID i
 // OnTurnExhausted ends a turn whose job ran out of attempts.
 func (rt *Runtime) OnTurnExhausted(ctx context.Context, job db.JobRow, err error) {
 	var p svc.RunTurnPayload
-	if json.Unmarshal(job.Payload, &p) != nil {
+	if jerr := json.Unmarshal(job.Payload, &p); jerr != nil {
+		slog.Error("end exhausted turn: bad payload", "job", job.ID, "err", jerr)
 		return
 	}
-	turn, gerr := rt.Store.EventByID(ctx, p.TurnEventID)
+	turn, gerr := rt.Store.EventByID(ctx, rt.Store.Pool, p.TurnEventID)
 	if gerr != nil {
+		slog.Error("end exhausted turn", "turn", p.TurnEventID, "err", gerr)
 		return
 	}
 	msg := fmt.Sprintf("worker gave up after %d attempts: %v", job.Attempts, err)

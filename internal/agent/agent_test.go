@@ -377,7 +377,7 @@ func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
 	}
 	// The first worker appended a tool call and died before writing its result.
 	main, _ := e.store.FindOrCreateActor(e.ctx, types.ActorAgent, "main")
-	row, _ := e.store.EventByID(e.ctx, turn)
+	row, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
 	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main, Scope: row.Scope,
 		Payload: types.ToolCall{Name: "files.write_file", CallID: "lost", Arguments: json.RawMessage(`{"text":"x"}`)}})
 
@@ -494,7 +494,7 @@ func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // the model call is in flight
 
 	// What Stop commits, minus the notification, which has not arrived yet.
-	row, _ := e.store.EventByID(e.ctx, turn)
+	row, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
 	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: e.user,
 		Scope: row.Scope, Payload: types.TurnCancelRequested{}})
 	close(block)

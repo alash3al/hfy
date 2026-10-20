@@ -1,8 +1,6 @@
 package svc
 
 import (
-	"encoding/json"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -18,45 +16,43 @@ type TurnView struct {
 	Decided   map[string]types.ApprovalDecided
 }
 
-func ViewOf(events []db.EventRow) TurnView {
+func ViewOf(events []db.EventRow) (TurnView, error) {
 	v := TurnView{Done: map[string]bool{}, Requested: map[string]bool{}, Decided: map[string]types.ApprovalDecided{}}
+	var err error
 	for _, e := range events {
 		switch e.Type {
 		case types.EventTurnState:
 			var s types.TurnStateEvent
-			if json.Unmarshal(e.Data, &s) == nil {
-				v.State = s.State
-			}
+			s, err = db.Decode[types.TurnStateEvent](e)
+			v.State = s.State
 		case types.EventTurnCancelRequested:
 			v.Cancelled = true
 		case types.EventToolCall:
 			var c types.ToolCall
-			if json.Unmarshal(e.Data, &c) == nil {
-				v.Calls = append(v.Calls, c)
-			}
+			c, err = db.Decode[types.ToolCall](e)
+			v.Calls = append(v.Calls, c)
 		case types.EventToolResult:
 			var r types.ToolResult
-			if json.Unmarshal(e.Data, &r) == nil {
-				v.Done[r.CallID] = true
-			}
+			r, err = db.Decode[types.ToolResult](e)
+			v.Done[r.CallID] = true
 		case types.EventToolCallInterrupted:
 			var r types.ToolCallInterrupted
-			if json.Unmarshal(e.Data, &r) == nil {
-				v.Done[r.CallID] = true
-			}
+			r, err = db.Decode[types.ToolCallInterrupted](e)
+			v.Done[r.CallID] = true
 		case types.EventApprovalRequested:
 			var a types.ApprovalRequested
-			if json.Unmarshal(e.Data, &a) == nil {
-				v.Requested[a.CallID] = true
-			}
+			a, err = db.Decode[types.ApprovalRequested](e)
+			v.Requested[a.CallID] = true
 		case types.EventApprovalDecided:
 			var a types.ApprovalDecided
-			if json.Unmarshal(e.Data, &a) == nil {
-				v.Decided[a.CallID] = a
-			}
+			a, err = db.Decode[types.ApprovalDecided](e)
+			v.Decided[a.CallID] = a
+		}
+		if err != nil {
+			return v, err
 		}
 	}
-	return v
+	return v, nil
 }
 
 // Resumable reports whether a paused turn has a decision waiting to be applied.

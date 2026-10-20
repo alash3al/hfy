@@ -43,6 +43,15 @@ func WireName(t Tool) string {
 	return wireUnsafe.ReplaceAllString(t.Server, "_") + "__" + wireUnsafe.ReplaceAllString(t.Name, "_")
 }
 
+// WireNameOf is WireName for a stored full name ("files.read").
+func WireNameOf(full string) string {
+	server, tool, ok := strings.Cut(full, ".")
+	if !ok {
+		return full
+	}
+	return WireName(Tool{Server: server, Name: tool})
+}
+
 // Manager holds all sources and resolves full names to calls.
 type Manager struct {
 	mu      sync.RWMutex

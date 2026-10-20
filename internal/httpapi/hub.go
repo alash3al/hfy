@@ -72,7 +72,7 @@ func (h *Hub) Run(ctx context.Context) {
 		if err1 != nil || err2 != nil || !h.wanted(session) {
 			return
 		}
-		row, err := h.store.EventByID(ctx, event)
+		row, err := h.store.EventByID(ctx, h.store.Pool, event)
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.Warn("hub: load event", "event", event, "err", err)

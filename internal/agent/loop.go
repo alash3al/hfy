@@ -22,6 +22,9 @@ var (
 	errTimeout = errors.New("turn timeout")
 )
 
+// toolSearchName is the full name of the built-in tool search.
+const toolSearchName = harness.Server + "." + harness.ToolSearch
+
 const (
 	repeatWarn  = 3 // the third identical call is refused with advice
 	repeatAbort = 6 // the sixth ends the turn
@@ -254,8 +257,8 @@ func (l *loop) finishCall(ctx context.Context, info CallInfo, res mcp.Result) er
 		return err
 	}
 	l.msgs = append(l.msgs, provider.Message{Role: "tool", ToolCallID: info.ID, Content: toolText(res)})
-	if info.Name == harness.Server+"."+harness.ToolSearch && !res.IsError {
-		l.activate(res.Content)
+	if info.Name == toolSearchName && !res.IsError {
+		l.activate(ctx, res.Content)
 	}
 	return nil
 }
@@ -348,47 +351,37 @@ func (l *loop) validNames(lookup map[string]mcp.Tool) string {
 }
 
 // activate unlocks the tools named in a tool_search result.
-func (l *loop) activate(content string) {
-	for _, full := range parseSearchNames(content, l.rt) {
-		l.activated[full] = true
+func (l *loop) activate(ctx context.Context, content string) {
+	var hits []struct {
+		Name string `json:"name"` // wire name
 	}
-}
-
-type searchHit struct {
-	Name string `json:"name"`
-}
-
-func parseSearchNames(content string, rt *Runtime) []string {
-	var hits []searchHit
 	if json.Unmarshal([]byte(content), &hits) != nil {
-		return nil
+		return
 	}
-	ext, _ := rt.MCP.Tools(context.Background(), nil)
+	ext, _ := l.rt.MCP.Tools(ctx, nil)
 	byWire := map[string]string{}
 	for _, t := range ext {
 		byWire[mcp.WireName(t)] = t.FullName()
 	}
-	var out []string
 	for _, h := range hits {
 		if full, ok := byWire[h.Name]; ok {
-			out = append(out, full)
+			l.activated[full] = true
 		}
 	}
-	return out
 }
 
 // deriveActivated rebuilds the unlocked set from earlier tool_search results,
 // so a resumed turn shows the same tools.
-func (l *loop) deriveActivated() {
+func (l *loop) deriveActivated(ctx context.Context) {
 	searchCalls := map[string]bool{}
 	for _, m := range l.msgs {
 		for _, tc := range m.ToolCalls {
-			if tc.Name == harness.Server+"__"+harness.ToolSearch {
+			if tc.Name == mcp.WireNameOf(toolSearchName) {
 				searchCalls[tc.ID] = true
 			}
 		}
 		if m.Role == "tool" && searchCalls[m.ToolCallID] {
-			l.activate(m.Content)
+			l.activate(ctx, m.Content)
 		}
 	}
 }

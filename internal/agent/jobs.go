@@ -88,7 +88,7 @@ func (rt *Runtime) embedBatch(ctx context.Context, batch []db.UnembeddedEvent) e
 	rec := rt.recorder(nil, types.OutboundEmbedding)
 	texts := make([]string, len(batch))
 	for i, b := range batch {
-		texts[i] = truncate(b.Text, 8000)
+		texts[i] = truncate(b.Text, maxEmbedChars)
 	}
 	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, texts, rec)
 	if err != nil {

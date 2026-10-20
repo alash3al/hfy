@@ -1,20 +1,11 @@
 package types
 
-import "reflect"
+// ephemeral lists every event type and whether it expires per retention.trace.
+var ephemeral = map[EventType]bool{}
 
-type ctor struct {
-	new       func() Payload // returns a pointer to a zero payload
-	ephemeral bool
-}
-
-var registry = map[EventType]ctor{}
-
-func register[P Payload](ephemeral bool) {
+func register[P Payload](expires bool) {
 	var zero P
-	registry[zero.EventType()] = ctor{
-		new:       func() Payload { return any(new(P)).(Payload) },
-		ephemeral: ephemeral,
-	}
+	ephemeral[zero.EventType()] = expires
 }
 
 func init() {
@@ -34,13 +25,5 @@ func init() {
 	register[ReasoningDelta](true)
 }
 
-// Known reports whether t is a registered event type.
-func Known(t EventType) bool { _, ok := registry[t]; return ok }
-
 // Ephemeral reports whether events of type t expire per retention.trace.
-func Ephemeral(t EventType) bool { return registry[t].ephemeral }
-
-// deref turns the *P from the registry into a P (value receivers).
-func deref(p Payload) Payload {
-	return reflect.ValueOf(p).Elem().Interface().(Payload)
-}
+func Ephemeral(t EventType) bool { return ephemeral[t] }

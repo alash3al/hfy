@@ -4,7 +4,6 @@ package types
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 	"uuid"
@@ -120,31 +119,6 @@ type Event struct {
 type Payload interface {
 	EventType() EventType
 	Validate() error
-}
-
-// PayloadOf decodes e.Data into T after checking the event type matches.
-// (A generic function, not a method: go/parser, vet and gopls do not accept
-// generic methods yet.)
-func PayloadOf[T Payload](e Event) (T, error) {
-	var p T
-	if e.Type != p.EventType() {
-		return p, fmt.Errorf("event is %q, not %q", e.Type, p.EventType())
-	}
-	err := json.Unmarshal(e.Data, &p)
-	return p, err
-}
-
-// Decode decodes e.Data through the registry.
-func (e Event) Decode() (Payload, error) {
-	ctor, ok := registry[e.Type]
-	if !ok {
-		return nil, fmt.Errorf("unknown event type %q", e.Type)
-	}
-	p := ctor.new()
-	if err := json.Unmarshal(e.Data, p); err != nil {
-		return nil, err
-	}
-	return deref(p), nil
 }
 
 // Usage is token accounting for a model call or a whole turn.

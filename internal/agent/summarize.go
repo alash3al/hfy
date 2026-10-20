@@ -32,7 +32,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 		}
 		l.system, l.msgs = bc.System, bc.Msgs
 		l.lastPrompt = estimateTokens(bc.System, bc.Msgs)
-		l.deriveActivated()
+		l.deriveActivated(ctx)
 		return nil
 	}
 }
@@ -42,15 +42,9 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 // a summary was written.
 func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	sm := rt.Cfg.Summarizer
-	prev, err := rt.Store.Summary(ctx, env.SessionID)
+	prev, after, err := rt.summaryStart(ctx, env.SessionID)
 	if err != nil {
 		return false, err
-	}
-	var after int64
-	if prev != nil {
-		if id, err := rt.Store.TurnIDByUUID(ctx, env.SessionID, mustUUID(prev.CoversUntilTurn)); err == nil {
-			after = id
-		}
 	}
 	events, err := rt.Store.LoadContext(ctx, env.SessionID, after, env.TurnID)
 	if err != nil {
@@ -76,7 +70,11 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 			inScope = append(inScope, e)
 		}
 	}
-	transcript := transcriptOf(rt.messagesFrom(ctx, inScope, -1, rt.Summ))
+	msgs, err := rt.messagesFrom(ctx, inScope, -1, rt.Summ)
+	if err != nil {
+		return false, err
+	}
+	transcript := transcriptOf(msgs)
 
 	actor, err := rt.Svc.AgentActor(ctx, types.AgentSummarizer)
 	if err != nil {
@@ -106,7 +104,7 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 		text = strings.TrimSpace(res.Final)
 	}
 
-	lastCovered, err := rt.Store.EventByID(ctx, covered[len(covered)-1])
+	lastCovered, err := rt.Store.EventByID(ctx, rt.Store.Pool, covered[len(covered)-1])
 	if err != nil {
 		return false, err
 	}

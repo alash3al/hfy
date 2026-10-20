@@ -59,7 +59,7 @@ func (s *Server) history(c *echo.Context) error {
 	}
 	resp := historyResponse{Turns: []historyTurn{}}
 	if latest > 0 {
-		ev, err := s.store.EventByID(ctx, latest)
+		ev, err := s.store.EventByID(ctx, s.store.Pool, latest)
 		if err != nil {
 			return err
 		}

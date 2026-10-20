@@ -153,7 +153,8 @@ func (w *Worker) run(parent context.Context, job db.JobRow) {
 
 func (w *Worker) fail(ctx context.Context, job db.JobRow, err error) {
 	ctx = context.WithoutCancel(ctx)
-	slog.Error("job failed", "job", job.ID, "type", job.Type, "attempt", job.Attempts, "err", err)
+	slog.Error("job failed", "job", job.ID, "type", job.Type, "attempt", job.Attempts,
+		"payload", string(job.Payload), "err", err)
 	delay := min(time.Duration(job.Attempts*job.Attempts)*2*time.Second, time.Minute)
 	state, rerr := w.store.RetryJob(ctx, job.ID, job.Attempts, delay, err.Error())
 	if db.IsNotFound(rerr) {
