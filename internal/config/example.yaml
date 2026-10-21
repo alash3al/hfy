@@ -74,7 +74,7 @@ agent:                               # the default agent ("main")
 #     system: You answer for {{shop}}.
 #     vars: { shop: { required: true } }
 
-# subagents:                         # every agent may call them as harness.<name>
+# subagents:                         # every agent may call them as hfy.<name>
 #   refunds:
 #     description: Decides whether an order is eligible for a refund
 #     model: local/gemma3:1b

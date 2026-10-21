@@ -73,7 +73,7 @@ func TestSubagentIsIsolatedAndCounted(t *testing.T) {
 			Description: "Decides refund eligibility", Model: "fake/m", System: "You are a refunds specialist.",
 		}}
 	},
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "r", Name: "harness__refunds", Args: `{"task":"order 42, delivered late"}`}}, Prompt: 10, Output: 1},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "r", Name: "hfy__refunds", Args: `{"task":"order 42, delivered late"}`}}, Prompt: 10, Output: 1},
 		fakeprov.Step{Content: "eligible for refund", Prompt: 7, Output: 2},
 		fakeprov.Step{Content: "Yes, you get a refund.", Prompt: 20, Output: 3},
 	)
@@ -85,7 +85,7 @@ func TestSubagentIsIsolatedAndCounted(t *testing.T) {
 	found := false
 	for _, tl := range tools {
 		fn := tl.(map[string]any)["function"].(map[string]any)
-		if fn["name"] == "harness__refunds" && fn["description"] == "Decides refund eligibility" {
+		if fn["name"] == "hfy__refunds" && fn["description"] == "Decides refund eligibility" {
 			found = true
 		}
 	}
@@ -120,7 +120,7 @@ func TestSessionSearchIsScopedAndFindsMemory(t *testing.T) {
 		c.Embeddings = &config.Embeddings{Model: "fake/e", Dimensions: 3}
 	},
 		fakeprov.Step{Content: "noted"},
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "s", Name: "harness__session_search", Args: `{"query":"fruit apples"}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "s", Name: "hfy__session_search", Args: `{"query":"fruit apples"}`}}},
 		fakeprov.Step{Content: "you like apples"},
 	)
 	t1 := e.post("my favorite fruit is apples")

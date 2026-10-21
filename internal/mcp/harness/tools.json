@@ -4,10 +4,18 @@
     "schema": {
       "type": "object",
       "properties": {
-        "query": {"type": "string", "description": "Keywords describing what you need, e.g. \"read file\" or \"search web\""},
-        "limit": {"type": "integer", "description": "Maximum results (default 8)"}
+        "query": {
+          "type": "string",
+          "description": "Keywords describing what you need, e.g. \"read file\" or \"search web\""
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum results (default 8)"
+        }
       },
-      "required": ["query"]
+      "required": [
+        "query"
+      ]
     }
   },
   "session_search": {
@@ -15,19 +23,59 @@
     "schema": {
       "type": "object",
       "properties": {
-        "query": {"type": "string", "description": "What to look for, in natural language"},
-        "limit": {"type": "integer", "description": "Maximum results (default 5)"}
+        "query": {
+          "type": "string",
+          "description": "What to look for, in natural language"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum results (default 5)"
+        }
       },
-      "required": ["query"]
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "now": {
+    "description": "The current date and time: UTC and, for an IANA time zone, the local time, weekday and UTC offset. Use it whenever the answer depends on today, now, a deadline or opening hours.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "type": "string",
+          "description": "IANA time zone, e.g. \"Africa/Cairo\" or \"America/New_York\" (default UTC)"
+        }
+      }
+    }
+  },
+  "math_calc": {
+    "description": "Evaluate a math expression instead of computing in your head: + - * / % ** and parentheses, comparisons and cond ? a : b, and abs, ceil, floor, round, int, float, min, max, sum, mean, median (lists are [1, 2.5]). Example: round((19.99 * 3) * 0.85 * 100) / 100. Use it for totals, prices, discounts, splits and any arithmetic.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "expression": {
+          "type": "string",
+          "description": "The expression, e.g. \"(19.99 * 3) - 5\""
+        }
+      },
+      "required": [
+        "expression"
+      ]
     }
   },
   "subagent": {
     "schema": {
       "type": "object",
       "properties": {
-        "task": {"type": "string", "description": "A complete, self-contained task. The specialist sees nothing else from this conversation."}
+        "task": {
+          "type": "string",
+          "description": "A complete, self-contained task. The specialist sees nothing else from this conversation."
+        }
       },
-      "required": ["task"]
+      "required": [
+        "task"
+      ]
     }
   }
 }

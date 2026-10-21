@@ -66,7 +66,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
   it; `$$` is a literal `$`. Quote the value inside YAML flow maps (`{ a: "${X}" }`).
 - `agent.settings.context_window` is required (there is no auto-discovery).
   Set it somewhat below the model's real limit.
-- `agent.mcp` omitted = all MCP servers, reached through `harness__tool_search`
+- `agent.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
   (small prompt). Set it to restrict, and the tools are listed directly.
 
 ## API
@@ -175,11 +175,19 @@ event as stored.
   between streamed chunks), so long answers are never cut off. `limits`
   (`steps`, `total_tokens`, `timeout`) end the turn when hit.
 - **Approvals.** Calls matching `agent.approval.tools` (`<server>.<tool>`
-  patterns, `harness.*` works) pause the turn; nothing waits in a worker. After
+  patterns, `hfy.*` works) pause the turn; nothing waits in a worker. After
   `approval.timeout` the call is rejected. Each agent has its own `approval`.
   Approval covers an agent's own calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
-  can reach a guarded tool, guard the sub-agent itself (`harness.<name>`).
-- **Sub-agents** are tools (`harness__<name>`), isolated (task text only), depth 1;
+  can reach a guarded tool, guard the sub-agent itself (`hfy.<name>`).
+- **Core tools.** Every agent gets hfy's own tools, served by the built-in `hfy`
+  server (the name is reserved): `hfy.now {timezone?}` (UTC, and local time,
+  weekday and offset for an IANA zone) and `hfy.math_calc {expression}`
+  (arithmetic, comparisons and math functions via
+  [expr](https://github.com/expr-lang/expr), math built-ins only; numbers
+  never wrap around and results drop float noise). A tool is core only if it
+  is pure (no I/O, no app data, no permissions) and does what models get
+  wrong alone; anything touching data belongs to your MCP servers.
+- **Sub-agents** are tools (`hfy__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn. Every agent may call them.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
   `"io.github.alash3al.hfy/turn": {session, turn, call_id, agent, actor: {type,
@@ -199,7 +207,7 @@ event as stored.
   authorization: tools decide from `_meta`, which the model cannot change.
 - **Memory.** The summarizer appends a `summary` event when the prompt reaches
   `context_window` (history is never deleted). With `embeddings` configured,
-  `harness__session_search` finds earlier messages of the same `scope`.
+  `hfy__session_search` finds earlier messages of the same `scope`.
 - **Attachments** are references your app hosts. Hosts, types and size are
   checked when the message is posted. Images go to the model only in the turn
   they arrive in; local providers get the bytes inlined.

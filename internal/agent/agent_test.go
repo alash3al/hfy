@@ -223,7 +223,7 @@ func TestSimpleReply(t *testing.T) {
 
 func TestToolSearchThenCall(t *testing.T) {
 	e := setup(t, nil,
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c1", Name: "harness__tool_search", Args: `{"query":"echo"}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c1", Name: "hfy__tool_search", Args: `{"query":"echo"}`}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c2", Name: "files__echo", Args: `{"text":"x"}`}}},
 		fakeprov.Step{Content: "done"},
 	)
@@ -235,7 +235,7 @@ func TestToolSearchThenCall(t *testing.T) {
 		t.Fatalf("results: %v", results)
 	}
 	reqs := e.fake.Reqs()
-	if names := toolNames(reqs[0]); strings.Contains(names, "files__echo") || !strings.Contains(names, "harness__tool_search") {
+	if names := toolNames(reqs[0]); strings.Contains(names, "files__echo") || !strings.Contains(names, "hfy__tool_search") {
 		t.Fatalf("step 1 tools: %s", names)
 	}
 	if names := toolNames(reqs[1]); !strings.Contains(names, "files__echo") {
@@ -686,5 +686,21 @@ func TestStopPassesTheLineOn(t *testing.T) {
 	waiting, err := pgx.CollectRows(rows, pgx.RowTo[int64])
 	if err != nil || len(waiting) != 1 || waiting[0] != b {
 		t.Fatalf("waiting run_turn jobs: %v %v, want [%d]", waiting, err, b)
+	}
+}
+
+// Every agent gets hfy's core tools, served like any other tool.
+func TestCoreToolsAreOffered(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "m", Name: "hfy__math_calc", Args: `{"expression":"3 * 19.99"}`}}},
+		fakeprov.Step{Content: "59.97 in total"},
+	)
+	turn := e.post("three at 19.99?")
+	e.waitState(turn, types.StateCompleted)
+	if names := toolNames(e.fake.Reqs()[0]); !strings.Contains(names, "hfy__now") || !strings.Contains(names, "hfy__math_calc") {
+		t.Fatalf("offered tools: %s", names)
+	}
+	if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["content"] != "59.97" {
+		t.Fatalf("math_calc result: %v", r)
 	}
 }

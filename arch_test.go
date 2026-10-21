@@ -32,7 +32,7 @@ var layers = map[string][]string{
 	"internal/provider":          {"metrics", "types"},
 	"internal/provider/fakeprov": {},
 	"internal/mcp":               {"config"},
-	"internal/mcp/harness":       {"mcp"},
+	"internal/mcp/harness":       {"config", "mcp"},
 	"internal/mcp/fakemcp":       {},
 	"internal/svc":               {"config", "db", "metrics", "types"}, // owns turn state; never the agent
 	"internal/agent":             {"config", "db", "jobs", "mcp", "mcp/harness", "metrics", "provider", "svc", "types"},

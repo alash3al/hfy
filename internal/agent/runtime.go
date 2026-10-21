@@ -38,6 +38,13 @@ var promptSummarizer string
 //go:embed prompts/room.txt
 var promptRoom string
 
+// core gives the spec hfy's core tools (harness.CoreTools).
+func (s *Spec) core() {
+	for _, c := range harness.CoreTools() {
+		s.Harness[c.Tool.Name] = true
+	}
+}
+
 // Spec is one resolved agent definition.
 type Spec struct {
 	Name        string // actor ref: main, a sub-agent name, or summarizer
@@ -93,6 +100,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	for name, a := range cfg.AllAgents() {
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
 		s.Top, s.Approval = true, a.Approval
+		s.core()
 		s.Harness[harness.ToolSearch] = a.MCP == nil
 		s.Harness[harness.SessionSearch] = cfg.Embeddings != nil
 		for sub := range cfg.Subagents {
@@ -104,6 +112,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		sc := cfg.Subagents[name]
 		s := spec(name, sc.Model, sc.Settings, sc.System, sc.Limits, sc.MCP)
 		s.Description = sc.Description
+		s.core()
 		if sc.MCP == nil {
 			s.Harness[harness.ToolSearch] = true
 		}

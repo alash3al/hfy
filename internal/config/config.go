@@ -337,6 +337,9 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if _, taken := c.MCP[BuiltinServer]; taken {
+		bad("mcp.%s: the name is reserved for hfy's built-in tools", BuiltinServer)
+	}
 	for name, s := range c.MCP {
 		if !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("mcp.%s: names use [a-zA-Z0-9_-] and no double underscore", name)
@@ -441,6 +444,10 @@ func (c *Config) Validate() error {
 
 	return errors.Join(errs...)
 }
+
+// BuiltinServer names the in-process MCP server of hfy's own tools (hfy.now,
+// hfy.tool_search, sub-agents as hfy.<name>); no configured server may take it.
+const BuiltinServer = "hfy"
 
 // MainAgent is the default agent's name; sub-agents and the summarizer share
 // the agent namespace with it. (config imports nothing internal; a test keeps

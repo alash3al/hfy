@@ -15,9 +15,12 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// registerHarness serves the built-ins from the in-process "harness" server,
-// so they take the same path as every other tool.
+// registerHarness serves the built-ins from the in-process "hfy" server, so
+// they take the same path as every other tool.
 func (rt *Runtime) registerHarness() {
+	for _, c := range harness.CoreTools() {
+		rt.harness.Add(c.Tool, c.Run)
+	}
 	rt.harness.Add(harness.ToolSearchTool(), rt.toolSearch)
 	if rt.Cfg.Embeddings != nil {
 		rt.harness.Add(harness.SessionSearchTool(), rt.sessionSearch)

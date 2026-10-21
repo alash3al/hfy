@@ -358,7 +358,7 @@ func (l *loop) validNames(lookup map[string]mcp.Tool) string {
 		names = append(names[:40], "...")
 	}
 	if l.spec.Harness[harness.ToolSearch] {
-		names = append(names, "(use harness__tool_search to find more)")
+		names = append(names, "(use "+mcp.WireNameOf(toolSearchName)+" to find more)")
 	}
 	return strings.Join(names, ", ")
 }

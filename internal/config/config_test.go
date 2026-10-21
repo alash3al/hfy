@@ -79,6 +79,7 @@ providers: { p: { url: http://x } }
 		"agent: { model: p/m, settings: { context_window: 1 }, mcp: [ghost] }":                                        `unknown server "ghost"`,
 		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { main: { description: d, model: p/m } }": "reserved",
 		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { a: { model: p/m } }":                    "description",
+		"agent: { model: p/m, settings: { context_window: 1 } }\nmcp: { hfy: { type: local, command: [x] } }":         "reserved for hfy's built-in tools",
 	}
 	for tail, want := range cases {
 		_, err := Parse([]byte(base+tail), env(nil))
