@@ -149,14 +149,15 @@ func bearer(c *echo.Context) string {
 	return ""
 }
 
-const maxMeta = 4 << 10
+const maxHint = 4 << 10
 
-// clientMeta is the "meta" field of a client POST body: a JSON object hfy
-// forwards to the auth webhook without reading it. The body is left in place
-// for the handler. Reads (GET) carry none: only acting needs hints.
-func clientMeta(c *echo.Context) (json.RawMessage, error) {
+// hintOf is the "hint" of a posted message: any JSON value the client sends
+// for the auth webhook (say, which agent to ask), forwarded unread and never
+// stored. Only posting a message has one: it is where the agent is picked.
+// The body is left in place for the handler.
+func hintOf(c *echo.Context) (json.RawMessage, error) {
 	r := c.Request()
-	if r.Method != http.MethodPost || r.ContentLength == 0 {
+	if r.Method != http.MethodPost || !strings.HasSuffix(c.Path(), "/messages") || r.ContentLength == 0 {
 		return nil, nil
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxBody))
@@ -165,16 +166,15 @@ func clientMeta(c *echo.Context) (json.RawMessage, error) {
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	var in struct {
-		Meta json.RawMessage `json:"meta"`
+		Hint json.RawMessage `json:"hint"`
 	}
-	if json.Unmarshal(body, &in) != nil || in.Meta == nil || string(in.Meta) == "null" {
+	if json.Unmarshal(body, &in) != nil || in.Hint == nil || string(in.Hint) == "null" {
 		return nil, nil // none; a bad body is the handler's to report
 	}
-	var obj map[string]json.RawMessage
-	if len(in.Meta) > maxMeta || json.Unmarshal(in.Meta, &obj) != nil || obj == nil {
-		return nil, echo.NewHTTPError(http.StatusBadRequest, "meta must be a JSON object of at most 4 KiB")
+	if len(in.Hint) > maxHint {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "hint is over 4 KiB")
 	}
-	return in.Meta, nil
+	return in.Hint, nil
 }
 
 // requireSecret guards the server-to-server endpoints. Hashing first makes the
@@ -221,11 +221,11 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 			if key == "" {
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing key")
 			}
-			meta, err := clientMeta(c)
+			hint, err := hintOf(c)
 			if err != nil {
 				return err
 			}
-			id, err := s.auth.Check(ctx, key, sid.String(), meta)
+			id, err := s.auth.Check(ctx, key, sid.String(), hint)
 			switch {
 			case errors.Is(err, auth.ErrUnauthorized):
 				return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")

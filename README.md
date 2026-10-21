@@ -80,17 +80,17 @@ Server to server (`Authorization: Bearer <server.secret>`):
 - `POST /v1/sessions` → `201 {"id": uuid}`
 
 Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
-`auth` configured, hfy sends `POST {key, session_id, meta?}` to your webhook and
+`auth` configured, hfy sends `POST {key, session_id, hint?}` to your webhook and
 expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
 error or a timeout denies. `agent` names the configured agent that serves this
 caller (`agents.<name>`; default `main`), so one deployment can run, say, a
 store agent for buyers and an admin agent for staff; an unknown name denies.
-`meta` is the `meta` JSON object (at most 4 KiB) of a client POST body: hints
-such as `{"agent": "store"}` that your webhook may honor or ignore. hfy
-forwards it unread and never trusts it; reads (`GET`) send none. Without `auth` the caller is `anonymous` and unguessable
+`hint` is the `hint` of a posted message: any JSON value (at most 4 KiB), say
+`"store"`, that your webhook may honor or ignore. hfy forwards it unread,
+never trusts or stores it; other requests send none. Without `auth` the caller is `anonymous` and unguessable
 session ids are the only protection.
 
-- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?, meta?}` → `202 {"turn": uuid}`.
+- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?, hint?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
 - `GET /v1/sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.

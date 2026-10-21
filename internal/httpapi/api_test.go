@@ -428,21 +428,19 @@ func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	}
 }
 
-// The auth webhook picks the agent per caller, here from the client's meta:
+// The auth webhook picks the agent per caller, here from the client's hint:
 // each turn runs with that agent's prompt, model and vars, and its events are
 // authored by that agent.
 func TestWebhookPicksTheAgent(t *testing.T) {
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Key  string `json:"key"`
-			Meta struct {
-				Agent string `json:"agent"`
-			} `json:"meta"`
+			Hint string `json:"hint"`
 		}
 		json.NewDecoder(r.Body).Decode(&in)
 		switch in.Key {
 		case "buyer": // buyers may ask for the store; the webhook decides
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Meta.Agent, "vars": map[string]any{"shop": "Napoli"}})
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Hint, "vars": map[string]any{"shop": "Napoli"}})
 		case "owner":
 			json.NewEncoder(w).Encode(map[string]any{"actor": "u2", "vars": map[string]any{"user": "Sam"}}) // no agent: main
 		default:
@@ -460,8 +458,7 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	events, closeStream := a.stream(base+"/events?key=buyer", nil)
 	defer closeStream()
 
-	asStore := map[string]any{"agent": "store"}
-	if code, out := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "pizza?", "meta": asStore}); code != 202 {
+	if code, out := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "pizza?", "hint": "store"}); code != 202 {
 		t.Fatalf("buyer post: %d %v", code, out)
 	}
 	got := waitFor(t, events, completed)
@@ -497,12 +494,10 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	if code, _ := a.do("POST", base+"/messages", "stranger", map[string]any{"text": "hi"}); code != http.StatusForbidden {
 		t.Fatalf("an unknown agent must fail closed, got %d", code)
 	}
-	if code, _ := a.do("POST", base+"/messages", "owner", map[string]any{"text": "hi", "meta": nil}); code != 202 {
-		t.Fatalf("a null meta is no meta, got %d", code)
+	if code, _ := a.do("POST", base+"/messages", "owner", map[string]any{"text": "hi", "hint": nil}); code != 202 {
+		t.Fatalf("a null hint is no hint, got %d", code)
 	}
-	for _, bad := range []any{"store", []int{1}, map[string]any{"x": strings.Repeat("a", 5000)}} {
-		if code, _ := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "hi", "meta": bad}); code != http.StatusBadRequest {
-			t.Fatalf("meta %.20v must be rejected, got %d", bad, code)
-		}
+	if code, _ := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "hi", "hint": strings.Repeat("a", 5000)}); code != http.StatusBadRequest {
+		t.Fatalf("an oversized hint must be rejected, got %d", code)
 	}
 }
