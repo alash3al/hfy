@@ -12,6 +12,7 @@ import (
 type SessionRow struct {
 	ID           int64     `db:"id"`
 	UUID         uuid.UUID `db:"uuid"`
+	Agent        string    `db:"agent"` // the configured agent that answers in it; fixed at creation
 	ActiveTurnID *int64    `db:"active_turn_id"`
 	SummaryID    *int64    `db:"summary_id"`
 	InputTokens  int64     `db:"input_tokens"`

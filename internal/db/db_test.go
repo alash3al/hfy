@@ -16,7 +16,7 @@ import (
 func TestEventsAndActors(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, err := s.CreateSession(ctx)
+	sess, err := s.CreateSession(ctx, types.AgentMain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestNotify(t *testing.T) {
 	got := make(chan string, 4)
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
 	time.Sleep(300 * time.Millisecond)
-	sess, _ := s.CreateSession(ctx)
+	sess, _ := s.CreateSession(ctx, types.AgentMain)
 	a, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, "n/a")
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := s.AppendEvent(ctx, tx, db.NewEvent{SessionID: sess.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
@@ -147,7 +147,7 @@ func TestNotify(t *testing.T) {
 func TestEmbeddingsSearch(t *testing.T) {
 	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx)
+	sess, _ := s.CreateSession(ctx, types.AgentMain)
 	a, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, "n/a")
 	var ids []int64
 	for _, txt := range []string{"apples", "boats"} {
@@ -217,7 +217,7 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 func TestEventVersions(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx)
+	sess, _ := s.CreateSession(ctx, types.AgentMain)
 	actor, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
 	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
 	if err != nil || turn.V != types.Version(types.EventTurn) {

@@ -77,14 +77,17 @@ would come as `/v2`, served alongside `/v1`.
 
 Server to server (`Authorization: Bearer <server.secret>`):
 
-- `POST /v1/sessions` → `201 {"id": uuid}`
+- `POST /v1/sessions` `{agent?}` → `201 {"id": uuid, "agent": name}`. A session
+  is one room with one agent (`agents.<name>`; default `main`), chosen here by
+  your backend and fixed for the session's life: one deployment can run, say,
+  a store agent for buyers and an admin agent for staff. A turn's context is
+  its session's history, so open one session per room (e.g. per conversation
+  and agent); an unknown name is `400`.
 
 Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
 `auth` configured, hfy sends `POST {key, session_id}` to your webhook and
-expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
-error or a timeout denies. `agent` names the configured agent that serves this
-caller (`agents.<name>`; default `main`), so one deployment can run, say, a
-store agent for buyers and an admin agent for staff; an unknown name denies. Without `auth` the caller is `anonymous` and unguessable
+expects `200 {actor, scope?, vars?}`; `401`/`403`, any other status, an
+error or a timeout denies. Without `auth` the caller is `anonymous` and unguessable
 session ids are the only protection.
 
 - `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
@@ -142,8 +145,8 @@ One envelope for the stream and for history:
 Render text by appending `text.delta` under its turn; the durable
 `message.text` replaces them. Pair `tool_call` and `tool_result` by
 `data.call_id`; a `tool_result` may carry `data.structured` (the tool's MCP
-`structuredContent`, e.g. a UI component to render). The agent behind a turn
-is `turn.data.agent`, and its events' `actor.ref`. Ignore event types you
+`structuredContent`, e.g. a UI component to render). The session's agent
+authors the agent-side events (`actor.ref`). Ignore event types you
 don't know.
 
 `v` is the version of `data`'s shape for that type. Additive changes (a new

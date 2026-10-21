@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,10 +63,14 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	spec, ok := rt.Agents[cmp.Or(t.Agent, types.AgentMain)]
-	if !ok { // removed from the config after the turn was posted
+	sess, err := rt.Store.SessionByID(ctx, turn.SessionID)
+	if err != nil {
+		return err
+	}
+	spec, ok := rt.Agents[sess.Agent]
+	if !ok { // removed from the config after the session was created
 		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
-			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", t.Agent)})
+			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", sess.Agent)})
 	}
 	if d := spec.Limits.Timeout.D(); d > 0 {
 		var stop context.CancelFunc
@@ -79,10 +82,6 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		return err
 	}
 	used, calls, err := rt.Store.TurnUsage(ctx, rt.Store.Pool, turn.ID, mainActor)
-	if err != nil {
-		return err
-	}
-	sess, err := rt.Store.SessionByID(ctx, turn.SessionID)
 	if err != nil {
 		return err
 	}

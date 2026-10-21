@@ -80,7 +80,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	go rt.ListenCancel(ctx)
 	time.Sleep(200 * time.Millisecond) // let the listeners attach
 
-	sess, err := store.CreateSession(ctx)
+	sess, err := store.CreateSession(ctx, types.AgentMain)
 	if err != nil {
 		t.Fatal(err)
 	}

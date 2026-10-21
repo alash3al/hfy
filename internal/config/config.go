@@ -460,11 +460,8 @@ func (c *Config) AllAgents() map[string]*Agent {
 	return all
 }
 
-// AgentNamed returns the agent the auth webhook picked ("" = main).
+// AgentNamed returns the agent a session runs as.
 func (c *Config) AgentNamed(name string) (*Agent, bool) {
-	if name == "" {
-		name = MainAgent
-	}
 	a, ok := c.AllAgents()[name]
 	return a, ok
 }

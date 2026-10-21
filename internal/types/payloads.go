@@ -9,7 +9,6 @@ import (
 type Turn struct {
 	Vars  map[string]string `json:"vars"`
 	Scope string            `json:"scope"`
-	Agent string            `json:"agent,omitempty"` // the agent that runs the turn ("" = main)
 }
 
 func (Turn) EventType() EventType { return EventTurn }

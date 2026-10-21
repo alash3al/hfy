@@ -4,7 +4,6 @@
 package svc
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"time"
@@ -52,13 +51,12 @@ type PostInput struct {
 	Vars        map[string]string
 	Text        string
 	Attachments []types.Attachment
-	Agent       string // the configured agent that runs the turn ("" = main)
 }
 
 // Post appends a turn with its user message and a queued state, and enqueues
 // run_turn unless the session already has an active (or queued) turn.
 func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
-	main, err := s.AgentActor(ctx, cmp.Or(in.Agent, types.AgentMain))
+	main, err := s.agentOf(ctx, in.SessionID)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
@@ -69,7 +67,7 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 			return err
 		}
 		turn, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ActorID: in.Actor,
-			Scope: in.Scope, Payload: types.Turn{Vars: in.Vars, Scope: in.Scope, Agent: in.Agent}})
+			Scope: in.Scope, Payload: types.Turn{Vars: in.Vars, Scope: in.Scope}})
 		if err != nil {
 			return err
 		}
@@ -139,23 +137,28 @@ func (s *Service) appendTo(ctx context.Context, tx pgx.Tx, turn db.EventRow, act
 	return err
 }
 
-// agentOf returns the actor of the agent a turn runs as: it authors the
-// turn's agent-side events (state, approvals, replies).
-func (s *Service) agentOf(ctx context.Context, turn db.EventRow) (int64, error) {
-	t, err := turn.Payload[types.Turn]()
+// agentOf returns the actor of the session's agent, which authors its turns'
+// agent-side events (state, approvals, replies). Mutations call it before
+// their transaction: it may read the pool, and a session's agent never changes.
+func (s *Service) agentOf(ctx context.Context, sessionID int64) (int64, error) {
+	sess, err := s.Store.SessionByID(ctx, sessionID)
 	if err != nil {
 		return 0, err
 	}
-	return s.AgentActor(ctx, cmp.Or(t.Agent, types.AgentMain))
+	return s.AgentActor(ctx, sess.Agent)
 }
 
 // EndTurn appends the terminal state of a turn, books its usage on the
 // session, clears the active pointer and chains to the next queued turn.
 // It is idempotent: a turn that already ended is left alone.
 func (s *Service) EndTurn(ctx context.Context, sessionID, turnID int64, st types.TurnStateEvent) error {
+	main, err := s.agentOf(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	var ended bool
-	err := s.Store.Tx(ctx, func(tx pgx.Tx) (err error) {
-		ended, err = s.endTurnTx(ctx, tx, sessionID, turnID, st)
+	err = s.Store.Tx(ctx, func(tx pgx.Tx) (err error) {
+		ended, err = s.endTurnTx(ctx, tx, sessionID, turnID, main, st)
 		return err
 	})
 	if err == nil && ended {
@@ -165,7 +168,8 @@ func (s *Service) EndTurn(ctx context.Context, sessionID, turnID int64, st types
 }
 
 // endTurnTx reports whether it ended the turn (false: it had already ended).
-func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID int64, st types.TurnStateEvent) (bool, error) {
+// main is the session's agent actor.
+func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID, main int64, st types.TurnStateEvent) (bool, error) {
 	sess, err := s.Store.LockSession(ctx, tx, sessionID)
 	if err != nil {
 		return false, err
@@ -176,10 +180,6 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 		return false, nil
 	}
 	turn, err := s.Store.EventByID(ctx, tx, turnID)
-	if err != nil {
-		return false, err
-	}
-	main, err := s.agentOf(ctx, turn)
 	if err != nil {
 		return false, err
 	}
@@ -221,8 +221,12 @@ func (s *Service) chainNext(ctx context.Context, tx pgx.Tx, sessionID, after int
 // StartTurn marks the turn running and active. It returns false when the turn
 // must not run now (finished, or an older turn is still open).
 func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool, error) {
+	main, err := s.agentOf(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
 	var ok bool
-	err := s.Store.Tx(ctx, func(tx pgx.Tx) error {
+	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.Store.LockSession(ctx, tx, sessionID); err != nil {
 			return err
 		}
@@ -245,19 +249,19 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 		if st.State == types.StateRunning {
 			return nil // resuming after a crash
 		}
-		agent, err := s.agentOf(ctx, turn)
-		if err != nil {
-			return err
-		}
-		return s.appendTo(ctx, tx, turn, agent, types.TurnStateEvent{State: types.StateRunning})
+		return s.appendTo(ctx, tx, turn, main, types.TurnStateEvent{State: types.StateRunning})
 	})
 	return ok, err
 }
 
 // Stop cancels queued turns and asks the active one to stop.
 func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
+	main, err := s.agentOf(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	var ended []types.TurnState // counted once committed
-	err := s.Store.Tx(ctx, func(tx pgx.Tx) error {
+	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
 		ended = ended[:0]
 		sess, err := s.Store.LockSession(ctx, tx, sessionID)
 		if err != nil {
@@ -275,11 +279,7 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			if err != nil {
 				return err
 			}
-			agent, err := s.agentOf(ctx, turn)
-			if err != nil {
-				return err
-			}
-			if err := s.appendTo(ctx, tx, turn, agent,
+			if err := s.appendTo(ctx, tx, turn, main,
 				types.TurnStateEvent{State: types.StateCancelled, Reason: "stop requested"}); err != nil {
 				return err
 			}
@@ -303,7 +303,7 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			return err
 		}
 		if st != nil && st.State == types.StateAwaitingApproval { // no worker runs it
-			stopped, err := s.endTurnTx(ctx, tx, sessionID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+			stopped, err := s.endTurnTx(ctx, tx, sessionID, active.ID, main, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 			if stopped {
 				ended = append(ended, types.StateStopped)
 			}
@@ -332,7 +332,7 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 	if err != nil {
 		return err
 	}
-	main, err := s.agentOf(ctx, turn)
+	main, err := s.agentOf(ctx, turn.SessionID)
 	if err != nil {
 		return err
 	}
@@ -377,6 +377,10 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, sessionID, actor int64,
 // crash cannot leave a pause without its timeout.
 // timeout is the agent's approval.timeout.
 func (s *Service) RequestApproval(ctx context.Context, sessionID, turnID int64, callID string, timeout time.Duration) error {
+	main, err := s.agentOf(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.Store.LockSession(ctx, tx, sessionID); err != nil {
 			return err
@@ -393,10 +397,6 @@ func (s *Service) RequestApproval(ctx context.Context, sessionID, turnID int64, 
 			return ErrStopRequested
 		}
 		turn := events[0]
-		main, err := s.agentOf(ctx, turn)
-		if err != nil {
-			return err
-		}
 		if err := s.appendTo(ctx, tx, turn, main, types.ApprovalRequested{CallID: callID}); err != nil {
 			return err
 		}

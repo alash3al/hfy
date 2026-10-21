@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Store) CreateSession(ctx context.Context) (SessionRow, error) {
-	return one[SessionRow](s.Pool.Query(ctx, s.q("InsertSession")))
+func (s *Store) CreateSession(ctx context.Context, agent string) (SessionRow, error) {
+	return one[SessionRow](s.Pool.Query(ctx, s.q("InsertSession"), pgx.NamedArgs{"agent": agent}))
 }
 
 func (s *Store) SessionByUUID(ctx context.Context, id uuid.UUID) (SessionRow, error) {

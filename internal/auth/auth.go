@@ -23,7 +23,6 @@ type Identity struct {
 	Actor string
 	Scope string // defaults to Actor
 	Vars  map[string]string
-	Agent string // which configured agent serves this caller ("" = main)
 }
 
 type Client struct {
@@ -59,12 +58,11 @@ func (c *Client) Check(ctx context.Context, key, sessionID string) (Identity, er
 		Actor string         `json:"actor"`
 		Scope string         `json:"scope"`
 		Vars  map[string]any `json:"vars"`
-		Agent string         `json:"agent"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil || out.Actor == "" {
 		return Identity{}, fmt.Errorf("%w: bad webhook response", ErrDenied)
 	}
-	id := Identity{Actor: out.Actor, Scope: out.Scope, Vars: map[string]string{}, Agent: out.Agent}
+	id := Identity{Actor: out.Actor, Scope: out.Scope, Vars: map[string]string{}}
 	if id.Scope == "" {
 		id.Scope = id.Actor
 	}
