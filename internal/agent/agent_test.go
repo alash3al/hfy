@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -539,5 +540,62 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 	}
 	if s, _ := json.Marshal(results[0]["structured"]); string(s) != `{"component":"card","title":"Margherita"}` {
 		t.Fatalf("structured result: %s", s)
+	}
+}
+
+// A session is a room: each agent sees its own words and calls as its
+// assistant turns, and everyone else's words labelled with who said them.
+// Another agent's tool calls stay out; consecutive user turns are merged.
+func TestRoomContextIsAttributed(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "store",
+			Settings: config.Settings{ContextWindow: 100000}}}
+	},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c1", Name: "files__echo", Args: `{"text":"margherita"}`}}},
+		fakeprov.Step{Content: "Yes, 12€."},
+		fakeprov.Step{Content: "Done, 10€."},
+		fakeprov.Step{Content: "Ordered."},
+	)
+	say := func(who, agent, text string) {
+		t.Helper()
+		actor, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorExternal, who)
+		a, _ := e.rt.Cfg.AgentNamed(agent)
+		vars, _ := svc.ResolveVars(a.Vars, nil, nil)
+		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: actor, Scope: types.NoScope,
+			Vars: vars, Text: text, Agent: agent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		turn, _ := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
+		e.waitState(turn, types.StateCompleted)
+	}
+	say("u1", "store", "margherita?")
+	say("u2", "main", "make it 10€")
+	say("u1", "store", "order one")
+
+	seen := func(req map[string]any) string { // role: content [tool calls], one line each
+		var b strings.Builder
+		for _, m := range req["messages"].([]any)[1:] { // after the system prompt
+			m := m.(map[string]any)
+			b.WriteString(m["role"].(string) + ": ")
+			if c, ok := m["content"].(string); ok {
+				b.WriteString(c)
+			}
+			if calls, ok := m["tool_calls"].([]any); ok {
+				fmt.Fprintf(&b, "[%d calls]", len(calls))
+			}
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	reqs := e.fake.Reqs()
+	main := "user: [u1] margherita?\n\n[agent:store] Yes, 12€.\n\n[u2] make it 10€\n"
+	store := "user: [u1] margherita?\nassistant: [1 calls]\ntool: echo: margherita\nassistant: Yes, 12€.\n" +
+		"user: [u2] make it 10€\n\n[agent:main] Done, 10€.\n\n[u1] order one\n"
+	if got := seen(reqs[2]); got != main {
+		t.Fatalf("main saw:\n%s\nwant:\n%s", got, main)
+	}
+	if got := seen(reqs[3]); got != store {
+		t.Fatalf("store saw:\n%s\nwant:\n%s", got, store)
 	}
 }

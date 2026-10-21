@@ -1,1 +1,1 @@
-Summarize the conversation so far. Keep facts, decisions, names, preferences and open questions. Be concise and write in plain prose or short bullet points. Output only the summary.
+Summarize the conversation so far. Each line starts with who spoke or acted: [agent:<name>] for an agent, [user] or [<id>] for a person. Keep who said and did what, and facts, decisions, names, preferences and open questions. Be concise and write in plain prose or short bullet points. Output only the summary.

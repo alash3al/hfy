@@ -184,6 +184,13 @@ event as stored.
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
   actor is whoever started the turn; `vars` include the webhook's). Return
   `structuredContent` for data meant for the client; the model sees the text.
+- **A session is a room.** Every agent that answers in it sees the whole
+  conversation: its own messages and tool calls as its own, and everyone
+  else's messages labelled with who said them, `[agent:<name>]` for another
+  agent and `[<actor ref>]` for a person (only once two people have spoken).
+  Other agents' tool calls stay theirs. Labels exist only in the prompt, so
+  stored events and the API are unchanged; make actor refs readable (the
+  webhook's `actor`) if the model should know names.
 - **Memory.** The summarizer appends a `summary` event when the prompt reaches
   `context_window` (history is never deleted). With `embeddings` configured,
   `harness__session_search` finds earlier messages of the same `scope`.

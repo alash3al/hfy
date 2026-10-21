@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
 
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -70,11 +72,10 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 			inScope = append(inScope, e)
 		}
 	}
-	msgs, err := rt.messagesFrom(ctx, inScope, -1, rt.Summ)
+	transcript, err := rt.transcriptOf(ctx, inScope)
 	if err != nil {
 		return false, err
 	}
-	transcript := transcriptOf(msgs)
 
 	actor, err := rt.Svc.AgentActor(ctx, types.AgentSummarizer)
 	if err != nil {
@@ -117,28 +118,40 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	return true, rt.Store.SetSummary(ctx, rt.Store.Pool, env.SessionID, ev.ID)
 }
 
-func transcriptOf(msgs []provider.Message) string {
+// transcriptOf renders events for the summarizer, one line per message, call
+// or result, each labelled with who said or did it (see label), so the one
+// summary every agent reads keeps who said what.
+func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (string, error) {
+	many := manyPeople(events)
 	var b strings.Builder
-	for _, m := range msgs {
-		switch m.Role {
-		case "user":
-			b.WriteString("User: " + m.Content + "\n")
-		case "assistant":
-			if m.Content != "" {
-				b.WriteString("Assistant: " + m.Content + "\n")
+	for _, e := range events {
+		who := cmp.Or(label(e, many), "[user] ")
+		switch e.Type {
+		case types.EventMessageText:
+			m, err := e.Payload[types.MessageText]()
+			if err != nil {
+				return "", err
 			}
-			for _, tc := range m.ToolCalls {
-				b.WriteString("Assistant called " + tc.Name + " " + tc.Arguments + "\n")
+			b.WriteString(rt.userMessage(ctx, m, false, rt.Summ, who).Content + "\n")
+		case types.EventToolCall:
+			c, err := e.Payload[types.ToolCall]()
+			if err != nil {
+				return "", err
 			}
-		case "tool":
-			c := m.Content
+			b.WriteString(who + "called " + c.Name + " " + argsText(c.Arguments) + "\n")
+		case types.EventToolResult:
+			r, err := e.Payload[types.ToolResult]()
+			if err != nil {
+				return "", err
+			}
+			c := toolText(mcp.Result{Content: r.Content, IsError: r.IsError})
 			if len(c) > 2000 {
 				c = c[:2000] + "..."
 			}
 			b.WriteString("Tool result: " + c + "\n")
 		}
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 // splitChunks cuts text on line boundaries into pieces of at most n bytes.

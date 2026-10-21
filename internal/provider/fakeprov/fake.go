@@ -148,17 +148,20 @@ func (f *Server) chat(w http.ResponseWriter, r *http.Request) {
 	fl.Flush()
 }
 
+// split cuts s into about n chunks on rune boundaries, as real servers send
+// whole characters.
 func split(s string, n int) []string {
 	if s == "" {
 		return nil
 	}
-	size := max(len(s)/n, 1)
+	r := []rune(s)
+	size := max(len(r)/n, 1)
 	var out []string
-	for len(s) > size {
-		out = append(out, s[:size])
-		s = s[size:]
+	for len(r) > size {
+		out = append(out, string(r[:size]))
+		r = r[size:]
 	}
-	return append(out, s)
+	return append(out, string(r))
 }
 
 // embeddings returns a deterministic bag-of-words vector per input, so similar

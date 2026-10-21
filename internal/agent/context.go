@@ -78,8 +78,12 @@ func (rt *Runtime) summaryStart(ctx context.Context, sessionID int64) (*types.Su
 	return summary, after, nil
 }
 
-// messagesFrom turns events into provider messages. Only message.text,
-// tool_call, tool_call.interrupted and tool_result reach the model.
+// messagesFrom turns events into the messages spec's agent sees. Only
+// message.text, tool_call, tool_call.interrupted and tool_result reach the
+// model. A session is a room: the agent's own words and calls are its
+// assistant turns; everyone else's words are user turns labelled with who
+// said them (labels exist only in the prompt). Other agents' tool calls are
+// theirs and stay out.
 func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
@@ -91,7 +95,9 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 		}
 	}
 	interrupted := strings.TrimSpace(promptInterrupted)
+	many := manyPeople(events)
 	for _, e := range events {
+		own := e.ActorType == string(types.ActorAgent) && e.ActorRef == spec.Name
 		switch e.Type {
 		case types.EventMessageText:
 			m, err := e.Payload[types.MessageText]()
@@ -99,12 +105,15 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 				return nil, err
 			}
 			flush()
-			if e.ActorType == string(types.ActorAgent) {
+			if own {
 				asst = &provider.Message{Role: "assistant", Content: m.Text}
 				continue
 			}
-			out = append(out, rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec))
+			out = appendUser(out, rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec, label(e, many)))
 		case types.EventToolCall:
+			if !own {
+				continue // its result is skipped too: it is not pending
+			}
 			c, err := e.Payload[types.ToolCall]()
 			if err != nil {
 				return nil, err
@@ -148,13 +157,67 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	return out, nil
 }
 
+// label is how the model is told who said a message that is not its own:
+// "[agent:<ref>] " for an agent, "[<ref>] " for a person when more than one
+// person spoke (with one there is nobody to tell apart).
+func label(e db.EventRow, manyPeople bool) string {
+	switch {
+	case e.ActorType == string(types.ActorAgent):
+		return "[agent:" + e.ActorRef + "] "
+	case manyPeople:
+		return "[" + e.ActorRef + "] "
+	}
+	return ""
+}
+
+// manyPeople reports whether messages from more than one person (any
+// non-agent actor) are among events.
+func manyPeople(events []db.EventRow) bool {
+	first := ""
+	for _, e := range events {
+		if e.Type != types.EventMessageText || e.ActorType == string(types.ActorAgent) {
+			continue
+		}
+		if who := e.ActorType + "/" + e.ActorRef; first == "" {
+			first = who
+		} else if who != first {
+			return true
+		}
+	}
+	return false
+}
+
+// appendUser merges a user message into a preceding one: some chat templates
+// (e.g. Mistral's) reject two user turns in a row, and Anthropic's API merges
+// them the same way.
+func appendUser(out []provider.Message, m provider.Message) []provider.Message {
+	n := len(out)
+	if n == 0 || out[n-1].Role != "user" {
+		return append(out, m)
+	}
+	prev := &out[n-1]
+	if prev.Parts == nil && m.Parts == nil {
+		prev.Content += "\n\n" + m.Content
+		return out
+	}
+	if prev.Parts == nil {
+		prev.Parts, prev.Content = []provider.Part{{Type: "text", Text: prev.Content}}, ""
+	}
+	if m.Parts == nil {
+		m.Parts = []provider.Part{{Type: "text", Text: m.Content}}
+	}
+	prev.Parts = append(prev.Parts, m.Parts...)
+	return out
+}
+
 // userMessage expands image attachments only in the turn they arrive in; later
 // turns get a short placeholder (small context, and presigned URLs expire).
-func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec) provider.Message {
+// label (see label) goes before the text.
+func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec, label string) provider.Message {
+	text := label + m.Text
 	if len(m.Attachments) == 0 {
-		return provider.Message{Role: "user", Content: m.Text}
+		return provider.Message{Role: "user", Content: text}
 	}
-	text := m.Text
 	var images []provider.Part
 	for _, a := range m.Attachments {
 		isImage := strings.HasPrefix(a.Mime, "image/")
