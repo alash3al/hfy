@@ -36,6 +36,15 @@ func (s *Store) SessionByID(ctx context.Context, id int64) (SessionRow, error) {
 	return one[SessionRow](s.Pool.Query(ctx, s.q("SelectSessionByID"), pgx.NamedArgs{"id": id}))
 }
 
+// SettleTurns advances the session's settled_until watermark to just before
+// oldestOpen (nil: no turn is open, so up to the newest turn). Every turn up
+// to the watermark has ended, so OpenTurns and QueuedTurns start after it. It
+// never moves backwards. Call it under the session lock (svc does).
+func (s *Store) SettleTurns(ctx context.Context, q DBTX, session int64, oldestOpen *int64) error {
+	_, err := q.Exec(ctx, s.q("SettleTurns"), pgx.NamedArgs{"id": session, "oldest_open": oldestOpen})
+	return err
+}
+
 // OpenTurns returns ids of turns that are not in a terminal state, oldest first.
 func (s *Store) OpenTurns(ctx context.Context, q DBTX, session int64, limit int) ([]int64, error) {
 	rows, err := q.Query(ctx, s.q("OpenTurns"), pgx.NamedArgs{"session": session, "limit": limit})

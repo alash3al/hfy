@@ -66,7 +66,7 @@ var queryNames = []string{
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
-	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "PruneJobs", "DeleteExpiredEvents",
+	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
 }
 
@@ -78,6 +78,13 @@ func Open(ctx context.Context, url string, maxConns int32, emb *Embeddings) (*St
 	}
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
+	}
+	// hfy's queries are short and indexed. Where a bound is known only at run
+	// time (settled_until), the planner estimates a full scan and Postgres
+	// would JIT-compile a query that then reads a few pages: milliseconds of
+	// compiling for microseconds of work. A URL's own jit setting wins.
+	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

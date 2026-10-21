@@ -196,6 +196,9 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	if err := s.Store.AddSessionUsage(ctx, tx, sessionID, usage.Input, usage.Output, usage.Cached); err != nil {
 		return false, err
 	}
+	if err := s.settle(ctx, tx, sessionID); err != nil {
+		return false, err
+	}
 	if sess.ActiveTurnID != nil && *sess.ActiveTurnID == turnID {
 		if err := s.Store.SetActiveTurn(ctx, tx, sessionID, nil); err != nil {
 			return false, err
@@ -204,6 +207,22 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 		return true, nil // another turn is active; it will chain on its own
 	}
 	return true, s.chainNext(ctx, tx, sessionID, turnID)
+}
+
+// settle moves the session's settled_until watermark past the turns that have
+// ended, in the transaction that ended them. It can lag but never pass an
+// open turn: turn states are final, and only Post creates turns, under the
+// same session lock this runs under.
+func (s *Service) settle(ctx context.Context, tx pgx.Tx, sessionID int64) error {
+	open, err := s.Store.OpenTurns(ctx, tx, sessionID, 1)
+	if err != nil {
+		return err
+	}
+	var oldest *int64
+	if len(open) > 0 {
+		oldest = &open[0]
+	}
+	return s.Store.SettleTurns(ctx, tx, sessionID, oldest)
 }
 
 // chainNext enqueues run_turn for the oldest queued turn after the one that
@@ -291,6 +310,9 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 				return err
 			}
 			ended = append(ended, types.StateCancelled)
+		}
+		if err := s.settle(ctx, tx, sessionID); err != nil {
+			return err
 		}
 		var active db.EventRow
 		if sess.ActiveTurnID != nil {
