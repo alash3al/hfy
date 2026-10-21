@@ -1,4 +1,4 @@
-package hfy_test
+package main
 
 import (
 	"go/ast"
@@ -21,7 +21,6 @@ const module = "github.com/alash3al/hfy"
 // Changing it is a design decision, made here on purpose, never by accident.
 var layers = map[string][]string{
 	"":                           {"agent", "config", "db", "httpapi", "jobs", "mcp", "metrics", "types"},
-	"cmd/hfy":                    {"", "config"},
 	"internal/types":             {}, // shared vocabulary: depends on nothing
 	"internal/config":            {},
 	"internal/metrics":           {},

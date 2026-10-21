@@ -1,4 +1,5 @@
-// Command hfy is a simple harness as a service.
+// Command hfy is a simple harness as a service: your agents, served over HTTP,
+// durable on Postgres.
 package main
 
 import (
@@ -12,7 +13,6 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/alash3al/hfy"
 	"github.com/alash3al/hfy/internal/config"
 )
 
@@ -43,11 +43,11 @@ func app() *cli.Command {
 				Name: "serve", Usage: "run the HTTP API and SSE",
 				Flags: []cli.Flag{&cli.BoolFlag{Name: "work", Usage: "also run the workers in this process"}},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					a, err := load(cmd)
+					cfg, err := load(cmd)
 					if err != nil {
 						return err
 					}
-					return a.Serve(ctx, cmd.Bool("work"))
+					return serve(ctx, cfg, cmd.Bool("work"))
 				},
 			},
 			{
@@ -57,7 +57,7 @@ func app() *cli.Command {
 					&cli.IntFlag{Name: "workers", Usage: "worker count (default: queue.workers)"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					a, err := load(cmd)
+					cfg, err := load(cmd)
 					if err != nil {
 						return err
 					}
@@ -67,7 +67,7 @@ func app() *cli.Command {
 							queues = append(queues, q)
 						}
 					}
-					return a.Work(ctx, queues, cmd.Int("workers"))
+					return work(ctx, cfg, queues, cmd.Int("workers"))
 				},
 			},
 			{
@@ -83,7 +83,7 @@ func app() *cli.Command {
 			{
 				Name: "migrate", Usage: "run or inspect migrations: up | down | status",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					a, err := load(cmd)
+					cfg, err := load(cmd)
 					if err != nil {
 						return err
 					}
@@ -91,7 +91,7 @@ func app() *cli.Command {
 					if sub == "" {
 						sub = "up"
 					}
-					out, err := a.Migrate(ctx, sub)
+					out, err := migrate(ctx, cfg, sub)
 					fmt.Print(out)
 					return err
 				},
@@ -114,11 +114,11 @@ func app() *cli.Command {
 	}
 }
 
-func load(cmd *cli.Command) (*hfy.App, error) {
-	cfg, err := hfy.LoadConfig(cmd.Root().String("config"))
+func load(cmd *cli.Command) (*config.Config, error) {
+	cfg, err := config.Load(cmd.Root().String("config"))
 	if err != nil {
 		return nil, err
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	return hfy.New(cfg), nil
+	return cfg, nil
 }

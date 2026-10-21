@@ -74,7 +74,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	hub := httpapi.NewHub(store)
 	go hub.Run(ctx)
 	srv := httptest.NewUnstartedServer(httpapi.New(cfg, store, rt.Svc, hub).Handler())
-	srv.Config.ReadTimeout = 300 * time.Millisecond // as in production (hfy.go), only shorter: streams must outlive it
+	srv.Config.ReadTimeout = 300 * time.Millisecond // as in production (harness.go), only shorter: streams must outlive it
 	srv.Start()
 	t.Cleanup(srv.Close)
 	time.Sleep(200 * time.Millisecond)

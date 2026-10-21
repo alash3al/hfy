@@ -1,10 +1,4 @@
-// Package hfy is a simple harness as a service: your agents, served over HTTP,
-// durable on Postgres. It can run as the hfy binary or be embedded:
-//
-//	cfg, err := hfy.LoadConfig("hfy.yaml")
-//	if err != nil { ... }
-//	err = hfy.New(cfg).Run(ctx)
-package hfy
+package main
 
 import (
 	"context"
@@ -26,19 +20,6 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// Config is the parsed hfy.yaml.
-type Config = config.Config
-
-// LoadConfig reads, expands and validates a config file.
-func LoadConfig(path string) (*Config, error) { return config.Load(path) }
-
-type App struct{ cfg *config.Config }
-
-func New(cfg *Config) *App { return &App{cfg: cfg} }
-
-// Run serves the API and runs the workers in one process.
-func (a *App) Run(ctx context.Context) error { return a.Serve(ctx, true) }
-
 type instance struct {
 	store   *db.Store
 	rt      *agent.Runtime
@@ -53,13 +34,13 @@ func (i *instance) close() {
 }
 
 // boot connects, migrates and prepares the runtime. Every process does this.
-func (a *App) boot(ctx context.Context, extraConns int) (*instance, error) {
+func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, error) {
 	var emb *db.Embeddings
-	if e := a.cfg.Embeddings; e != nil {
+	if e := cfg.Embeddings; e != nil {
 		_, model := config.SplitModel(e.Model)
 		emb = &db.Embeddings{Model: model, Dims: e.Dimensions}
 	}
-	store, err := db.Open(ctx, a.cfg.Storage.URL, int32(extraConns+a.cfg.Queue.Workers+8), emb)
+	store, err := db.Open(ctx, cfg.Storage.URL, int32(extraConns+cfg.Queue.Workers+8), emb)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +49,8 @@ func (a *App) boot(ctx context.Context, extraConns int) (*instance, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	mgr := mcp.NewManager()
-	inst := &instance{store: store, clients: mcp.StartAll(ctx, mgr, a.cfg.MCP)}
-	if inst.rt, err = agent.NewRuntime(a.cfg, store, mgr); err != nil {
+	inst := &instance{store: store, clients: mcp.StartAll(ctx, mgr, cfg.MCP)}
+	if inst.rt, err = agent.NewRuntime(cfg, store, mgr); err != nil {
 		inst.close()
 		return nil, err
 	}
@@ -80,22 +61,22 @@ func (a *App) boot(ctx context.Context, extraConns int) (*instance, error) {
 	return inst, nil
 }
 
-// Serve runs the HTTP API and SSE; with work it also runs the workers.
-func (a *App) Serve(ctx context.Context, work bool) error {
+// serve runs the HTTP API and SSE; withWorkers also runs the workers.
+func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	inst, err := a.boot(ctx, 16)
+	inst, err := boot(ctx, cfg, 16)
 	if err != nil {
 		return err
 	}
 	defer inst.close()
 
-	stopOps := a.serveOps(ctx, inst)
+	stopOps := serveOps(ctx, cfg, inst)
 	defer stopOps()
 	hub := httpapi.NewHub(inst.store)
-	api := httpapi.New(a.cfg, inst.store, inst.rt.Svc, hub)
+	api := httpapi.New(cfg, inst.store, inst.rt.Svc, hub)
 	srv := &http.Server{
-		Addr: a.cfg.Server.Listen, Handler: api.Handler(),
+		Addr: cfg.Server.Listen, Handler: api.Handler(),
 		// Bound how long a request may take to arrive (no trickled bodies) and
 		// how long an idle connection stays open; SSE streams outlive both.
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute,
@@ -103,14 +84,14 @@ func (a *App) Serve(ctx context.Context, work bool) error {
 	}
 	var wg sync.WaitGroup
 	wg.Go(func() { hub.Run(ctx) })
-	if work {
-		w := a.worker(inst, nil)
-		wg.Go(func() { w.Run(ctx, a.cfg.Queue.Workers) })
+	if withWorkers {
+		w := newWorker(cfg, inst, nil)
+		wg.Go(func() { w.Run(ctx, cfg.Queue.Workers) })
 		wg.Go(func() { inst.rt.ListenCancel(ctx) })
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("hfy listening", "addr", a.cfg.Server.Listen, "workers", work)
+	slog.Info("hfy listening", "addr", cfg.Server.Listen, "workers", withWorkers)
 
 	select {
 	case err = <-errc: // e.g. the address is in use: stop everything else too
@@ -127,19 +108,19 @@ func (a *App) Serve(ctx context.Context, work bool) error {
 	return err
 }
 
-// Work runs only the workers. queues is priority-ordered; nil = all queues.
-func (a *App) Work(ctx context.Context, queues []string, workers int) error {
-	inst, err := a.boot(ctx, 0)
+// work runs only the workers. queues is priority-ordered; nil = all queues.
+func work(ctx context.Context, cfg *config.Config, queues []string, workers int) error {
+	inst, err := boot(ctx, cfg, 0)
 	if err != nil {
 		return err
 	}
 	defer inst.close()
 	if workers <= 0 {
-		workers = a.cfg.Queue.Workers
+		workers = cfg.Queue.Workers
 	}
-	stopOps := a.serveOps(ctx, inst)
+	stopOps := serveOps(ctx, cfg, inst)
 	defer stopOps()
-	w := a.worker(inst, queues)
+	w := newWorker(cfg, inst, queues)
 	var wg sync.WaitGroup
 	wg.Go(func() { inst.rt.ListenCancel(ctx) })
 	slog.Info("hfy workers started", "workers", workers, "queues", queues)
@@ -151,19 +132,19 @@ func (a *App) Work(ctx context.Context, queues []string, workers int) error {
 // serveOps starts the operational listener (metrics.listen) if configured and
 // returns its stop function. A failure to listen is logged, not fatal: the
 // harness keeps serving without metrics.
-func (a *App) serveOps(ctx context.Context, inst *instance) (stop func()) {
+func serveOps(ctx context.Context, cfg *config.Config, inst *instance) (stop func()) {
 	metrics.SetQueueDepth(inst.store.JobCounts)
-	if a.cfg.Metrics == nil {
+	if cfg.Metrics == nil {
 		return func() {}
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("GET /healthz", httpapi.Healthz)
 	mux.Handle("GET /readyz", httpapi.Readyz(inst.store))
-	srv := &http.Server{Addr: a.cfg.Metrics.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: cfg.Metrics.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("metrics listener", "addr", a.cfg.Metrics.Listen, "err", err)
+			slog.Error("metrics listener", "addr", cfg.Metrics.Listen, "err", err)
 		}
 	}()
 	return func() {
@@ -175,18 +156,18 @@ func (a *App) serveOps(ctx context.Context, inst *instance) (stop func()) {
 	}
 }
 
-func (a *App) worker(inst *instance, queues []string) *jobs.Worker {
+func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker {
 	if len(queues) == 0 {
 		queues = []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance}
 	}
-	w := jobs.NewWorker(inst.store, a.cfg.Queue.Lease.D(), queues)
+	w := jobs.NewWorker(inst.store, cfg.Queue.Lease.D(), queues)
 	inst.rt.RegisterJobs(w)
 	return w
 }
 
-// Migrate runs "up", "down" or "status" and returns the report.
-func (a *App) Migrate(ctx context.Context, cmd string) (string, error) {
-	store, err := db.Open(ctx, a.cfg.Storage.URL, 4, nil)
+// migrate runs "up", "down" or "status" and returns the report.
+func migrate(ctx context.Context, cfg *config.Config, cmd string) (string, error) {
+	store, err := db.Open(ctx, cfg.Storage.URL, 4, nil)
 	if err != nil {
 		return "", err
 	}

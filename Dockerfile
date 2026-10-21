@@ -4,7 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hfy ./cmd/hfy
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hfy .
 
 # Alpine, not distroless: local MCP servers are commands that must exist in the
 # image. Extend this stage (apk add / COPY) with the ones your config uses.

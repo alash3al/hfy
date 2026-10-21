@@ -273,8 +273,9 @@ GOTOOLCHAIN=go1.27.3 go install golang.org/x/tools/gopls@latest
 ```
 
 Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,svc,provider,metrics}`;
+`main.go` (the CLI) and `harness.go` (the process wiring) at the root;
 migrations, SQL queries, prompts and the example config are embedded in the
-binary. `hfy.New(cfg).Run(ctx)` embeds the harness in another Go program.
+binary.
 
 ### Conventions
 

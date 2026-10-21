@@ -1,4 +1,4 @@
-package hfy_test
+package main
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alash3al/hfy"
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db/dbtest"
 )
@@ -31,7 +30,7 @@ func TestServeReturnsWhenTheAddressIsTaken(t *testing.T) {
 		Agent:     config.Agent{Model: "p/m", Settings: config.Settings{ContextWindow: 100}},
 	}
 	done := make(chan error, 1)
-	go func() { done <- hfy.New(cfg).Serve(context.Background(), true) }()
+	go func() { done <- serve(context.Background(), cfg, true) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -77,7 +76,7 @@ func TestOperationalEndpoints(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- hfy.New(cfg).Serve(ctx, true) }()
+	go func() { done <- serve(ctx, cfg, true) }()
 	defer func() { cancel(); <-done }()
 	for range 100 {
 		if code, _ := get(t, "http://"+api+"/healthz"); code == 200 {
