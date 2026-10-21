@@ -22,7 +22,7 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mustExec(`INSERT INTO actors (type, ref) VALUES ('anonymous', 'n/a')`)
+	mustExec(`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`)
 	mustExec(`INSERT INTO conversations SELECT FROM generate_series(1, 5)`)
 	// 5 conversations x 600 turns, each with a message, a state, usage and 4 deltas
 	mustExec(`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, data)
@@ -87,7 +87,7 @@ func TestEmbeddingsBackfillUsesTheMessageIndex(t *testing.T) {
 	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
 	ctx := context.Background()
 	for _, q := range []string{
-		`INSERT INTO actors (type, ref) VALUES ('anonymous', 'n/a')`,
+		`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`,
 		`INSERT INTO conversations SELECT FROM generate_series(1, 3)`,
 		`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, data, ephemeral)
 		 SELECT 1 + g % 3, 1, 'n/a', CASE WHEN g % 10 = 0 THEN 'message.text' ELSE 'text.delta' END,

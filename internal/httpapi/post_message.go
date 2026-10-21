@@ -21,7 +21,7 @@ type postMessageResponse struct {
 }
 
 func (s *Server) postMessage(c *echo.Context) error {
-	cl := callerOf(c)
+	g := grantOf(c)
 	var req postMessageRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
@@ -30,16 +30,16 @@ func (s *Server) postMessage(c *echo.Context) error {
 	if strings.TrimSpace(req.Text) == "" && len(req.Attachments) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "text or attachments required")
 	}
-	agent, _ := s.cfg.AgentNamed(cl.agent) // checked when the caller was resolved
+	agent, _ := s.cfg.AgentNamed(g.Agent) // checked when the grant was resolved
 	if err := svc.ValidateAttachments(s.cfg, agent, req.Attachments); err != nil {
 		return err
 	}
-	vars, err := svc.ResolveVars(agent.Vars, cl.vars)
+	vars, err := svc.ResolveVars(agent.Vars, g.Vars)
 	if err != nil {
 		return err
 	}
 	turn, err := s.svc.Post(c.Request().Context(), svc.PostInput{
-		ConversationID: cl.conversation.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars, Agent: cl.agent,
+		ConversationID: g.ConversationID, Actor: g.ActorID, Scope: g.Scope, Vars: vars, Agent: g.Agent,
 		Text: req.Text, Attachments: req.Attachments,
 	})
 	if err != nil {

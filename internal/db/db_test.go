@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/jackc/pgx/v5"
 
@@ -127,7 +128,7 @@ func TestNotify(t *testing.T) {
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
 	time.Sleep(300 * time.Millisecond)
 	conv, _ := s.CreateConversation(ctx)
-	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
+	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := s.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
 		return err
@@ -149,7 +150,7 @@ func TestEmbeddingsSearch(t *testing.T) {
 	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
 	ctx := context.Background()
 	conv, _ := s.CreateConversation(ctx)
-	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
+	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	var ids []int64
 	for _, txt := range []string{"apples", "boats"} {
 		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.MessageText{Text: txt}})
@@ -219,7 +220,7 @@ func TestEventVersions(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
 	conv, _ := s.CreateConversation(ctx)
-	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, types.NoScope)
+	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
 	if err != nil || turn.V != types.Version(types.EventTurn) {
 		t.Fatalf("append: v%d %v", turn.V, err)
@@ -283,9 +284,23 @@ func TestNothingIsNamedSession(t *testing.T) {
 		}
 		return names
 	}
-	if _, err := s.Migrate(ctx, "down"); err != nil {
-		t.Fatal(err)
+	// step down until 00006 is undone, whatever came after it
+	beforeRename := func() {
+		for range 20 {
+			var renamed bool
+			if err := s.Pool.QueryRow(ctx, "SELECT to_regclass('conversations') IS NOT NULL").Scan(&renamed); err != nil {
+				t.Fatal(err)
+			}
+			if !renamed {
+				return
+			}
+			if _, err := s.Migrate(ctx, "down"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Fatal("never got below migration 00006")
 	}
+	beforeRename()
 	for _, q := range []string{
 		`INSERT INTO jobs (type, queue, concurrency_key) VALUES ('run_turn', 'turns', 'session:7')`,
 		`INSERT INTO embeddings_3 (embeddable_type, embeddable_id, model, embedding) VALUES ('session_event', 1, 'm', '[1,0,0]')`,
@@ -303,13 +318,44 @@ func TestNothingIsNamedSession(t *testing.T) {
 	if got := leftovers("conversation"); !slices.Contains(got, "jobs:conversation:7") || !slices.Contains(got, "embeddings_3:conversation_event") {
 		t.Fatalf("stored values did not move: %v", got)
 	}
-	if _, err := s.Migrate(ctx, "down"); err != nil {
-		t.Fatal(err)
-	}
+	beforeRename()
 	if left := leftovers("conversation"); len(left) > 0 {
 		t.Fatalf("down left conversation names: %v", left)
 	}
 	if _, err := s.Migrate(ctx, "up"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Retention deletes grants that ended longer ago than its age, whether they
+// expired or were revoked, and keeps live ones.
+func TestRetentionDeletesEndedGrants(t *testing.T) {
+	s := dbtest.New(t, nil)
+	ctx := context.Background()
+	conv, _ := s.CreateConversation(ctx)
+	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
+	grant := func(hash string) uuid.UUID {
+		id, _, err := s.CreateGrant(ctx, db.NewGrant{TokenHash: []byte(hash), ConversationID: conv.ID, ActorID: actor,
+			Scope: "u1", ExpiresIn: time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	live, expired, revoked := grant("live"), grant("expired"), grant("revoked")
+	if err := s.RevokeGrant(ctx, revoked); err != nil {
+		t.Fatal(err)
+	}
+	s.Pool.Exec(ctx, "UPDATE grants SET expires_at = now() - interval '31 days' WHERE uuid = ANY($1)", []uuid.UUID{expired, revoked})
+	if _, err := s.DeleteExpired(ctx, 30*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.Pool.Query(ctx, "SELECT uuid FROM grants")
+	left, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil || len(left) != 1 || left[0] != live {
+		t.Fatalf("left %v (live %v): %v", left, live, err)
+	}
+	if _, err := s.GrantByToken(ctx, []byte("live")); err != nil {
+		t.Fatalf("the live grant: %v", err)
 	}
 }

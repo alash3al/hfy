@@ -26,7 +26,7 @@ type historyResponse struct {
 // history returns durable events grouped by turn, newest page first, keyset
 // paginated by turn uuid.
 func (s *Server) history(c *echo.Context) error {
-	cl := callerOf(c)
+	g := grantOf(c)
 	ctx := c.Request().Context()
 	limit := 20
 	if v := c.QueryParam("limit"); v != "" {
@@ -42,18 +42,18 @@ func (s *Server) history(c *echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "bad before cursor")
 		}
-		id, err := s.store.TurnIDByUUID(ctx, cl.conversation.ID, u)
+		id, err := s.store.TurnIDByUUID(ctx, g.ConversationID, u)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "unknown before cursor")
 		}
 		before = &id
 	}
 	// Read the live cursor first: anything appended after it is replayed by /events.
-	latest, err := s.store.LatestEventID(ctx, cl.conversation.ID)
+	latest, err := s.store.LatestEventID(ctx, g.ConversationID)
 	if err != nil {
 		return err
 	}
-	ids, err := s.store.HistoryTurnIDs(ctx, cl.conversation.ID, before, limit)
+	ids, err := s.store.HistoryTurnIDs(ctx, g.ConversationID, before, limit)
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (s *Server) history(c *echo.Context) error {
 		resp.LiveAfter = &ev.UUID
 	}
 	if len(ids) > 0 {
-		rows, err := s.store.HistoryEvents(ctx, cl.conversation.ID, ids)
+		rows, err := s.store.HistoryEvents(ctx, g.ConversationID, ids)
 		if err != nil {
 			return err
 		}

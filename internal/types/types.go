@@ -52,16 +52,13 @@ func (s TurnState) Terminal() bool {
 type ActorType string
 
 const (
-	ActorExternal  ActorType = "external"
-	ActorAgent     ActorType = "agent"
-	ActorAnonymous ActorType = "anonymous"
+	ActorExternal ActorType = "external"
+	ActorAgent    ActorType = "agent"
 )
 
 const (
 	AgentMain       = "main"
 	AgentSummarizer = "summarizer"
-	// NoScope is the fixed scope and anonymous ref used when auth is off.
-	NoScope = "n/a"
 )
 
 type JobType string

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,8 +27,14 @@ import (
 
 func TestMain(m *testing.M) {
 	slog.SetLogLoggerLevel(slog.LevelError)
+	httpapi.SetGrantCheckEvery(100 * time.Millisecond)
 	os.Exit(m.Run())
 }
+
+const (
+	secret = "topsecret"
+	client = "/v1/conversation" // a client's routes: the grant names the conversation
+)
 
 type api struct {
 	t    *testing.T
@@ -42,7 +49,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	ctx, cancel := context.WithCancel(context.Background())
 	fake := fakeprov.New(t, script...)
 	cfg := &config.Config{
-		Server:    config.Server{Secret: "topsecret"},
+		Server:    config.Server{Secret: secret},
 		Queue:     config.Queue{Workers: 2, Lease: config.Duration(5 * time.Second), MaxAttempts: 2},
 		Providers: map[string]config.Provider{"fake": {URL: fake.URL1(), Timeout: config.Duration(10 * time.Second)}},
 		Agent: config.Agent{Model: "fake/m", System: "You help {{user}}.", Settings: config.Settings{ContextWindow: 100000},
@@ -76,11 +83,6 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 
 func (a *api) do(method, path, bearer string, body any) (int, map[string]any) {
 	a.t.Helper()
-	return a.doWith(method, path, bearer, nil, body)
-}
-
-func (a *api) doWith(method, path, bearer string, header map[string]string, body any) (int, map[string]any) {
-	a.t.Helper()
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -91,9 +93,6 @@ func (a *api) doWith(method, path, bearer string, header map[string]string, body
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for k, v := range header {
-		req.Header.Set(k, v)
-	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		a.t.Fatal(err)
@@ -106,11 +105,41 @@ func (a *api) doWith(method, path, bearer string, header map[string]string, body
 
 func (a *api) newConversation() string {
 	a.t.Helper()
-	code, out := a.do("POST", "/v1/conversations", "topsecret", nil)
+	code, out := a.do("POST", "/v1/conversations", secret, nil)
 	if code != 201 {
 		a.t.Fatalf("create conversation: %d %v", code, out)
 	}
 	return out["id"].(string)
+}
+
+// grant asks for a grant as the app's backend does (actor "u1" unless the
+// body says otherwise) and returns its token and id.
+func (a *api) grant(conv string, body map[string]any) (token, id string) {
+	a.t.Helper()
+	body = maps.Clone(body)
+	if body == nil {
+		body = map[string]any{}
+	}
+	body["conversation"] = conv
+	if body["actor"] == nil {
+		body["actor"] = "u1"
+	}
+	code, out := a.do("POST", "/v1/grants", secret, body)
+	if code != 201 {
+		a.t.Fatalf("create grant: %d %v", code, out)
+	}
+	return out["token"].(string), out["id"].(string)
+}
+
+// session is the common start: a conversation and one grant to it.
+func (a *api) session() (token string) {
+	a.t.Helper()
+	token, _ = a.grant(a.newConversation(), nil)
+	return token
+}
+
+func bearer(token string) map[string]string {
+	return map[string]string{"Authorization": "Bearer " + token}
 }
 
 type sseEvent struct {
@@ -118,7 +147,8 @@ type sseEvent struct {
 	Env      map[string]any
 }
 
-// stream opens the SSE endpoint and returns a channel of events.
+// stream opens the SSE endpoint and returns a channel of events, closed when
+// the server ends the stream.
 func (a *api) stream(path string, header map[string]string) (<-chan sseEvent, func()) {
 	a.t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,41 +215,66 @@ func waitFor(t *testing.T, ch <-chan sseEvent, stop func(sseEvent) bool) []sseEv
 	}
 }
 
+// waitClosed waits for the server to end a stream.
+func waitClosed(t *testing.T, ch <-chan sseEvent, within time.Duration) {
+	t.Helper()
+	deadline := time.After(within)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("the stream is still open after %s", within)
+		}
+	}
+}
+
 func completed(ev sseEvent) bool {
 	return ev.Type == "turn.state" && ev.Env["data"].(map[string]any)["state"] == "completed"
 }
 
-func TestServerSecretGuardsConversationCreation(t *testing.T) {
+func TestServerSecretGuardsTheBackendRoutes(t *testing.T) {
 	a := start(t, nil)
-	if code, _ := a.do("POST", "/v1/conversations", "", nil); code != 401 {
-		t.Fatalf("no secret: %d", code)
+	conv := a.newConversation()
+	for _, r := range []struct {
+		method, path string
+		body         any
+	}{
+		{"POST", "/v1/conversations", nil},
+		{"POST", "/v1/grants", map[string]any{"conversation": conv, "actor": "u1"}},
+		{"DELETE", "/v1/grants/00000000-0000-4000-8000-000000000000", nil},
+	} {
+		for _, key := range []string{"", "wrong"} {
+			if code, _ := a.do(r.method, r.path, key, r.body); code != 401 {
+				t.Errorf("%s %s with secret %q: %d", r.method, r.path, key, code)
+			}
+		}
 	}
-	if code, _ := a.do("POST", "/v1/conversations", "wrong", nil); code != 401 {
-		t.Fatalf("wrong secret: %d", code)
+	// a grant's token is not the secret
+	token, _ := a.grant(conv, nil)
+	if code, _ := a.do("POST", "/v1/conversations", token, nil); code != 401 {
+		t.Fatalf("a token must not create conversations: %d", code)
 	}
-	a.newConversation()
 }
 
 func TestMessageStreamResumeAndHistory(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "hello from the agent"}, fakeprov.Step{Content: "second answer"})
-	cid := a.newConversation()
-	base := "/v1/conversations/" + cid
+	token := a.session()
 
 	// validation
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": " "}); code != 400 {
+	if code, _ := a.do("POST", client+"/messages", token, map[string]any{"text": " "}); code != 400 {
 		t.Fatalf("empty message: %d", code)
 	}
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "x",
+	if code, _ := a.do("POST", client+"/messages", token, map[string]any{"text": "x",
 		"attachments": []map[string]string{{"url": "https://cdn.example.com/a.png", "mime": "image/png"}}}); code != 400 {
 		t.Fatalf("attachments without config: %d", code)
 	}
-	if code, _ := a.do("GET", "/v1/conversations/"+"not-a-uuid"+"/history", "", nil); code != 404 {
-		t.Fatalf("bad id: %d", code)
-	}
 
-	events, closeStream := a.stream(base+"/events", nil)
+	events, closeStream := a.stream(client+"/events", bearer(token))
 	defer closeStream()
-	code, out := a.do("POST", base+"/messages", "", map[string]any{"text": "hi there"})
+	code, out := a.do("POST", client+"/messages", token, map[string]any{"text": "hi there"})
 	if code != 202 {
 		t.Fatalf("post: %d %v", code, out)
 	}
@@ -260,7 +315,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	}
 
 	// history: durable only, grouped by turn, with a live cursor
-	code, hist := a.do("GET", base+"/history", "", nil)
+	code, hist := a.do("GET", client+"/history", token, nil)
 	if code != 200 {
 		t.Fatalf("history: %d", code)
 	}
@@ -279,9 +334,9 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	}
 
 	// resume: Last-Event-ID replays only what came after it, then continues live
-	resumed, closeResumed := a.stream(base+"/events", map[string]string{"Last-Event-ID": got[1].ID})
+	resumed, closeResumed := a.stream(client+"/events", map[string]string{"Authorization": "Bearer " + token, "Last-Event-ID": got[1].ID})
 	defer closeResumed()
-	code, _ = a.do("POST", base+"/messages", "", map[string]any{"text": "again"})
+	code, _ = a.do("POST", client+"/messages", token, map[string]any{"text": "again"})
 	if code != 202 {
 		t.Fatal(code)
 	}
@@ -289,8 +344,8 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	if replay[0].ID != got[2].ID {
 		t.Fatalf("replay must start right after Last-Event-ID, got %s %s", replay[0].Type, replay[0].ID)
 	}
-	// ?after= works for EventSource; "from now" skips history
-	viaQuery, closeQ := a.stream(base+"/events?after="+got[len(got)-1].ID, nil)
+	// EventSource: the token and ?after= in the query; "from now" skips history
+	viaQuery, closeQ := a.stream(client+"/events?token="+token+"&after="+got[len(got)-1].ID, nil)
 	defer closeQ()
 	first := waitFor(t, viaQuery, func(sseEvent) bool { return true })
 	if first[0].Type != "turn" {
@@ -298,82 +353,163 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	}
 
 	// pagination by turn
-	code, page := a.do("GET", base+"/history?limit=1", "", nil)
+	code, page := a.do("GET", client+"/history?limit=1", token, nil)
 	if code != 200 || len(page["turns"].([]any)) != 1 || page["next"] == nil {
 		t.Fatalf("page 1: %d %v", code, page)
 	}
-	code, older := a.do("GET", base+"/history?limit=1&before="+page["next"].(string), "", nil)
+	code, older := a.do("GET", client+"/history?limit=1&before="+page["next"].(string), token, nil)
 	if code != 200 || older["turns"].([]any)[0].(map[string]any)["id"] != turn {
 		t.Fatalf("page 2: %d %v", code, older)
 	}
-	if code, _ := a.do("GET", base+"/history?before=00000000-0000-4000-8000-000000000000", "", nil); code != 400 {
+	if code, _ := a.do("GET", client+"/history?before=00000000-0000-4000-8000-000000000000", token, nil); code != 400 {
 		t.Fatalf("unknown cursor: %d", code)
 	}
-	if code, _ := a.do("GET", base+"/events?after=00000000-0000-4000-8000-000000000000", "", nil); code != 400 {
+	if code, _ := a.do("GET", client+"/events?after=00000000-0000-4000-8000-000000000000", token, nil); code != 400 {
 		t.Fatalf("unknown after: %d", code)
 	}
 }
 
-func TestWebhookAuth(t *testing.T) {
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-		switch body["key"] {
-		case "alice-token":
-			json.NewEncoder(w).Encode(map[string]any{"actor": "alice", "scope": "room-1", "vars": map[string]any{"user": "Alice", "tone": "formal"}})
-		case "bob-token":
-			json.NewEncoder(w).Encode(map[string]any{"actor": "bob"})
-		case "expired":
-			w.WriteHeader(http.StatusUnauthorized)
-		case "garbage":
-			w.Write([]byte("not json"))
-		default:
-			w.WriteHeader(http.StatusForbidden)
-		}
-	}))
-	defer hook.Close()
+// Creating a grant checks everything the backend may get wrong, so a mistake
+// is the backend's 400 now and never a client's failed turn later.
+func TestGrantValidation(t *testing.T) {
 	a := start(t, func(c *config.Config) {
-		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
-	}, fakeprov.Step{Content: "hi alice"})
-	cid := a.newConversation()
-	base := "/v1/conversations/" + cid
-
-	for key, want := range map[string]int{"": 401, "expired": 401, "nope": 403, "garbage": 403} {
-		if code, _ := a.do("GET", base+"/history", key, nil); code != want {
-			t.Errorf("key %q: got %d want %d", key, code, want)
+		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
+			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
+	})
+	conv := a.newConversation()
+	ok := map[string]any{"conversation": conv, "actor": "u1"}
+	with := func(k string, v any) map[string]any {
+		b := maps.Clone(ok)
+		if v == nil {
+			delete(b, k)
+		} else {
+			b[k] = v
+		}
+		return b
+	}
+	for name, c := range map[string]struct {
+		body map[string]any
+		want int
+	}{
+		"no conversation":      {with("conversation", nil), 400},
+		"unknown conversation": {with("conversation", "00000000-0000-4000-8000-000000000000"), 404},
+		"no actor":             {with("actor", nil), 400},
+		"blank actor":          {with("actor", "  "), 400},
+		"long actor":           {with("actor", strings.Repeat("a", 257)), 400},
+		"long scope":           {with("scope", strings.Repeat("a", 257)), 400},
+		"unknown agent":        {with("agent", "nope"), 400},
+		"undeclared var":       {with("vars", map[string]string{"usr": "x"}), 400},
+		"missing required var": {with("agent", "store"), 400},
+		"expires_in 0":         {with("expires_in", 0), 400},
+		"expires_in over 24h":  {with("expires_in", 86401), 400},
+		"not json":             {nil, 400},
+	} {
+		var body any = c.body
+		if c.body == nil {
+			body = "not an object"
+		}
+		if code, out := a.do("POST", "/v1/grants", secret, body); code != c.want {
+			t.Errorf("%s: got %d %v, want %d", name, code, out, c.want)
 		}
 	}
-	hook.Close() // fail closed when the webhook is unreachable
-	if code, _ := a.do("GET", base+"/history", "alice-token", nil); code != 403 {
-		t.Fatalf("webhook down must deny, got %d", code)
+
+	code, out := a.do("POST", "/v1/grants", secret, ok)
+	if code != 201 || !strings.HasPrefix(out["token"].(string), "hfy_") || len(out["token"].(string)) != 47 || out["id"] == nil {
+		t.Fatalf("grant: %d %v", code, out)
+	}
+	exp, err := time.Parse(time.RFC3339Nano, out["expires_at"].(string))
+	if err != nil || time.Until(exp) < 59*time.Minute || time.Until(exp) > 61*time.Minute {
+		t.Fatalf("default expiry is an hour: %v %v", out["expires_at"], err)
+	}
+	// the token is shown once: the database holds only its hash
+	var n int
+	a.rt.Store.Pool.QueryRow(context.Background(), "SELECT count(*) FROM grants g WHERE g::text LIKE '%' || $1 || '%'",
+		strings.TrimPrefix(out["token"].(string), "hfy_")).Scan(&n)
+	if n != 0 {
+		t.Fatal("the token is stored")
 	}
 }
 
-func TestWebhookIdentityVarsAndScope(t *testing.T) {
-	var last map[string]string
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&last)
-		if last["key"] != "alice-token" {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]any{"actor": "alice", "scope": "room-1", "vars": map[string]any{"user": "Alice"}})
-	}))
-	defer hook.Close()
-	a := start(t, func(c *config.Config) {
-		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
-	}, fakeprov.Step{Content: "hi alice"})
-	cid := a.newConversation()
-	base := "/v1/conversations/" + cid
+// A token works until its grant expires or is revoked, then gets the same
+// 401 as a token that never existed. ?token= is for EventSource only.
+func TestTokens(t *testing.T) {
+	a := start(t, nil)
+	conv := a.newConversation()
+	token, id := a.grant(conv, nil)
 
-	// the key may also arrive as ?key= (EventSource) and reaches the webhook with the conversation id
-	events, closeStream := a.stream(base+"/events?key=alice-token", nil)
-	defer closeStream()
-	if last["conversation_id"] != cid || last["key"] != "alice-token" {
-		t.Fatalf("webhook request: %v", last)
+	for name, tok := range map[string]string{"none": "", "garbage": "hfy_nope", "the secret": secret} {
+		if code, _ := a.do("GET", client+"/history", tok, nil); code != 401 {
+			t.Errorf("%s: %d", name, code)
+		}
 	}
-	// vars come from the webhook only: a client's are ignored
-	code, _ := a.do("POST", base+"/messages", "alice-token", map[string]any{"text": "hello", "vars": map[string]string{"user": "Mallory"}})
+	if code, _ := a.do("GET", client+"/history", token, nil); code != 200 {
+		t.Fatalf("valid token: %d", code)
+	}
+	if code, _ := a.do("GET", client+"/history?token="+token, "", nil); code != 401 {
+		t.Fatalf("?token= outside the stream: %d", code)
+	}
+
+	if code, _ := a.do("DELETE", "/v1/grants/"+id, secret, nil); code != 204 {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code, _ := a.do("DELETE", "/v1/grants/"+id, secret, nil); code != 204 {
+		t.Fatalf("revoking twice: %d", code)
+	}
+	if code, out := a.do("GET", client+"/history", token, nil); code != 401 || out["error"] != "invalid or expired token" {
+		t.Fatalf("revoked token: %d %v", code, out)
+	}
+	for _, bad := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid"} {
+		if code, _ := a.do("DELETE", "/v1/grants/"+bad, secret, nil); code != 404 {
+			t.Fatalf("revoke %s: %d", bad, code)
+		}
+	}
+
+	short, _ := a.grant(conv, map[string]any{"expires_in": 1})
+	if code, _ := a.do("GET", client+"/history", short, nil); code != 200 {
+		t.Fatalf("fresh short grant: %d", code)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if code, out := a.do("GET", client+"/history", short, nil); code != 401 || out["error"] != "invalid or expired token" {
+		t.Fatalf("expired token: %d %v", code, out)
+	}
+}
+
+// An open stream ends with its grant: on expiry, and soon after a revocation.
+func TestStreamsEndWithTheirGrant(t *testing.T) {
+	a := start(t, nil)
+	conv := a.newConversation()
+
+	token, id := a.grant(conv, nil)
+	revoked, closeRevoked := a.stream(client+"/events", bearer(token))
+	defer closeRevoked()
+	time.Sleep(300 * time.Millisecond) // several re-checks while the grant holds
+	select {
+	case _, ok := <-revoked:
+		if !ok {
+			t.Fatal("a live grant's stream ended")
+		}
+	default:
+	}
+	if code, _ := a.do("DELETE", "/v1/grants/"+id, secret, nil); code != 204 {
+		t.Fatalf("revoke: %d", code)
+	}
+	waitClosed(t, revoked, 2*time.Second)
+
+	short, _ := a.grant(conv, map[string]any{"expires_in": 1})
+	expiring, closeExpiring := a.stream(client+"/events", bearer(short))
+	defer closeExpiring()
+	waitClosed(t, expiring, 3*time.Second)
+}
+
+// The grant carries the identity: actor, scope and vars reach the turn; a
+// client's own vars are ignored.
+func TestGrantIdentityVarsAndScope(t *testing.T) {
+	a := start(t, nil, fakeprov.Step{Content: "hi alice"})
+	token, _ := a.grant(a.newConversation(), map[string]any{"actor": "alice", "scope": "room-1", "vars": map[string]string{"user": "Alice"}})
+
+	events, closeStream := a.stream(client+"/events?token="+token, nil)
+	defer closeStream()
+	code, _ := a.do("POST", client+"/messages", token, map[string]any{"text": "hello", "vars": map[string]string{"user": "Mallory"}})
 	if code != 202 {
 		t.Fatalf("post: %d", code)
 	}
@@ -403,72 +539,63 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 	if len(scopes) != 1 || scopes[0] != "room-1" {
 		t.Fatalf("scopes: %v", scopes)
 	}
-	// the key is not in the stored trace
-	var n int
-	a.rt.Store.Pool.QueryRow(context.Background(), "SELECT count(*) FROM outbound_requests WHERE url = $1", hook.URL).Scan(&n)
-	if n != 0 {
-		t.Fatal("the auth webhook must never be written to outbound_requests")
+}
+
+// A conversation is a room: everyone granted to it sees every turn, whoever
+// started it, and their scope defaults to their actor.
+func TestGrantsShareARoom(t *testing.T) {
+	a := start(t, nil, fakeprov.Step{Content: "hello both"})
+	conv := a.newConversation()
+	alice, _ := a.grant(conv, map[string]any{"actor": "alice"})
+	bob, _ := a.grant(conv, map[string]any{"actor": "bob"})
+	toBob, closeBob := a.stream(client+"/events", bearer(bob))
+	defer closeBob()
+	if code, _ := a.do("POST", client+"/messages", alice, map[string]any{"text": "hi"}); code != 202 {
+		t.Fatalf("alice posts: %d", code)
+	}
+	got := waitFor(t, toBob, completed)
+	if got[0].Type != "turn" || got[0].Env["actor"].(map[string]any)["ref"] != "alice" {
+		t.Fatalf("bob sees alice's turn: %v", got[0].Env)
+	}
+	var scope string
+	a.rt.Store.Pool.QueryRow(context.Background(), "SELECT scope FROM conversation_events WHERE type = 'turn'").Scan(&scope)
+	if scope != "alice" {
+		t.Fatalf("scope defaults to the actor: %q", scope)
 	}
 }
 
 func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	a := start(t, nil)
-	cid := a.newConversation()
-	base := "/v1/conversations/" + cid
-	if code, _ := a.do("POST", base+"/approvals", "", map[string]any{"call_id": "x", "approve": true}); code != 409 {
+	token := a.session()
+	if code, _ := a.do("POST", client+"/approvals", token, map[string]any{"call_id": "x", "approve": true}); code != 409 {
 		t.Fatalf("approve nothing: %d", code)
 	}
-	if code, _ := a.do("POST", base+"/approvals", "", map[string]any{"approve": true}); code != 400 {
+	if code, _ := a.do("POST", client+"/approvals", token, map[string]any{"approve": true}); code != 400 {
 		t.Fatalf("approve without call_id: %d", code)
 	}
-	if code, _ := a.do("POST", base+"/stop", "", nil); code != 202 {
+	if code, _ := a.do("POST", client+"/stop", token, nil); code != 202 {
 		t.Fatalf("stop idle conversation: %d", code)
-	}
-	if code, _ := a.do("GET", "/v1/conversations/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
-		t.Fatalf("unknown conversation: %d", code)
 	}
 }
 
-// The auth webhook picks the agent per caller, here from the client's hint:
-// each turn runs with that agent's prompt, model and vars, and its events are
-// authored by that agent.
-func TestWebhookPicksTheAgent(t *testing.T) {
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Key  string `json:"key"`
-			Hint struct {
-				Agent string `json:"agent"`
-			} `json:"hint"`
-		}
-		json.NewDecoder(r.Body).Decode(&in)
-		switch in.Key {
-		case "buyer": // buyers may ask for the store; the webhook decides
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Hint.Agent, "vars": map[string]any{"shop": "Napoli"}})
-		case "owner":
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u2", "vars": map[string]any{"user": "Sam"}}) // no agent: main
-		case "noshop": // forgets the store's required var
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u4", "agent": "store"})
-		default:
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u3", "agent": "nope"})
-		}
-	}))
-	defer hook.Close()
+// The grant picks the agent: each turn runs with that agent's prompt, model
+// and vars, and its events are authored by that agent.
+func TestGrantPicksTheAgent(t *testing.T) {
 	a := start(t, func(c *config.Config) {
-		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
 		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
 			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
 	}, fakeprov.Step{Content: "store here"}, fakeprov.Step{Content: "main here"})
-	cid := a.newConversation()
-	base := "/v1/conversations/" + cid
-	events, closeStream := a.stream(base+"/events?key=buyer", nil)
+	conv := a.newConversation()
+	buyer, buyerID := a.grant(conv, map[string]any{"actor": "u1", "agent": "store", "vars": map[string]string{"shop": "Napoli"}})
+	owner, ownerID := a.grant(conv, map[string]any{"actor": "u2", "vars": map[string]string{"user": "Sam"}}) // no agent: main
+	events, closeStream := a.stream(client+"/events", bearer(buyer))
 	defer closeStream()
 
-	asStore := map[string]string{"Hfy-Hint": `{"agent":"store"}`}
-	if code, out := a.doWith("POST", base+"/messages", "buyer", asStore, map[string]any{"text": "pizza?"}); code != 202 {
+	if code, out := a.do("POST", client+"/messages", buyer, map[string]any{"text": "pizza?"}); code != 202 {
 		t.Fatalf("buyer post: %d %v", code, out)
 	}
 	got := waitFor(t, events, completed)
-	if code, out := a.do("POST", base+"/messages", "owner", map[string]any{"text": "status?"}); code != 202 {
+	if code, out := a.do("POST", client+"/messages", owner, map[string]any{"text": "status?"}); code != 202 {
 		t.Fatalf("owner post: %d %v", code, out)
 	}
 	got = append(got, waitFor(t, events, completed)...)
@@ -497,16 +624,17 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	if replies["store here"] != "store" || replies["main here"] != "main" || storeTurns != 1 {
 		t.Fatalf("reply authors: %v, store turns recorded: %d", replies, storeTurns)
 	}
-	if code, _ := a.do("POST", base+"/messages", "stranger", map[string]any{"text": "hi"}); code != http.StatusForbidden {
+
+	// the config changed after the grants were made: an agent that is gone
+	// fails closed, a var that became required is a server error
+	ctx := context.Background()
+	a.rt.Store.Pool.Exec(ctx, "UPDATE grants SET agent = 'gone' WHERE uuid = $1", ownerID)
+	if code, _ := a.do("POST", client+"/messages", owner, map[string]any{"text": "hi"}); code != http.StatusForbidden {
 		t.Fatalf("an unknown agent must fail closed, got %d", code)
 	}
-	if code, _ := a.do("POST", base+"/messages", "noshop", map[string]any{"text": "hi"}); code != http.StatusInternalServerError {
-		t.Fatalf("a required var the webhook left out is a server error, got %d", code)
-	}
-	for _, bad := range []string{`{"agent":`, `"` + strings.Repeat("a", 5000) + `"`} {
-		if code, _ := a.doWith("POST", base+"/messages", "buyer", map[string]string{"Hfy-Hint": bad}, map[string]any{"text": "hi"}); code != http.StatusBadRequest {
-			t.Fatalf("hint %.20q must be rejected, got %d", bad, code)
-		}
+	a.rt.Store.Pool.Exec(ctx, "UPDATE grants SET vars = '{}' WHERE uuid = $1", buyerID)
+	if code, _ := a.do("POST", client+"/messages", buyer, map[string]any{"text": "hi"}); code != http.StatusInternalServerError {
+		t.Fatalf("a required var the grant lacks is a server error, got %d", code)
 	}
 }
 
@@ -514,11 +642,11 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 // a request may take to arrive.
 func TestStreamOutlivesReadTimeout(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "late but here"})
-	base := "/v1/conversations/" + a.newConversation()
-	events, closeStream := a.stream(base+"/events", nil)
+	token := a.session()
+	events, closeStream := a.stream(client+"/events", bearer(token))
 	defer closeStream()
 	time.Sleep(1500 * time.Millisecond) // five ReadTimeouts
-	if code, out := a.do("POST", base+"/messages", "", map[string]any{"text": "still there?"}); code != 202 {
+	if code, out := a.do("POST", client+"/messages", token, map[string]any{"text": "still there?"}); code != 202 {
 		t.Fatalf("post: %d %v", code, out)
 	}
 	waitFor(t, events, completed)
@@ -527,9 +655,12 @@ func TestStreamOutlivesReadTimeout(t *testing.T) {
 // Every route bounds its body, not only messages.
 func TestEveryBodyIsBounded(t *testing.T) {
 	a := start(t, nil)
-	base := "/v1/conversations/" + a.newConversation()
+	token := a.session()
 	huge := map[string]any{"call_id": "x", "result": strings.Repeat("a", 3<<20)}
-	if code, _ := a.do("POST", base+"/approvals", "", huge); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+	if code, _ := a.do("POST", client+"/approvals", token, huge); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a 3 MiB approval body must be refused, got %d", code)
+	}
+	if code, _ := a.do("POST", "/v1/grants", secret, map[string]any{"actor": strings.Repeat("a", 3<<20)}); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a 3 MiB grant body must be refused, got %d", code)
 	}
 }

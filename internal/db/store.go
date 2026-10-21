@@ -67,7 +67,8 @@ var queryNames = []string{
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
 	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectConversationByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
-	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
+	"DeleteExpiredOutbound", "DeleteExpiredGrants", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
+	"InsertGrant", "SelectGrantByToken", "GrantLive", "RevokeGrant",
 }
 
 // Open connects, pings and loads the embedded queries.

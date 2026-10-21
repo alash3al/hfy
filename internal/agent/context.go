@@ -196,19 +196,16 @@ var (
 )
 
 // frame wraps text in tag, attributed to e's actor:
-// <message from="u1" kind="person">…</message> (an anonymous person has no
-// from). The text and the ref are escaped, so nothing a speaker writes can
-// close the frame or open another: only frames say who wrote what.
+// <message from="u1" kind="person">…</message>. The text and the ref are
+// escaped, so nothing a speaker writes can close the frame or open another:
+// only frames say who wrote what.
 func frame(e db.EventRow, tag, text string) string {
 	kind := "person"
 	if e.ActorType == string(types.ActorAgent) {
 		kind = "agent"
 	}
-	attrs := ` kind="` + kind + `"`
-	if e.ActorType != string(types.ActorAnonymous) {
-		attrs = ` from="` + escAttr.Replace(e.ActorRef) + `"` + attrs
-	}
-	return "<" + tag + attrs + ">" + escText.Replace(text) + "</" + tag + ">"
+	return "<" + tag + ` from="` + escAttr.Replace(e.ActorRef) + `" kind="` + kind + `">` +
+		escText.Replace(text) + "</" + tag + ">"
 }
 
 // framed frames a user message's text (its first part when it has parts;

@@ -60,7 +60,7 @@ func TestSettledTurnsMatchAFullScan(t *testing.T) {
 		switch n := rnd.IntN(10); {
 		case n < 4:
 			op = "post"
-			_, err = s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: people[rnd.IntN(3)], Scope: types.NoScope, Text: "hi"})
+			_, err = s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: people[rnd.IntN(3)], Scope: "u1", Text: "hi"})
 		case n < 6 && len(open) > 0:
 			op = "start"
 			_, err = s.StartTurn(ctx, conv.ID, open[0])

@@ -16,13 +16,14 @@ import (
 func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	a := start(t, nil)
 	cid := a.newConversation()
+	token, _ := a.grant(cid, nil)
 	ctx := context.Background()
 	store := a.rt.Store
 	u, _ := uuid.Parse(cid)
 	conv, _ := store.ConversationByUUID(ctx, u)
-	actor, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
+	actor, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorExternal, "u1")
 
-	events, closeStream := a.stream("/v1/conversations/"+cid+"/events", nil)
+	events, closeStream := a.stream(client+"/events", bearer(token))
 	defer closeStream()
 
 	// tx1 takes the lower id but commits last

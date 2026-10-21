@@ -5,10 +5,10 @@ YAML file, serving your agents over HTTP.
 
 Your app creates conversations and posts messages. hfy runs the agent loop, calls the
 tools, keeps the history and streams events back. You stop rebuilding the same
-plumbing (loop, tools, history, streaming, auth hooks) in every app.
+plumbing (loop, tools, history, streaming, access) in every app.
 
 - **Small surface.** Tools come only from MCP servers, models only from
-  OpenAI-compatible providers, auth only through your webhook.
+  OpenAI-compatible providers, access only through grants your backend creates.
 - **Model-agnostic.** The model is a config line.
 - **Durable.** Every turn runs from a Postgres queue and every step is an
   append-only event. Dropped connections, restarts and crashes lose nothing.
@@ -28,13 +28,16 @@ hfy serve --work                      # API + workers; migrations run on boot
 Or `docker compose up` (see `compose.yaml`; it mounts `./hfy.yaml`).
 
 ```sh
-# your backend: create a conversation and hand its id to the client
+# your backend: create a conversation, then a grant for one person in it
 curl -XPOST :8080/v1/conversations -H "Authorization: Bearer $HFY_SERVER_SECRET"
 # {"id":"7f3c…"}
+curl -XPOST :8080/v1/grants -H "Authorization: Bearer $HFY_SERVER_SECRET" \
+  -d '{"conversation":"7f3c…","actor":"alice"}'
+# {"id":"0b8d…","token":"hfy_Qm9…","expires_at":"…"}
 
-# the client: open the stream, then post a message
-curl -N :8080/v1/conversations/7f3c…/events
-curl -XPOST :8080/v1/conversations/7f3c…/messages -d '{"text":"hello"}'
+# the client, with only the token: open the stream, then post a message
+curl -N :8080/v1/conversation/events -H "Authorization: Bearer hfy_Qm9…"
+curl -XPOST :8080/v1/conversation/messages -H "Authorization: Bearer hfy_Qm9…" -d '{"text":"hello"}'
 # 202 {"turn":"a91e…"}
 ```
 
@@ -55,7 +58,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 ## Config
 
 `hfy config:example` is the reference. In short: `server`, `storage`, `providers`,
-`mcp`, `agent`, plus optional `auth`, `queue`, `retention`, `embeddings`,
+`mcp`, `agent`, plus optional `agents`, `queue`, `retention`, `embeddings`,
 `attachments`, `subagents`, `summarizer`, `metrics`.
 
 - Unknown keys stop startup with their line (`line 12: unknown key "aproval"
@@ -77,41 +80,53 @@ The API is versioned in the path (`/v1`). Within `v1`, changes are additive
 only: new endpoints, new optional fields, new event types. A breaking change
 would come as `/v2`, served alongside `/v1`.
 
-Server to server (`Authorization: Bearer <server.secret>`):
+Your backend (`Authorization: Bearer <server.secret>`):
 
-- `POST /v1/conversations` → `201 {"id": uuid}`
+- `POST /v1/conversations` → `201 {"id": uuid}`. A conversation is a room;
+  create it once and keep its id.
+- `POST /v1/grants` `{conversation, actor, scope?, agent?, vars?, expires_in?}`
+  → `201 {"id": uuid, "token": "hfy_…", "expires_at": time}`. Gives one client
+  access to one conversation as one actor; hand it the token. Each person in a
+  room gets their own grant.
+  - `actor`: who this is (your user id; at most 256 bytes). It is recorded on
+    their messages and is what other speakers and the model see.
+  - `scope`: whose memory `hfy__conversation_search` searches; default `actor`.
+  - `agent`: which configured agent answers them (`agents.<name>`; default
+    `main`), so one deployment can run, say, a store agent for buyers and an
+    admin agent for staff.
+  - `vars`: fill the agent's declared `{{vars}}`. They render into the system
+    prompt, so only your backend sets them, never a client. An undeclared or
+    a missing required var is a `400` here.
+  - `expires_in`: seconds, default 3600, at most 86400.
 
-Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
-`auth` configured, hfy sends `POST {key, conversation_id, hint?}` to your webhook and
-expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
-error or a timeout denies. `agent` names the configured agent that serves this
-caller (`agents.<name>`; default `main`), so one deployment can run, say, a
-store agent for buyers and an admin agent for staff; an unknown name denies.
-`hint` is the client's `Hfy-Hint` header: any JSON (at most 4 KiB), say
-`{"agent": "store"}` when posting a message, that your webhook may honor or
-ignore. hfy forwards it unread and never trusts or stores it. `vars` fill the
-agent's declared `{{vars}}`: they render into the system prompt, so only the
-webhook sets them, never a client (undeclared ones are dropped; a missing
-required one is a server error, the webhook's). Without `auth` the caller is
-`anonymous`, vars take their defaults, and unguessable conversation ids are the
-only protection.
+  The token is returned once; hfy keeps only its SHA-256. A lost token cannot
+  be recovered: create another grant.
+- `DELETE /v1/grants/{id}` → `204`. Ends the grant now (revoking twice is fine;
+  an unknown id is `404`). Open streams end within 15 s.
 
-- `POST /v1/conversations/{id}/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
+The client (`Authorization: Bearer <token>`; on `/events` also `?token=`, for
+`EventSource`). The grant names the conversation, so these paths name none. A
+token that is missing, unknown, expired or revoked is `401`; a grant whose
+agent the config no longer has is `403`.
+
+- `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
-- `GET /v1/conversations/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
+- `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
-- `GET /v1/conversations/{id}/history?limit=&before=` durable events grouped by turn,
+  The stream ends when the grant does; reconnect with a fresh token.
+- `GET /v1/conversation/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns) and `live_after` (open `/events?after=<live_after>` to continue
   without a gap).
-- `POST /v1/conversations/{id}/approvals` `{call_id, approve, result?}`. Only the
+- `POST /v1/conversation/approvals` `{call_id, approve, result?}`. Only the
   actor who started the turn decides its calls (`403` otherwise).
-- `POST /v1/conversations/{id}/stop` stops the caller's own turns: the active one
+- `POST /v1/conversation/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
+
 Errors are `{"error": "..."}`: `400` bad input (an empty message, a bad
-attachment, a body over 2 MiB), `401`/`403` auth (or not your turn), `404`
-unknown conversation, `409` no pending approval.
+attachment, a body over 2 MiB), `401` no valid secret or token, `403` not your
+turn, `404` unknown conversation or grant, `409` no pending approval.
 
 ### Operations
 
@@ -198,7 +213,7 @@ event as stored.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
   `"io.github.alash3al.hfy/turn": {conversation, turn, call_id, agent, actor: {type,
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
-  actor is whoever started the turn; `vars` are the webhook's, so keep
+  actor is whoever started the turn; `vars` are the grant's, so keep
   secrets out of them: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
 - **A conversation is a room.** Every agent that answers in it sees the whole
@@ -208,7 +223,7 @@ event as stored.
   text inside is escaped, so nobody can forge a frame, and the system prompt
   explains them. Other agents' tool calls stay theirs. A one-to-one chat is
   sent plain. Frames exist only in the prompt (stored events and the API are
-  unchanged); make actor refs readable (the webhook's `actor`) if the model
+  unchanged); make actor refs readable (the grant's `actor`) if the model
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
 - **Memory.** The summarizer appends a `summary` event when the next prompt
@@ -222,8 +237,9 @@ event as stored.
 - **Attachments** are references your app hosts. Hosts, types and size are
   checked when the message is posted. Images go to the model only in the turn
   they arrive in; local providers get the bytes inlined.
-- **Retention.** Ephemeral events, `outbound_requests` and finished jobs expire
-  after `retention.trace`; durable events and usage are permanent.
+- **Retention.** Ephemeral events, `outbound_requests`, finished jobs and
+  grants that ended expire after `retention.trace`; durable events and usage
+  are permanent.
 - Tool names reach the provider as `<server>__<tool>` (`files.read` →
   `files__read`); events and approval patterns use `files.read`.
 
@@ -251,7 +267,7 @@ GOTOOLCHAIN=go1.27.3 go install github.com/golangci/golangci-lint/v2/cmd/golangc
 GOTOOLCHAIN=go1.27.3 go install golang.org/x/tools/gopls@latest
 ```
 
-Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,auth,svc,provider,metrics}`;
+Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,svc,provider,metrics}`;
 migrations, SQL queries, prompts and the example config are embedded in the
 binary. `hfy.New(cfg).Run(ctx)` embeds the harness in another Go program.
 
@@ -285,6 +301,6 @@ survive many contributors, so prefer adding a check to adding a sentence.
 
 ### Not in v1
 
-Images returned by MCP tools (they become a text placeholder), an auth cache,
-semantic `tool_search` (keyword today), structured output, provider failover,
+Images returned by MCP tools (they become a text placeholder), CORS (browser
+clients on another origin), semantic `tool_search` (keyword today), structured output, provider failover,
 other stream formats, a JS client, an OpenAI-compatible adapter.

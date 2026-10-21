@@ -8,8 +8,8 @@ import (
 
 // stop cancels the active turn and queued ones; the conversation and history stay.
 func (s *Server) stop(c *echo.Context) error {
-	cl := callerOf(c)
-	if err := s.svc.Stop(c.Request().Context(), cl.conversation.ID, cl.actorID); err != nil {
+	g := grantOf(c)
+	if err := s.svc.Stop(c.Request().Context(), g.ConversationID, g.ActorID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusAccepted, struct{}{})

@@ -3,11 +3,7 @@
 
 server:
   listen: ":8080"                    # optional (default :8080)
-  secret: ${HFY_SERVER_SECRET}       # required: protects server-to-server endpoints
-
-# auth:                              # optional; omit = no auth, vars come from the client
-#   webhook: http://localhost:8000/agent-auth
-#   timeout: 2s
+  secret: ${HFY_SERVER_SECRET}       # required: your backend's key (conversations, grants)
 
 storage:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
   url: ${DATABASE_URL}
@@ -21,7 +17,7 @@ storage:                             # conversations, events, jobs, trace, vecto
 #   max_attempts: 3
 
 # retention:                         # optional; default shown
-#   trace: 30d                       # ephemeral events + outbound_requests
+#   trace: 30d                       # ephemeral events, outbound_requests, ended grants
 
 providers:                           # OpenAI-compatible: URL + key + idle timeout
   local:
@@ -57,8 +53,8 @@ agent:                               # the default agent ("main")
   settings: { temperature: 0.2, context_window: 8192, vision: false }
   system: |
     You help {{user_name}} at {{company}}.
-  vars:                              # set only by the auth webhook's vars, never by clients
-    user_name: { default: "there" }  # required: true needs auth
+  vars:                              # set only by your backend, in the grant; never by clients
+    user_name: { default: "there" }  # or required: true
     company:   { default: "Acme" }
   limits:                            # per turn; every field optional
     steps: 20
@@ -69,8 +65,8 @@ agent:                               # the default agent ("main")
   #   timeout: 10m
   # mcp: [files, search]             # optional; omit = all MCP servers via tool search
 
-# agents:                            # more agents, same fields as agent; the auth
-#   store:                           # webhook picks one per caller: {"agent": "store"}
+# agents:                            # more agents, same fields as agent; a grant
+#   store:                           # picks one: {"agent": "store"}
 #     model: local/gemma3:1b
 #     settings: { context_window: 8192 }
 #     system: You answer for {{shop}}.

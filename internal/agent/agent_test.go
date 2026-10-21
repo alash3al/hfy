@@ -88,7 +88,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
+	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorExternal, "u1")
 	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, conv: conv, user: user}
 }
 
@@ -98,7 +98,7 @@ func (e *env) post(text string) (turnID int64) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: types.NoScope,
+	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: "u1",
 		Vars: vars, Text: text})
 	if err != nil {
 		e.t.Fatal(err)
@@ -122,7 +122,7 @@ func (e *env) postAs(who, agent, text string) (turnID int64) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: actor, Scope: types.NoScope,
+	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: actor, Scope: "u1",
 		Vars: vars, Text: text, Agent: agent})
 	if err != nil {
 		e.t.Fatal(err)
@@ -478,7 +478,7 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 
 	post := func(text string, atts ...types.Attachment) int64 {
 		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
-		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: types.NoScope, Vars: vars, Text: text, Attachments: atts})
+		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: "u1", Vars: vars, Text: text, Attachments: atts})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -567,7 +567,7 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 	ok := json.Unmarshal(meta["io.github.alash3al.hfy/turn"], &got) == nil
 	turnRow, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
 	if !ok || got.Conversation != e.conv.UUID.String() || got.Turn != turnRow.UUID.String() || got.CallID != "w1" ||
-		got.Agent != "main" || got.Actor.Type != "anonymous" || got.Scope != types.NoScope || got.Vars["who"] != "everyone" {
+		got.Agent != "main" || got.Actor.Type != "external" || got.Scope != "u1" || got.Vars["who"] != "everyone" {
 		t.Fatalf("turn context: %+v", meta)
 	}
 	if s, _ := json.Marshal(results[0]["structured"]); string(s) != `{"component":"card","title":"Margherita"}` {

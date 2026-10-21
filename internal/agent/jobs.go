@@ -98,11 +98,7 @@ func (rt *Runtime) embedBatch(ctx context.Context, batch []db.UnembeddedEvent) e
 		if len(vecs[i]) != dims {
 			return fmt.Errorf("embedding model returned %d dimensions, embeddings.dimensions is %d", len(vecs[i]), dims)
 		}
-		scope := types.NoScope
-		if b.Scope != nil {
-			scope = *b.Scope
-		}
-		if err := rt.Store.UpsertEmbedding(ctx, b.ID, scope, vecs[i]); err != nil {
+		if err := rt.Store.UpsertEmbedding(ctx, b.ID, b.Scope, vecs[i]); err != nil {
 			return err
 		}
 	}

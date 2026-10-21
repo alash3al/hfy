@@ -1,5 +1,5 @@
 // Package httpapi is the HTTP surface: Echo routes, the two auth middlewares
-// and SSE. One file per action, each holding its own DTOs.
+// (the server secret, a grant's token) and SSE. One file per action, each holding its own DTOs.
 package httpapi
 
 import (
@@ -13,16 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/alash3al/hfy/internal/auth"
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/svc"
-	"github.com/alash3al/hfy/internal/types"
 )
 
 type Server struct {
@@ -30,15 +27,11 @@ type Server struct {
 	store *db.Store
 	svc   *svc.Service
 	hub   *Hub
-	auth  *auth.Client // nil = no auth
 	echo  *echo.Echo
 }
 
 func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server {
 	srv := &Server{cfg: cfg, store: store, svc: s, hub: hub}
-	if cfg.Auth != nil {
-		srv.auth = auth.New(cfg.Auth.Webhook, cfg.Auth.Timeout.D())
-	}
 	e := echo.New()
 	e.HTTPErrorHandler = srv.handleError
 	e.Use(observe, limitBody)
@@ -51,13 +44,18 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	v1 := e.Group("/v1")
 	server := v1.Group("", srv.requireSecret)
 	server.POST("/conversations", srv.createConversation)
+	server.POST("/grants", srv.createGrant)
+	server.DELETE("/grants/:id", srv.revokeGrant)
 
-	client := v1.Group("/conversations/:id", srv.requireClient)
-	client.POST("/messages", srv.postMessage)
-	client.GET("/events", srv.streamEvents)
-	client.GET("/history", srv.history)
-	client.POST("/approvals", srv.approve)
-	client.POST("/stop", srv.stop)
+	// A client's routes name no conversation: its grant holds it. Only the
+	// stream takes the token as ?token=, since EventSource cannot set headers.
+	client := v1.Group("/conversation")
+	header, headerOrQuery := srv.requireGrant(false), srv.requireGrant(true)
+	client.POST("/messages", srv.postMessage, header)
+	client.GET("/events", srv.streamEvents, headerOrQuery)
+	client.GET("/history", srv.history, header)
+	client.POST("/approvals", srv.approve, header)
+	client.POST("/stop", srv.stop, header)
 	return srv
 }
 
@@ -148,7 +146,11 @@ func (s *Server) handleError(c *echo.Context, err error) {
 	case db.IsNotFound(err):
 		code, msg = http.StatusNotFound, "not found"
 	default:
-		slog.Error("request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
+		attrs := []any{"method", c.Request().Method, "path", c.Request().URL.Path, "err", err}
+		if g, ok := c.Get(grantKey).(*db.GrantRow); ok { // client URLs name no conversation
+			attrs = append(attrs, "conversation", g.ConversationUUID)
+		}
+		slog.Error("request failed", attrs...)
 	}
 	_ = c.JSON(code, errorBody{Error: msg})
 }
@@ -158,21 +160,6 @@ func bearer(c *echo.Context) string {
 		return strings.TrimSpace(h[len("Bearer "):])
 	}
 	return ""
-}
-
-const maxHint = 4 << 10
-
-// hintOf is the client's Hfy-Hint header: any JSON value for the auth webhook
-// (say, which agent to ask), forwarded unread and never stored.
-func hintOf(c *echo.Context) (json.RawMessage, error) {
-	h := c.Request().Header.Get("Hfy-Hint")
-	if h == "" {
-		return nil, nil
-	}
-	if len(h) > maxHint || !json.Valid([]byte(h)) {
-		return nil, echo.NewHTTPError(http.StatusBadRequest, "Hfy-Hint must be JSON of at most 4 KiB")
-	}
-	return json.RawMessage(h), nil
 }
 
 // requireSecret guards the server-to-server endpoints. Hashing first makes the
@@ -188,65 +175,36 @@ func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// caller is who is acting on a client request.
-type caller struct {
-	actorID      int64
-	scope        string
-	vars         map[string]string
-	agent        string // the configured agent serving this caller ("" = main)
-	conversation db.ConversationRow
-}
+const grantKey = "hfy.grant"
 
-const callerKey = "hfy.caller"
-
-// requireClient resolves the conversation and asks the webhook (if configured)
-// whether the key may use it. The webhook alone decides access.
-func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		cid, err := uuid.Parse(c.Param("id"))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
-		}
-		ctx := c.Request().Context()
-		actorType, ref, scope := types.ActorAnonymous, types.NoScope, types.NoScope
-		var vars map[string]string
-		agent := ""
-		if s.auth != nil {
-			key := bearer(c)
-			if key == "" {
-				key = c.QueryParam("key") // EventSource cannot set headers
+// requireGrant resolves the request's token to its grant: who acts, in which
+// conversation, as which agent, with which vars. A token that is unknown,
+// expired or revoked gets one answer, so a client learns nothing about which.
+func (s *Server) requireGrant(queryToken bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			token := bearer(c)
+			if token == "" && queryToken {
+				token = c.QueryParam("token")
 			}
-			if key == "" {
-				return echo.NewHTTPError(http.StatusUnauthorized, "missing key")
+			if token == "" {
+				return echo.NewHTTPError(http.StatusUnauthorized, "missing token")
 			}
-			hint, err := hintOf(c)
+			g, err := s.store.GrantByToken(c.Request().Context(), hashToken(token))
+			if db.IsNotFound(err) {
+				return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+			}
 			if err != nil {
 				return err
 			}
-			id, err := s.auth.Check(ctx, key, cid.String(), hint)
-			switch {
-			case errors.Is(err, auth.ErrUnauthorized):
-				return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
-			case err != nil:
-				return echo.NewHTTPError(http.StatusForbidden, "forbidden")
-			}
-			if _, ok := s.cfg.AgentNamed(id.Agent); !ok {
-				slog.Error("auth webhook picked an unknown agent", "agent", id.Agent)
+			if _, ok := s.cfg.AgentNamed(g.Agent); !ok {
+				slog.Error("a grant names an agent the config no longer has", "agent", g.Agent, "grant", g.ID)
 				return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
 			}
-			actorType, ref, scope, vars, agent = types.ActorExternal, id.Actor, id.Scope, id.Vars, id.Agent
+			c.Set(grantKey, &g)
+			return next(c)
 		}
-		conv, err := s.store.ConversationByUUID(ctx, cid)
-		if err != nil {
-			return err
-		}
-		actor, err := s.store.FindOrCreateActor(ctx, s.store.Pool, actorType, ref)
-		if err != nil {
-			return err
-		}
-		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, agent: agent, conversation: conv})
-		return next(c)
 	}
 }
 
-func callerOf(c *echo.Context) *caller { return c.Get(callerKey).(*caller) }
+func grantOf(c *echo.Context) *db.GrantRow { return c.Get(grantKey).(*db.GrantRow) }

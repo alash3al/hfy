@@ -25,7 +25,6 @@ var layers = map[string][]string{
 	"internal/types":             {}, // shared vocabulary: depends on nothing
 	"internal/config":            {},
 	"internal/metrics":           {},
-	"internal/auth":              {},
 	"internal/db":                {"types"},
 	"internal/db/dbtest":         {"db"},
 	"internal/jobs":              {"db", "metrics", "types"},
@@ -36,7 +35,7 @@ var layers = map[string][]string{
 	"internal/mcp/fakemcp":       {},
 	"internal/svc":               {"config", "db", "metrics", "types"}, // owns turn state; never the agent
 	"internal/agent":             {"config", "db", "jobs", "mcp", "mcp/builtins", "metrics", "provider", "svc", "types"},
-	"internal/httpapi":           {"auth", "config", "db", "metrics", "svc", "types"}, // never the agent: API and workers scale apart
+	"internal/httpapi":           {"config", "db", "metrics", "svc", "types"}, // never the agent: API and workers scale apart
 }
 
 type goFile struct {

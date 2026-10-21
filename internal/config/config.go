@@ -23,7 +23,6 @@ var ExampleYAML string
 
 type Config struct {
 	Server      Server               `yaml:"server"`
-	Auth        *Auth                `yaml:"auth"`
 	Storage     Storage              `yaml:"storage"`
 	Queue       Queue                `yaml:"queue"`
 	Retention   Retention            `yaml:"retention"`
@@ -32,7 +31,7 @@ type Config struct {
 	Embeddings  *Embeddings          `yaml:"embeddings"`
 	Attachments *Attachments         `yaml:"attachments"`
 	Agent       Agent                `yaml:"agent"`  // the default agent, named "main"
-	Agents      map[string]Agent     `yaml:"agents"` // more agents; the auth webhook picks one by name
+	Agents      map[string]Agent     `yaml:"agents"` // more agents; a grant picks one by name
 	Subagents   map[string]Subagent  `yaml:"subagents"`
 	Summarizer  *Summarizer          `yaml:"summarizer"`
 	Metrics     *Metrics             `yaml:"metrics"`
@@ -47,11 +46,6 @@ type Metrics struct {
 type Server struct {
 	Listen string `yaml:"listen"`
 	Secret string `yaml:"secret"`
-}
-
-type Auth struct {
-	Webhook string   `yaml:"webhook"`
-	Timeout Duration `yaml:"timeout"`
 }
 
 type Storage struct {
@@ -102,8 +96,8 @@ type Settings struct {
 	Vision        bool     `yaml:"vision"`
 }
 
-// Var is a {{name}} in a system prompt. Values come only from the auth
-// webhook's vars (a client never sets them); without auth, from defaults.
+// Var is a {{name}} in a system prompt. Values come only from the grant the
+// app's backend created (a client never sets them), else from defaults.
 type Var struct {
 	Required bool    `yaml:"required"`
 	Default  *string `yaml:"default"`
@@ -263,9 +257,6 @@ func (c *Config) applyDefaults() {
 	if c.Server.Listen == "" {
 		c.Server.Listen = ":8080"
 	}
-	if c.Auth != nil && c.Auth.Timeout == 0 {
-		c.Auth.Timeout = Duration(2 * time.Second)
-	}
 	if c.Queue.Workers == 0 {
 		c.Queue.Workers = 4
 	}
@@ -319,9 +310,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Storage.URL == "" {
 		bad("storage.url is required")
-	}
-	if c.Auth != nil && c.Auth.Webhook == "" {
-		bad("auth.webhook is required when auth is set")
 	}
 	if c.Metrics != nil && c.Metrics.Listen == "" {
 		bad("metrics.listen is required when metrics is set")
@@ -411,9 +399,6 @@ func (c *Config) Validate() error {
 			if v.Required && v.Default != nil {
 				bad("%s.vars.%s: required and default are mutually exclusive", where, n)
 			}
-			if v.Required && c.Auth == nil {
-				bad("%s.vars.%s: required, but vars come only from auth.webhook, which is not configured", where, n)
-			}
 		}
 		for _, m := range placeholRe.FindAllStringSubmatch(a.System, -1) {
 			if _, ok := a.Vars[m[1]]; !ok {
@@ -488,7 +473,7 @@ func (c *Config) AllAgents() map[string]*Agent {
 	return all
 }
 
-// AgentNamed returns the agent the auth webhook picked ("" = main).
+// AgentNamed returns the agent a grant picked ("" = main).
 func (c *Config) AgentNamed(name string) (*Agent, bool) {
 	if name == "" {
 		name = MainAgent

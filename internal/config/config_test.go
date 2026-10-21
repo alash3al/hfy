@@ -80,7 +80,7 @@ providers: { p: { url: http://x } }
 		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { main: { description: d, model: p/m } }": "reserved",
 		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { a: { model: p/m } }":                    "description",
 		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { now: { description: d, model: p/m } }":  "taken by the built-in tool hfy.now",
-		"agent: { model: p/m, settings: { context_window: 1 }, vars: { u: { required: true } } }":                     "vars come only from auth.webhook",
+		"agent: { model: p/m, settings: { context_window: 1 } }\nauth: { webhook: http://hook }":                      `unknown key "auth"`,
 		"agent: { model: p/m, settings: { context_window: 1 } }\nmcp: { hfy: { type: local, command: [x] } }":         "reserved for hfy's built-in tools",
 	}
 	for tail, want := range cases {
@@ -132,7 +132,7 @@ func TestAgentNamesMatchTypes(t *testing.T) {
 }
 
 func TestNamedAgents(t *testing.T) {
-	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\nauth: {webhook: http://hook}\n" +
+	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\n" +
 		"agent: {model: p/m, settings: {context_window: 10}}\n"
 	cfg, err := Parse([]byte(base+"agents:\n  store: {model: p/small, system: 'Store {{name}}', vars: {name: {required: true}}, settings: {context_window: 5}, approval: {tools: [\"cart.*\"]}}\n"),
 		func(string) (string, bool) { return "", false })

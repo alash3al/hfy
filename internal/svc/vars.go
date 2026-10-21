@@ -3,7 +3,9 @@ package svc
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/alash3al/hfy/internal/config"
@@ -17,20 +19,37 @@ func (e *BadRequestError) Error() string { return e.Msg }
 
 func badf(format string, a ...any) error { return &BadRequestError{fmt.Sprintf(format, a...)} }
 
-// ResolveVars fills the declared vars from the auth webhook's: vars render
-// into the system prompt, so only the app's backend sets them, never a
-// client. Undeclared webhook vars are dropped and defaults fill the gaps; a
-// required var the webhook left out is the webhook's mistake (a server error,
-// not the client's).
-func ResolveVars(decl map[string]config.Var, webhook map[string]string) (map[string]string, error) {
+// CheckVars is what a grant may carry: only vars the agent declares, and
+// every required one. Its mistakes are the backend's, so they are a 400 to
+// the backend when it creates the grant.
+func CheckVars(decl map[string]config.Var, given map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(given)) {
+		if _, ok := decl[name]; !ok {
+			return badf("vars.%s is not declared by the agent", name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(decl)) {
+		if _, ok := given[name]; decl[name].Required && !ok {
+			return badf("vars.%s is required", name)
+		}
+	}
+	return nil
+}
+
+// ResolveVars fills the declared vars from a grant's: vars render into the
+// system prompt, so only the app's backend sets them, never a client. Defaults
+// fill the gaps and vars the agent no longer declares are dropped. A required
+// var the grant lacks means the config changed after the grant was created
+// (a server error, not the client's).
+func ResolveVars(decl map[string]config.Var, granted map[string]string) (map[string]string, error) {
 	out := map[string]string{}
 	for name, d := range decl {
-		v, ok := webhook[name]
+		v, ok := granted[name]
 		switch {
 		case ok:
 			out[name] = v
 		case d.Required:
-			return nil, fmt.Errorf("the auth webhook did not supply the required var %q", name)
+			return nil, fmt.Errorf("the grant lacks the required var %q (the agent's config changed since)", name)
 		case d.Default != nil:
 			out[name] = *d.Default
 		default:

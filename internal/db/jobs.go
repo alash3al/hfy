@@ -142,11 +142,12 @@ func (s *Store) ReapJobs(ctx context.Context) ([]JobRow, error) {
 	return collect[JobRow](s.Pool.Query(ctx, s.q("ReapJobs")))
 }
 
-// DeleteExpired removes ephemeral events, outbound requests and finished jobs
-// older than age, in batches. It returns the number of rows deleted.
+// DeleteExpired removes ephemeral events, outbound requests, ended grants and
+// finished jobs older than age, in batches. It returns the number of rows
+// deleted.
 func (s *Store) DeleteExpired(ctx context.Context, age time.Duration) (int64, error) {
 	var total int64
-	for _, name := range []string{"DeleteExpiredEvents", "DeleteExpiredOutbound", "PruneJobs"} {
+	for _, name := range []string{"DeleteExpiredEvents", "DeleteExpiredOutbound", "DeleteExpiredGrants", "PruneJobs"} {
 		for {
 			tag, err := s.Pool.Exec(ctx, s.q(name),
 				pgx.NamedArgs{"age": interval(age), "limit": 5000})

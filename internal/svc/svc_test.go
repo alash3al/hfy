@@ -18,13 +18,35 @@ func TestResolveVars(t *testing.T) {
 	}
 	got, err := svc.ResolveVars(decl, map[string]string{"name": "alice", "undeclared": "x"})
 	if err != nil || got["name"] != "alice" || got["corp"] != "Acme" || got["extra"] != "" || len(got) != 3 {
-		t.Fatalf("declared vars from the webhook, defaults, undeclared dropped: %v %v", got, err)
+		t.Fatalf("declared vars from the grant, defaults, undeclared dropped: %v %v", got, err)
 	}
-	// a required var the webhook left out is the webhook's mistake, not the client's
+	// the config made a var required after the grant was created: not the client's mistake
 	_, err = svc.ResolveVars(decl, nil)
 	var bad *svc.BadRequestError
 	if err == nil || errors.As(err, &bad) || !strings.Contains(err.Error(), `required var "name"`) {
 		t.Fatalf("missing required: %v", err)
+	}
+}
+
+// A grant's vars are checked when the backend creates it: a typo or a
+// missing required var is the backend's 400 then, not a failed turn later.
+func TestCheckVars(t *testing.T) {
+	decl := map[string]config.Var{"name": {Required: true}, "corp": {Default: new("Acme")}}
+	cases := []struct {
+		vars    map[string]string
+		wantErr string // "" = valid
+	}{
+		{map[string]string{"name": "alice"}, ""},
+		{map[string]string{"name": "alice", "nmae": "x"}, "vars.nmae is not declared by the agent"},
+		{map[string]string{"corp": "x"}, "vars.name is required"},
+		{nil, "vars.name is required"},
+	}
+	for _, c := range cases {
+		err := svc.CheckVars(decl, c.vars)
+		var bad *svc.BadRequestError
+		if c.wantErr == "" && err != nil || c.wantErr != "" && (!errors.As(err, &bad) || err.Error() != c.wantErr) {
+			t.Errorf("%v: want %q, got %v", c.vars, c.wantErr, err)
+		}
 	}
 }
 

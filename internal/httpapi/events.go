@@ -20,20 +20,25 @@ const (
 	replayPage   = 500
 )
 
+// grantCheckEvery is how soon an open stream notices its grant was revoked
+// (one indexed lookup per stream per tick); expiry ends it on time.
+var grantCheckEvery = 15 * time.Second
+
 // streamEvents is the live SSE stream of a conversation, across turns and actors,
 // durable and ephemeral events alike. Resume with Last-Event-ID, or ?after=
-// on a first connection; with neither it starts from now.
+// on a first connection; with neither it starts from now. It ends when the
+// grant does: the client reconnects with a fresh token.
 func (s *Server) streamEvents(c *echo.Context) error {
-	cl := callerOf(c)
+	g := grantOf(c)
 	req := c.Request()
 	ctx := req.Context()
 
-	after, err := s.resumePoint(c, cl.conversation.ID)
+	after, err := s.resumePoint(c, g.ConversationID)
 	if err != nil {
 		return err
 	}
 	// Subscribe before replaying so nothing falls between the two.
-	sub, cancel := s.hub.Subscribe(cl.conversation.ID)
+	sub, cancel := s.hub.Subscribe(g.ConversationID)
 	defer cancel()
 	metrics.Streams.Inc()
 	defer metrics.Streams.Dec()
@@ -60,7 +65,7 @@ func (s *Server) streamEvents(c *echo.Context) error {
 	}
 	replay := func() error {
 		for {
-			rows, err := s.store.EventsAfter(ctx, cl.conversation.ID, after, replayPage)
+			rows, err := s.store.EventsAfter(ctx, g.ConversationID, after, replayPage)
 			if err != nil {
 				return err
 			}
@@ -86,10 +91,20 @@ func (s *Server) streamEvents(c *echo.Context) error {
 	defer ping.Stop()
 	catchup := time.NewTicker(catchupEvery)
 	defer catchup.Stop()
+	expired := time.NewTimer(time.Until(g.ExpiresAt))
+	defer expired.Stop()
+	recheck := time.NewTicker(grantCheckEvery)
+	defer recheck.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-expired.C:
+			return nil
+		case <-recheck.C:
+			if live, err := s.store.GrantLive(ctx, g.ID); err != nil || !live {
+				return nil // revoked, or unsure: fail closed, the client reconnects
+			}
 		case row, ok := <-sub.C:
 			if !ok {
 				return nil // too slow or shutting down: the client reconnects with Last-Event-ID

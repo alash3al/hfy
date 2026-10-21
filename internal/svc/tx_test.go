@@ -29,7 +29,7 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 	s := svc.New(store, cfg)
 	// The agent's actor is left uncached on purpose: a mutation must resolve
 	// it on its transaction's connection.
-	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
+	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorExternal, "u1")
 
 	step := func(name string, fn func(context.Context) error) {
 		t.Helper()
@@ -42,7 +42,7 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 	conv, _ := store.CreateConversation(ctx)
 	var turn int64
 	step("post", func(c context.Context) error {
-		u, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: types.NoScope, Text: "hi"})
+		u, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"})
 		if err == nil {
 			turn, err = store.TurnIDByUUID(c, conv.ID, u)
 		}
@@ -53,7 +53,7 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 		return s.EndTurn(c, conv.ID, turn, types.TurnStateEvent{State: types.StateCompleted})
 	})
 	step("post again", func(c context.Context) error {
-		_, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: types.NoScope, Text: "again"})
+		_, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "again"})
 		return err
 	})
 	step("stop", func(c context.Context) error { return s.Stop(c, conv.ID, user) })

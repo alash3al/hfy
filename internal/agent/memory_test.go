@@ -42,9 +42,9 @@ func TestSummarizerFoldsOldTurns(t *testing.T) {
 		t.Fatal("history must stay intact")
 	}
 	reqs := e.fake.Reqs()
-	// The summarizer read a framed transcript (an anonymous person has no from).
+	// The summarizer read a framed transcript.
 	input := reqs[2]["messages"].([]any)[1].(map[string]any)["content"].(string)
-	if !strings.Contains(input, `<message kind="person">first `) || !strings.Contains(input, `<message from="main" kind="agent">reply one</message>`) {
+	if !strings.Contains(input, `<message from="u1" kind="person">first `) || !strings.Contains(input, `<message from="main" kind="agent">reply one</message>`) {
 		t.Fatalf("summarizer input:\n%s", input)
 	}
 	// The last model call saw the summary, turn 2 and 3, but not turn 1.
@@ -183,7 +183,7 @@ func TestEmbeddingsTargetedBackfillAndDimensionMismatch(t *testing.T) {
 	// Backfill: a message written without a job is picked up on the next boot.
 	main, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorAgent, "main")
 	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{ConversationID: e.conv.ID, ParentID: &turn, ActorID: main,
-		Scope: types.NoScope, Payload: types.MessageText{Text: "written behind the queue's back"}})
+		Scope: "u1", Payload: types.MessageText{Text: "written behind the queue's back"}})
 	if err := e.rt.Boot(e.ctx); err != nil {
 		t.Fatal(err)
 	}

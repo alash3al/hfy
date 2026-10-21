@@ -91,10 +91,10 @@ func TestOperationalEndpoints(t *testing.T) {
 			t.Fatalf("readyz on %s: %d %s", base, code, body)
 		}
 	}
-	if code, _ := get(t, "http://"+api+"/v1/conversations/00000000-0000-4000-8000-000000000000/history"); code != 404 {
-		t.Fatalf("v1 route: %d", code)
+	if code, _ := get(t, "http://"+api+"/v1/conversation/history"); code != 401 {
+		t.Fatalf("v1 route without a token: %d", code)
 	}
-	if code, _ := get(t, "http://"+api+"/conversations/00000000-0000-4000-8000-000000000000/history"); code != 404 {
+	if code, _ := get(t, "http://"+api+"/conversation/history"); code != 404 {
 		t.Fatalf("unversioned route must not exist: %d", code)
 	}
 	if code, _ := get(t, "http://"+api+"/metrics"); code != 404 {
@@ -105,7 +105,7 @@ func TestOperationalEndpoints(t *testing.T) {
 		t.Fatalf("metrics: %d", code)
 	}
 	for _, want := range []string{
-		`hfy_http_requests_total{code="404",method="GET",route="/v1/conversations/:id/history"} 1`,
+		`hfy_http_requests_total{code="401",method="GET",route="/v1/conversation/history"} 1`,
 		`hfy_jobs{queue="maintenance",state="queued"} 1`, // the retention job
 		"go_goroutines",
 	} {

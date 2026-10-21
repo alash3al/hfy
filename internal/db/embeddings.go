@@ -25,9 +25,9 @@ func VectorLiteral(v []float32) string {
 }
 
 type UnembeddedEvent struct {
-	ID    int64   `db:"id"`
-	Scope *string `db:"scope"`
-	Text  string  `db:"text"`
+	ID    int64  `db:"id"`
+	Scope string `db:"scope"`
+	Text  string `db:"text"`
 }
 
 // MissingEmbeddings returns message.text events after `after` that have no
