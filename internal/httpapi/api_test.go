@@ -74,6 +74,11 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 
 func (a *api) do(method, path, bearer string, body any) (int, map[string]any) {
 	a.t.Helper()
+	return a.doWith(method, path, bearer, nil, body)
+}
+
+func (a *api) doWith(method, path, bearer string, header map[string]string, body any) (int, map[string]any) {
+	a.t.Helper()
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -84,6 +89,9 @@ func (a *api) do(method, path, bearer string, body any) (int, map[string]any) {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		a.t.Fatal(err)
@@ -435,12 +443,14 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Key  string `json:"key"`
-			Hint string `json:"hint"`
+			Hint struct {
+				Agent string `json:"agent"`
+			} `json:"hint"`
 		}
 		json.NewDecoder(r.Body).Decode(&in)
 		switch in.Key {
 		case "buyer": // buyers may ask for the store; the webhook decides
-			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Hint, "vars": map[string]any{"shop": "Napoli"}})
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Hint.Agent, "vars": map[string]any{"shop": "Napoli"}})
 		case "owner":
 			json.NewEncoder(w).Encode(map[string]any{"actor": "u2", "vars": map[string]any{"user": "Sam"}}) // no agent: main
 		default:
@@ -458,7 +468,8 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	events, closeStream := a.stream(base+"/events?key=buyer", nil)
 	defer closeStream()
 
-	if code, out := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "pizza?", "hint": "store"}); code != 202 {
+	asStore := map[string]string{"Hfy-Hint": `{"agent":"store"}`}
+	if code, out := a.doWith("POST", base+"/messages", "buyer", asStore, map[string]any{"text": "pizza?"}); code != 202 {
 		t.Fatalf("buyer post: %d %v", code, out)
 	}
 	got := waitFor(t, events, completed)
@@ -494,10 +505,9 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	if code, _ := a.do("POST", base+"/messages", "stranger", map[string]any{"text": "hi"}); code != http.StatusForbidden {
 		t.Fatalf("an unknown agent must fail closed, got %d", code)
 	}
-	if code, _ := a.do("POST", base+"/messages", "owner", map[string]any{"text": "hi", "hint": nil}); code != 202 {
-		t.Fatalf("a null hint is no hint, got %d", code)
-	}
-	if code, _ := a.do("POST", base+"/messages", "buyer", map[string]any{"text": "hi", "hint": strings.Repeat("a", 5000)}); code != http.StatusBadRequest {
-		t.Fatalf("an oversized hint must be rejected, got %d", code)
+	for _, bad := range []string{`{"agent":`, `"` + strings.Repeat("a", 5000) + `"`} {
+		if code, _ := a.doWith("POST", base+"/messages", "buyer", map[string]string{"Hfy-Hint": bad}, map[string]any{"text": "hi"}); code != http.StatusBadRequest {
+			t.Fatalf("hint %.20q must be rejected, got %d", bad, code)
+		}
 	}
 }

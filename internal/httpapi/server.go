@@ -3,13 +3,11 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -151,30 +149,17 @@ func bearer(c *echo.Context) string {
 
 const maxHint = 4 << 10
 
-// hintOf is the "hint" of a posted message: any JSON value the client sends
-// for the auth webhook (say, which agent to ask), forwarded unread and never
-// stored. Only posting a message has one: it is where the agent is picked.
-// The body is left in place for the handler.
+// hintOf is the client's Hfy-Hint header: any JSON value for the auth webhook
+// (say, which agent to ask), forwarded unread and never stored.
 func hintOf(c *echo.Context) (json.RawMessage, error) {
-	r := c.Request()
-	if r.Method != http.MethodPost || !strings.HasSuffix(c.Path(), "/messages") || r.ContentLength == 0 {
+	h := c.Request().Header.Get("Hfy-Hint")
+	if h == "" {
 		return nil, nil
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxBody))
-	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusRequestEntityTooLarge, "body too large")
+	if len(h) > maxHint || !json.Valid([]byte(h)) {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "Hfy-Hint must be JSON of at most 4 KiB")
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	var in struct {
-		Hint json.RawMessage `json:"hint"`
-	}
-	if json.Unmarshal(body, &in) != nil || in.Hint == nil || string(in.Hint) == "null" {
-		return nil, nil // none; a bad body is the handler's to report
-	}
-	if len(in.Hint) > maxHint {
-		return nil, echo.NewHTTPError(http.StatusBadRequest, "hint is over 4 KiB")
-	}
-	return in.Hint, nil
+	return json.RawMessage(h), nil
 }
 
 // requireSecret guards the server-to-server endpoints. Hashing first makes the

@@ -85,12 +85,12 @@ expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
 error or a timeout denies. `agent` names the configured agent that serves this
 caller (`agents.<name>`; default `main`), so one deployment can run, say, a
 store agent for buyers and an admin agent for staff; an unknown name denies.
-`hint` is the `hint` of a posted message: any JSON value (at most 4 KiB), say
-`"store"`, that your webhook may honor or ignore. hfy forwards it unread,
-never trusts or stores it; other requests send none. Without `auth` the caller is `anonymous` and unguessable
+`hint` is the client's `Hfy-Hint` header: any JSON (at most 4 KiB), say
+`{"agent": "store"}` when posting a message, that your webhook may honor or
+ignore. hfy forwards it unread and never trusts or stores it. Without `auth` the caller is `anonymous` and unguessable
 session ids are the only protection.
 
-- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?, hint?}` → `202 {"turn": uuid}`.
+- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
 - `GET /v1/sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
