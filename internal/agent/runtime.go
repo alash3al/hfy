@@ -35,6 +35,9 @@ var promptRepeated string
 //go:embed prompts/summarizer.txt
 var promptSummarizer string
 
+//go:embed prompts/room.txt
+var promptRoom string
+
 // Spec is one resolved agent definition.
 type Spec struct {
 	Name        string // actor ref: main, a sub-agent name, or summarizer

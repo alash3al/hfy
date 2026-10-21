@@ -23,6 +23,8 @@ var (
 	ErrNoPendingApproval = errors.New("no pending approval for that call")
 	// ErrStopRequested: a stop arrived before the turn could pause.
 	ErrStopRequested = errors.New("stop requested")
+	// ErrNotTurnOwner: only the actor who started a turn may decide its calls.
+	ErrNotTurnOwner = errors.New("only who started the turn may do that")
 )
 
 type RunTurnPayload struct {
@@ -254,7 +256,9 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 	return ok, err
 }
 
-// Stop cancels queued turns and asks the active one to stop.
+// Stop stops the caller's own turns: it cancels their queued ones and asks
+// the active one to stop if they started it. In a shared session nobody stops
+// another person's turn; everyone else's keep their place in line.
 func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 	var ended []types.TurnState // counted once committed
 	err := s.Store.Tx(ctx, func(tx pgx.Tx) error {
@@ -275,6 +279,9 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			if err != nil {
 				return err
 			}
+			if turn.ActorID != actor {
+				continue
+			}
 			agent, err := s.agentOf(ctx, tx, turn)
 			if err != nil {
 				return err
@@ -285,15 +292,24 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			}
 			ended = append(ended, types.StateCancelled)
 		}
+		var active db.EventRow
+		if sess.ActiveTurnID != nil {
+			if active, err = s.Store.EventByID(ctx, tx, *sess.ActiveTurnID); err != nil {
+				return err
+			}
+			if active.ActorID != actor {
+				return nil // another person's turn runs; it chains to the next one when it ends
+			}
+		}
+		// At most one run_turn job waits. With the caller's turn active it is
+		// that turn's resume, dropped as the turn stops (its end chains on).
+		// With none active it is the next queued turn's, maybe one just
+		// cancelled, so it is dropped and the line restarts at whoever is next.
 		if err := s.Store.CancelQueuedTurnJobs(ctx, tx, sessionID); err != nil {
 			return err
 		}
 		if sess.ActiveTurnID == nil {
-			return nil
-		}
-		active, err := s.Store.EventByID(ctx, tx, *sess.ActiveTurnID)
-		if err != nil {
-			return err
+			return s.chainNext(ctx, tx, sessionID, 0)
 		}
 		if err := s.appendTo(ctx, tx, active, actor, types.TurnCancelRequested{}); err != nil {
 			return err
@@ -319,10 +335,19 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 	return err
 }
 
-// Approve records a client's decision on a pending tool call and resumes the turn.
+// Approve records a client's decision on a pending tool call and resumes the
+// turn. Only the actor who started the turn decides: in a shared session
+// nobody approves what another person's turn is about to do.
 func (s *Service) Approve(ctx context.Context, sessionID, actor int64, d types.ApprovalDecided) error {
 	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		return s.decide(ctx, tx, sessionID, actor, d)
+		turn, err := s.pendingCall(ctx, tx, sessionID, d.CallID)
+		if err != nil {
+			return err
+		}
+		if turn.ActorID != actor {
+			return ErrNotTurnOwner
+		}
+		return s.decide(ctx, tx, turn, actor, d)
 	})
 }
 
@@ -337,8 +362,11 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 		return err
 	}
 	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		return s.decide(ctx, tx, turn.SessionID, main, types.ApprovalDecided{
-			CallID: p.CallID, Approve: false, Reason: "timeout"})
+		turn, err := s.pendingCall(ctx, tx, turn.SessionID, p.CallID)
+		if err != nil {
+			return err
+		}
+		return s.decide(ctx, tx, turn, main, types.ApprovalDecided{CallID: p.CallID, Approve: false, Reason: "timeout"})
 	})
 	if errors.Is(err, ErrNoPendingApproval) {
 		return nil
@@ -346,29 +374,36 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 	return err
 }
 
-func (s *Service) decide(ctx context.Context, tx pgx.Tx, sessionID, actor int64, d types.ApprovalDecided) error {
+// pendingCall locks the session and returns the active turn if callID is
+// awaiting a decision in it.
+func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, sessionID int64, callID string) (db.EventRow, error) {
 	sess, err := s.Store.LockSession(ctx, tx, sessionID)
 	if err != nil {
-		return err
+		return db.EventRow{}, err
 	}
 	if sess.ActiveTurnID == nil {
-		return ErrNoPendingApproval
+		return db.EventRow{}, ErrNoPendingApproval
 	}
 	events, err := s.Store.TurnEvents(ctx, tx, *sess.ActiveTurnID)
 	if err != nil {
-		return err
+		return db.EventRow{}, err
 	}
 	v, err := ViewOf(events)
 	if err != nil {
+		return db.EventRow{}, err
+	}
+	if _, decided := v.Decided[callID]; v.State != types.StateAwaitingApproval || !v.Requested[callID] || decided {
+		return db.EventRow{}, ErrNoPendingApproval
+	}
+	return events[0], nil // the turn
+}
+
+// decide records d on turn (from pendingCall, in the same tx) and resumes it.
+func (s *Service) decide(ctx context.Context, tx pgx.Tx, turn db.EventRow, actor int64, d types.ApprovalDecided) error {
+	if err := s.appendTo(ctx, tx, turn, actor, d); err != nil {
 		return err
 	}
-	if _, decided := v.Decided[d.CallID]; v.State != types.StateAwaitingApproval || !v.Requested[d.CallID] || decided {
-		return ErrNoPendingApproval
-	}
-	if err := s.appendTo(ctx, tx, events[0], actor, d); err != nil { // events[0] is the turn
-		return err
-	}
-	return s.enqueueRun(ctx, tx, sessionID, events[0].ID)
+	return s.enqueueRun(ctx, tx, turn.SessionID, turn.ID)
 }
 
 // RequestApproval pauses the running turn on a tool call. The request, the

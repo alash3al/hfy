@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"uuid"
 
@@ -50,11 +51,19 @@ func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int6
 			}
 		}
 	}
+	room := inRoom(events, spec.Name)
 	bc.System = svc.Render(spec.System, bc.Vars)
-	if summary != nil {
-		bc.System += "\n\nSummary of the earlier conversation:\n" + summary.Text
+	if room {
+		bc.System += "\n\n" + strings.TrimSpace(promptRoom)
 	}
-	if bc.Msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec); err != nil {
+	if summary != nil {
+		text := summary.Text
+		if room { // tag-like text in it must not read as a message
+			text = escText.Replace(text)
+		}
+		bc.System += "\n\nSummary of the earlier conversation:\n" + text
+	}
+	if bc.Msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec, room); err != nil {
 		return nil, err
 	}
 	return bc, nil
@@ -80,11 +89,10 @@ func (rt *Runtime) summaryStart(ctx context.Context, sessionID int64) (*types.Su
 
 // messagesFrom turns events into the messages spec's agent sees. Only
 // message.text, tool_call, tool_call.interrupted and tool_result reach the
-// model. A session is a room: the agent's own words and calls are its
-// assistant turns; everyone else's words are user turns labelled with who
-// said them (labels exist only in the prompt). Other agents' tool calls are
-// theirs and stay out.
-func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec) ([]provider.Message, error) {
+// model. The agent's own words and calls are its assistant turns; everyone
+// else's words are user turns, framed with who said them when room is set
+// (see inRoom). Other agents' tool calls are theirs and stay out.
+func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec, room bool) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
 	pending := map[string]bool{}
@@ -95,7 +103,6 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 		}
 	}
 	interrupted := strings.TrimSpace(promptInterrupted)
-	many := manyPeople(events)
 	for _, e := range events {
 		own := e.ActorType == string(types.ActorAgent) && e.ActorRef == spec.Name
 		switch e.Type {
@@ -109,7 +116,11 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 				asst = &provider.Message{Role: "assistant", Content: m.Text}
 				continue
 			}
-			out = appendUser(out, rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec, label(e, many)))
+			msg := rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec)
+			if room {
+				msg = framed(msg, e)
+			}
+			out = appendUser(out, msg)
 		case types.EventToolCall:
 			if !own {
 				continue // its result is skipped too: it is not pending
@@ -157,39 +168,64 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	return out, nil
 }
 
-// label is how the model is told who said a message that is not its own:
-// "[agent:<ref>] " for an agent, "[<ref>] " for a person when more than one
-// person spoke (with one there is nobody to tell apart).
-func label(e db.EventRow, manyPeople bool) string {
-	switch {
-	case e.ActorType == string(types.ActorAgent):
-		return "[agent:" + e.ActorRef + "] "
-	case manyPeople:
-		return "[" + e.ActorRef + "] "
-	}
-	return ""
-}
-
-// manyPeople reports whether messages from more than one person (any
-// non-agent actor) are among events.
-func manyPeople(events []db.EventRow) bool {
-	first := ""
+// inRoom reports whether anyone besides self and one person speaks in
+// events. Then every message that is not self's own is framed with its author
+// (see frame) and the system prompt explains the frames; a one-to-one chat
+// stays plain, with no frames to imitate.
+func inRoom(events []db.EventRow, self string) bool {
+	person := ""
 	for _, e := range events {
-		if e.Type != types.EventMessageText || e.ActorType == string(types.ActorAgent) {
-			continue
-		}
-		if who := e.ActorType + "/" + e.ActorRef; first == "" {
-			first = who
-		} else if who != first {
+		switch {
+		case e.Type != types.EventMessageText:
+		case e.ActorType == string(types.ActorAgent):
+			if e.ActorRef != self {
+				return true
+			}
+		case person == "":
+			person = e.ActorType + "/" + e.ActorRef
+		case person != e.ActorType+"/"+e.ActorRef:
 			return true
 		}
 	}
 	return false
 }
 
+var (
+	escText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+	escAttr = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+)
+
+// frame wraps text in tag, attributed to e's actor:
+// <message from="u1" kind="person">…</message> (an anonymous person has no
+// from). The text and the ref are escaped, so nothing a speaker writes can
+// close the frame or open another: only frames say who wrote what.
+func frame(e db.EventRow, tag, text string) string {
+	kind := "person"
+	if e.ActorType == string(types.ActorAgent) {
+		kind = "agent"
+	}
+	attrs := ` kind="` + kind + `"`
+	if e.ActorType != string(types.ActorAnonymous) {
+		attrs = ` from="` + escAttr.Replace(e.ActorRef) + `"` + attrs
+	}
+	return "<" + tag + attrs + ">" + escText.Replace(text) + "</" + tag + ">"
+}
+
+// framed frames a user message's text (its first part when it has parts;
+// images follow it).
+func framed(m provider.Message, e db.EventRow) provider.Message {
+	if m.Parts == nil {
+		m.Content = frame(e, "message", m.Content)
+		return m
+	}
+	m.Parts = slices.Clone(m.Parts)
+	m.Parts[0].Text = frame(e, "message", m.Parts[0].Text)
+	return m
+}
+
 // appendUser merges a user message into a preceding one: some chat templates
 // (e.g. Mistral's) reject two user turns in a row, and Anthropic's API merges
-// them the same way.
+// them the same way. Frames keep the merged authors apart.
 func appendUser(out []provider.Message, m provider.Message) []provider.Message {
 	n := len(out)
 	if n == 0 || out[n-1].Role != "user" {
@@ -212,9 +248,8 @@ func appendUser(out []provider.Message, m provider.Message) []provider.Message {
 
 // userMessage expands image attachments only in the turn they arrive in; later
 // turns get a short placeholder (small context, and presigned URLs expire).
-// label (see label) goes before the text.
-func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec, label string) provider.Message {
-	text := label + m.Text
+func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec) provider.Message {
+	text := m.Text
 	if len(m.Attachments) == 0 {
 		return provider.Message{Role: "user", Content: text}
 	}

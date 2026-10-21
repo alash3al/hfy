@@ -41,8 +41,13 @@ func TestSummarizerFoldsOldTurns(t *testing.T) {
 	if len(e.find(t1, types.EventMessageText)) != 2 {
 		t.Fatal("history must stay intact")
 	}
-	// The last model call saw the summary, turn 2 and 3, but not turn 1.
 	reqs := e.fake.Reqs()
+	// The summarizer read a framed transcript (an anonymous person has no from).
+	input := reqs[2]["messages"].([]any)[1].(map[string]any)["content"].(string)
+	if !strings.Contains(input, `<message kind="person">first `) || !strings.Contains(input, `<message from="main" kind="agent">reply one</message>`) {
+		t.Fatalf("summarizer input:\n%s", input)
+	}
+	// The last model call saw the summary, turn 2 and 3, but not turn 1.
 	last := reqs[len(reqs)-1]["messages"].([]any)
 	var all strings.Builder
 	for _, m := range last {

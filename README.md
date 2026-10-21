@@ -1,7 +1,7 @@
 # hfy
 
 A simple harness as a service. One Go binary plus Postgres, configured with one
-YAML file, serving one agent over HTTP.
+YAML file, serving your agents over HTTP.
 
 Your app creates sessions and posts messages. hfy runs the agent loop, calls the
 tools, keeps the history and streams events back. You stop rebuilding the same
@@ -99,11 +99,13 @@ session ids are the only protection.
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns) and `live_after` (open `/events?after=<live_after>` to continue
   without a gap).
-- `POST /v1/sessions/{id}/approvals` `{call_id, approve, result?}`
-- `POST /v1/sessions/{id}/stop` stops the active turn and cancels queued ones.
+- `POST /v1/sessions/{id}/approvals` `{call_id, approve, result?}`. Only the
+  actor who started the turn decides its calls (`403` otherwise).
+- `POST /v1/sessions/{id}/stop` stops the caller's own turns: the active one
+  if they started it, and their queued ones. Everyone else's keep their place.
 Errors are `{"error": "..."}`: `400` bad input (unknown or missing vars,
-bad attachment), `401`/`403` auth, `404` unknown session, `409` no pending
-approval.
+bad attachment), `401`/`403` auth (or not your turn), `404` unknown session,
+`409` no pending approval.
 
 ### Operations
 
@@ -182,15 +184,19 @@ event as stored.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
   `"io.github.alash3al.hfy/turn": {session, turn, call_id, agent, actor: {type,
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
-  actor is whoever started the turn; `vars` include the webhook's). Return
+  actor is whoever started the turn; `vars` include the webhook's, so keep
+  secrets out of vars: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
 - **A session is a room.** Every agent that answers in it sees the whole
-  conversation: its own messages and tool calls as its own, and everyone
-  else's messages labelled with who said them, `[agent:<name>]` for another
-  agent and `[<actor ref>]` for a person (only once two people have spoken).
-  Other agents' tool calls stay theirs. Labels exist only in the prompt, so
-  stored events and the API are unchanged; make actor refs readable (the
-  webhook's `actor`) if the model should know names.
+  conversation: its own messages and tool calls as its own, and, once others
+  speak (another agent, or a second person), everyone else's messages framed
+  with who wrote them: `<message from="u1" kind="person">…</message>`. The
+  text inside is escaped, so nobody can forge a frame, and the system prompt
+  explains them. Other agents' tool calls stay theirs. A one-to-one chat is
+  sent plain. Frames exist only in the prompt (stored events and the API are
+  unchanged); make actor refs readable (the webhook's `actor`) if the model
+  should know names. Frames tell the model who spoke; they are not
+  authorization: tools decide from `_meta`, which the model cannot change.
 - **Memory.** The summarizer appends a `summary` event when the prompt reaches
   `context_window` (history is never deleted). With `embeddings` configured,
   `harness__session_search` finds earlier messages of the same `scope`.

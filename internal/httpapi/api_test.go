@@ -483,8 +483,8 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 		t.Fatalf("model calls: %d", len(reqs))
 	}
 	for i, want := range []struct{ model, system string }{{"small", "You are Napoli's store."}, {"m", "You help Sam."}} {
-		sys := reqs[i]["messages"].([]any)[0].(map[string]any)["content"]
-		if reqs[i]["model"] != want.model || sys != want.system {
+		sys := reqs[i]["messages"].([]any)[0].(map[string]any)["content"].(string)
+		if reqs[i]["model"] != want.model || !strings.HasPrefix(sys, want.system) { // turn 1 follows the store's reply: a room
 			t.Fatalf("turn %d ran as model=%v system=%v", i, reqs[i]["model"], sys)
 		}
 	}

@@ -1,4 +1,4 @@
-# hfy — a simple harness as a service. One agent, served over HTTP.
+# hfy — a simple harness as a service. Your agents, served over HTTP.
 # ${VAR} reads the environment, ${VAR:-default} supplies a fallback, $$ is a literal $.
 
 server:

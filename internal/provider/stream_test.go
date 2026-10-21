@@ -20,3 +20,15 @@ data: [DONE]
 		t.Fatalf("calls: %+v", resp.ToolCalls)
 	}
 }
+
+// Servers name reasoning differently (DeepSeek: reasoning_content; Ollama and
+// vLLM: reasoning), streamed or not.
+func TestNonStreamReadsEitherReasoningField(t *testing.T) {
+	for _, field := range []string{"reasoning_content", "reasoning"} {
+		body := `{"choices":[{"message":{"content":"hi","` + field + `":"thought"},"finish_reason":"stop"}]}`
+		resp, err := readJSON(strings.NewReader(body), Opts{})
+		if err != nil || resp.Content != "hi" || resp.Reasoning != "thought" {
+			t.Fatalf("%s: %+v %v", field, resp, err)
+		}
+	}
+}

@@ -148,7 +148,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 			Model:       l.spec.Model,
 			Messages:    append([]provider.Message{{Role: "system", Content: l.system}}, l.msgs...),
 			Tools:       defs,
-			Temperature: l.spec.Settings.Temperature, TopP: l.spec.Settings.TopP, MaxTokens: l.spec.Settings.MaxTokens,
+			Temperature: l.spec.Settings.Temperature, TopP: l.spec.Settings.TopP,
 		}
 		kind := types.OutboundModel
 		if l.spec.Name == types.AgentSummarizer {

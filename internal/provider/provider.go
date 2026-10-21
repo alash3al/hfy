@@ -68,7 +68,6 @@ type Request struct {
 	Tools       []ToolDef
 	Temperature *float64
 	TopP        *float64
-	MaxTokens   *int
 }
 
 type Response struct {
@@ -297,9 +296,6 @@ func buildBody(r Request) map[string]any {
 	if r.TopP != nil {
 		b["top_p"] = *r.TopP
 	}
-	if r.MaxTokens != nil {
-		b["max_tokens"] = *r.MaxTokens
-	}
 	return b
 }
 
@@ -348,9 +344,10 @@ type chunk struct {
 			} `json:"tool_calls"`
 		} `json:"delta"`
 		Message *struct {
-			Content   *string `json:"content"`
-			Reasoning *string `json:"reasoning_content"`
-			ToolCalls []struct {
+			Content          *string `json:"content"`
+			ReasoningContent *string `json:"reasoning_content"`
+			Reasoning        *string `json:"reasoning"`
+			ToolCalls        []struct {
 				ID       string `json:"id"`
 				Function struct {
 					Name      string `json:"name"`
@@ -418,8 +415,10 @@ func (a *assembler) add(c chunk) {
 					a.o.OnText(*m.Content)
 				}
 			}
-			if m.Reasoning != nil {
-				a.resp.Reasoning += *m.Reasoning
+			for _, r := range []*string{m.ReasoningContent, m.Reasoning} { // servers differ, as in deltas
+				if r != nil {
+					a.resp.Reasoning += *r
+				}
 			}
 			for i, tc := range m.ToolCalls {
 				a.calls[i] = &ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments}

@@ -96,7 +96,6 @@ type Attachments struct {
 type Settings struct {
 	Temperature   *float64 `yaml:"temperature"`
 	TopP          *float64 `yaml:"top_p"`
-	MaxTokens     *int     `yaml:"max_tokens"`
 	ContextWindow int      `yaml:"context_window"`
 	Vision        bool     `yaml:"vision"`
 }

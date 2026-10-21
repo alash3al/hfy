@@ -132,6 +132,8 @@ func (s *Server) handleError(c *echo.Context, err error) {
 		code, msg = http.StatusBadRequest, bad.Msg
 	case errors.Is(err, svc.ErrNoPendingApproval):
 		code, msg = http.StatusConflict, err.Error()
+	case errors.Is(err, svc.ErrNotTurnOwner):
+		code, msg = http.StatusForbidden, err.Error()
 	case db.IsNotFound(err):
 		code, msg = http.StatusNotFound, "not found"
 	default:
