@@ -3,6 +3,7 @@ module github.com/alash3al/hfy
 go 1.27.3
 
 require (
+	github.com/expr-lang/expr v1.17.8
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo/v5 v5.4.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/expr-lang/expr v1.17.8 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

@@ -46,7 +46,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 		Queue:     config.Queue{Workers: 2, Lease: config.Duration(5 * time.Second), MaxAttempts: 2},
 		Providers: map[string]config.Provider{"fake": {URL: fake.URL1(), Timeout: config.Duration(10 * time.Second)}},
 		Agent: config.Agent{Model: "fake/m", System: "You help {{user}}.", Settings: config.Settings{ContextWindow: 100000},
-			Vars: map[string]config.Var{"user": {Required: true, MaxLength: 10}, "tone": {Default: new("kind")}}},
+			Vars: map[string]config.Var{"user": {Default: new("friend")}, "tone": {Default: new("kind")}}},
 	}
 	if tweak != nil {
 		tweak(cfg)
@@ -66,7 +66,9 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	go rt.ListenCancel(ctx)
 	hub := httpapi.NewHub(store)
 	go hub.Run(ctx)
-	srv := httptest.NewServer(httpapi.New(cfg, store, rt.Svc, hub).Handler())
+	srv := httptest.NewUnstartedServer(httpapi.New(cfg, store, rt.Svc, hub).Handler())
+	srv.Config.ReadTimeout = 300 * time.Millisecond // as in production (hfy.go), only shorter: streams must outlive it
+	srv.Start()
 	t.Cleanup(srv.Close)
 	time.Sleep(200 * time.Millisecond)
 	return &api{t: t, url: srv.URL, fake: fake, cfg: cfg, rt: rt}
@@ -203,20 +205,11 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	sid := a.newSession()
 	base := "/v1/sessions/" + sid
 
-	// validation: required var, undeclared var, empty message
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "hi"}); code != 400 {
-		t.Fatalf("missing required var: %d", code)
-	}
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "hi", "vars": map[string]string{"user": "ann", "evil": "x"}}); code != 400 {
-		t.Fatalf("undeclared var: %d", code)
-	}
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "hi", "vars": map[string]string{"user": "much too long name"}}); code != 400 {
-		t.Fatalf("var too long: %d", code)
-	}
+	// validation
 	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": " "}); code != 400 {
 		t.Fatalf("empty message: %d", code)
 	}
-	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "x", "vars": map[string]string{"user": "a"},
+	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": "x",
 		"attachments": []map[string]string{{"url": "https://cdn.example.com/a.png", "mime": "image/png"}}}); code != 400 {
 		t.Fatalf("attachments without config: %d", code)
 	}
@@ -226,7 +219,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 
 	events, closeStream := a.stream(base+"/events", nil)
 	defer closeStream()
-	code, out := a.do("POST", base+"/messages", "", map[string]any{"text": "hi there", "vars": map[string]string{"user": "ann"}})
+	code, out := a.do("POST", base+"/messages", "", map[string]any{"text": "hi there"})
 	if code != 202 {
 		t.Fatalf("post: %d %v", code, out)
 	}
@@ -288,7 +281,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	// resume: Last-Event-ID replays only what came after it, then continues live
 	resumed, closeResumed := a.stream(base+"/events", map[string]string{"Last-Event-ID": got[1].ID})
 	defer closeResumed()
-	code, _ = a.do("POST", base+"/messages", "", map[string]any{"text": "again", "vars": map[string]string{"user": "ann"}})
+	code, _ = a.do("POST", base+"/messages", "", map[string]any{"text": "again"})
 	if code != 202 {
 		t.Fatal(code)
 	}
@@ -379,7 +372,7 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 	if last["session_id"] != sid || last["key"] != "alice-token" {
 		t.Fatalf("webhook request: %v", last)
 	}
-	// the webhook's var overrides the client's
+	// vars come from the webhook only: a client's are ignored
 	code, _ := a.do("POST", base+"/messages", "alice-token", map[string]any{"text": "hello", "vars": map[string]string{"user": "Mallory"}})
 	if code != 202 {
 		t.Fatalf("post: %d", code)
@@ -453,6 +446,8 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"actor": "u1", "agent": in.Hint.Agent, "vars": map[string]any{"shop": "Napoli"}})
 		case "owner":
 			json.NewEncoder(w).Encode(map[string]any{"actor": "u2", "vars": map[string]any{"user": "Sam"}}) // no agent: main
+		case "noshop": // forgets the store's required var
+			json.NewEncoder(w).Encode(map[string]any{"actor": "u4", "agent": "store"})
 		default:
 			json.NewEncoder(w).Encode(map[string]any{"actor": "u3", "agent": "nope"})
 		}
@@ -505,9 +500,36 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 	if code, _ := a.do("POST", base+"/messages", "stranger", map[string]any{"text": "hi"}); code != http.StatusForbidden {
 		t.Fatalf("an unknown agent must fail closed, got %d", code)
 	}
+	if code, _ := a.do("POST", base+"/messages", "noshop", map[string]any{"text": "hi"}); code != http.StatusInternalServerError {
+		t.Fatalf("a required var the webhook left out is a server error, got %d", code)
+	}
 	for _, bad := range []string{`{"agent":`, `"` + strings.Repeat("a", 5000) + `"`} {
 		if code, _ := a.doWith("POST", base+"/messages", "buyer", map[string]string{"Hfy-Hint": bad}, map[string]any{"text": "hi"}); code != http.StatusBadRequest {
 			t.Fatalf("hint %.20q must be rejected, got %d", bad, code)
 		}
+	}
+}
+
+// An SSE stream outlives the server's ReadTimeout, which bounds only how long
+// a request may take to arrive.
+func TestStreamOutlivesReadTimeout(t *testing.T) {
+	a := start(t, nil, fakeprov.Step{Content: "late but here"})
+	base := "/v1/sessions/" + a.newSession()
+	events, closeStream := a.stream(base+"/events", nil)
+	defer closeStream()
+	time.Sleep(1500 * time.Millisecond) // five ReadTimeouts
+	if code, out := a.do("POST", base+"/messages", "", map[string]any{"text": "still there?"}); code != 202 {
+		t.Fatalf("post: %d %v", code, out)
+	}
+	waitFor(t, events, completed)
+}
+
+// Every route bounds its body, not only messages.
+func TestEveryBodyIsBounded(t *testing.T) {
+	a := start(t, nil)
+	base := "/v1/sessions/" + a.newSession()
+	huge := map[string]any{"call_id": "x", "result": strings.Repeat("a", 3<<20)}
+	if code, _ := a.do("POST", base+"/approvals", "", huge); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a 3 MiB approval body must be refused, got %d", code)
 	}
 }

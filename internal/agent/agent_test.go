@@ -94,7 +94,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 
 func (e *env) post(text string) (turnID int64) {
 	e.t.Helper()
-	vars, err := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil, nil)
+	vars, err := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func (e *env) postAs(who, agent, text string) (turnID int64) {
 		e.t.Fatal(err)
 	}
 	a, _ := e.rt.Cfg.AgentNamed(agent)
-	vars, err := svc.ResolveVars(a.Vars, nil, nil)
+	vars, err := svc.ResolveVars(a.Vars, nil)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 	}, fakeprov.Step{Content: "nice picture"}, fakeprov.Step{Content: "still here"})
 
 	post := func(text string, atts ...types.Attachment) int64 {
-		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil, nil)
+		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
 		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: e.user, Scope: types.NoScope, Vars: vars, Text: text, Attachments: atts})
 		if err != nil {
 			t.Fatal(err)

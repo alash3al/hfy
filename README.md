@@ -34,7 +34,7 @@ curl -XPOST :8080/v1/sessions -H "Authorization: Bearer $HFY_SERVER_SECRET"
 
 # the client: open the stream, then post a message
 curl -N :8080/v1/sessions/7f3c…/events
-curl -XPOST :8080/v1/sessions/7f3c…/messages -d '{"text":"hello","vars":{"user_name":"Ann"}}'
+curl -XPOST :8080/v1/sessions/7f3c…/messages -d '{"text":"hello"}'
 # 202 {"turn":"a91e…"}
 ```
 
@@ -89,10 +89,14 @@ caller (`agents.<name>`; default `main`), so one deployment can run, say, a
 store agent for buyers and an admin agent for staff; an unknown name denies.
 `hint` is the client's `Hfy-Hint` header: any JSON (at most 4 KiB), say
 `{"agent": "store"}` when posting a message, that your webhook may honor or
-ignore. hfy forwards it unread and never trusts or stores it. Without `auth` the caller is `anonymous` and unguessable
-session ids are the only protection.
+ignore. hfy forwards it unread and never trusts or stores it. `vars` fill the
+agent's declared `{{vars}}`: they render into the system prompt, so only the
+webhook sets them, never a client (undeclared ones are dropped; a missing
+required one is a server error, the webhook's). Without `auth` the caller is
+`anonymous`, vars take their defaults, and unguessable session ids are the
+only protection.
 
-- `POST /v1/sessions/{id}/messages` `{text, attachments?, vars?}` → `202 {"turn": uuid}`.
+- `POST /v1/sessions/{id}/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
 - `GET /v1/sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
@@ -105,9 +109,9 @@ session ids are the only protection.
   actor who started the turn decides its calls (`403` otherwise).
 - `POST /v1/sessions/{id}/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
-Errors are `{"error": "..."}`: `400` bad input (unknown or missing vars,
-bad attachment), `401`/`403` auth (or not your turn), `404` unknown session,
-`409` no pending approval.
+Errors are `{"error": "..."}`: `400` bad input (an empty message, a bad
+attachment, a body over 2 MiB), `401`/`403` auth (or not your turn), `404`
+unknown session, `409` no pending approval.
 
 ### Operations
 
@@ -194,8 +198,8 @@ event as stored.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
   `"io.github.alash3al.hfy/turn": {session, turn, call_id, agent, actor: {type,
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
-  actor is whoever started the turn; `vars` include the webhook's, so keep
-  secrets out of vars: every MCP server, remote ones too, receives them). Return
+  actor is whoever started the turn; `vars` are the webhook's, so keep
+  secrets out of them: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
 - **A session is a room.** Every agent that answers in it sees the whole
   conversation: its own messages and tool calls as its own, and, once others

@@ -96,8 +96,10 @@ func (a *App) Serve(ctx context.Context, work bool) error {
 	api := httpapi.New(a.cfg, inst.store, inst.rt.Svc, hub)
 	srv := &http.Server{
 		Addr: a.cfg.Server.Listen, Handler: api.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		BaseContext:       func(net.Listener) context.Context { return ctx }, // shutdown ends SSE streams
+		// Bound how long a request may take to arrive (no trickled bodies) and
+		// how long an idle connection stays open; SSE streams outlive both.
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute,
+		BaseContext: func(net.Listener) context.Context { return ctx }, // shutdown ends SSE streams
 	}
 	var wg sync.WaitGroup
 	wg.Go(func() { hub.Run(ctx) })

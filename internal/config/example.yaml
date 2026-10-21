@@ -50,14 +50,15 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]
 #   types: [image/png, image/jpeg, image/webp]
 #   max_bytes: 5MB
+#   max_count: 10                    # per message
 
 agent:                               # the default agent ("main")
   model: local/gemma3:1b             # <provider>/<model>
   settings: { temperature: 0.2, context_window: 8192, vision: false }
   system: |
     You help {{user_name}} at {{company}}.
-  vars:                              # only declared vars are accepted
-    user_name: { required: true, max_length: 100 }
+  vars:                              # set only by the auth webhook's vars, never by clients
+    user_name: { default: "there" }  # required: true needs auth
     company:   { default: "Acme" }
   limits:                            # per turn; every field optional
     steps: 20

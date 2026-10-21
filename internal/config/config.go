@@ -92,6 +92,7 @@ type Attachments struct {
 	AllowedHosts []string `yaml:"allowed_hosts"`
 	Types        []string `yaml:"types"`
 	MaxBytes     ByteSize `yaml:"max_bytes"`
+	MaxCount     int      `yaml:"max_count"` // per message
 }
 
 type Settings struct {
@@ -101,10 +102,11 @@ type Settings struct {
 	Vision        bool     `yaml:"vision"`
 }
 
+// Var is a {{name}} in a system prompt. Values come only from the auth
+// webhook's vars (a client never sets them); without auth, from defaults.
 type Var struct {
-	Required  bool    `yaml:"required"`
-	Default   *string `yaml:"default"`
-	MaxLength int     `yaml:"max_length"`
+	Required bool    `yaml:"required"`
+	Default  *string `yaml:"default"`
 }
 
 type Limits struct {
@@ -302,6 +304,9 @@ func (c *Config) applyDefaults() {
 	if c.Attachments != nil && c.Attachments.MaxBytes == 0 {
 		c.Attachments.MaxBytes = 5 << 20
 	}
+	if c.Attachments != nil && c.Attachments.MaxCount == 0 {
+		c.Attachments.MaxCount = 10
+	}
 }
 
 // Validate runs the startup rules; every error names what to fix.
@@ -406,6 +411,9 @@ func (c *Config) Validate() error {
 			if v.Required && v.Default != nil {
 				bad("%s.vars.%s: required and default are mutually exclusive", where, n)
 			}
+			if v.Required && c.Auth == nil {
+				bad("%s.vars.%s: required, but vars come only from auth.webhook, which is not configured", where, n)
+			}
 		}
 		for _, m := range placeholRe.FindAllStringSubmatch(a.System, -1) {
 			if _, ok := a.Vars[m[1]]; !ok {
@@ -425,6 +433,9 @@ func (c *Config) Validate() error {
 		where := "subagents." + name
 		if _, taken := agents[name]; taken || name == summarizerName {
 			bad("%s: name is reserved or taken by an agent (agents and sub-agents share one namespace)", where)
+		}
+		if slices.Contains(BuiltinTools, name) {
+			bad("%s: the name is taken by the built-in tool hfy.%s", where, name)
 		}
 		if !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("%s: names use [a-zA-Z0-9_-] and no double underscore", where)
@@ -455,6 +466,10 @@ func (c *Config) Validate() error {
 // BuiltinServer names the in-process MCP server of hfy's own tools (hfy.now,
 // hfy.tool_search, sub-agents as hfy.<name>); no configured server may take it.
 const BuiltinServer = "hfy"
+
+// BuiltinTools are the names hfy's own tools take on that server, so no
+// sub-agent may (a test in package builtins keeps the list complete).
+var BuiltinTools = []string{"tool_search", "session_search", "now", "math_calc"}
 
 // MainAgent is the default agent's name; sub-agents and the summarizer share
 // the agent namespace with it. (config imports nothing internal; a test keeps

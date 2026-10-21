@@ -14,18 +14,14 @@ import (
 type postMessageRequest struct {
 	Text        string             `json:"text"`
 	Attachments []types.Attachment `json:"attachments"`
-	Vars        map[string]string  `json:"vars"`
 }
 
 type postMessageResponse struct {
 	Turn uuid.UUID `json:"turn"`
 }
 
-const maxBody = 2 << 20
-
 func (s *Server) postMessage(c *echo.Context) error {
 	cl := callerOf(c)
-	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxBody)
 	var req postMessageRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
@@ -38,8 +34,7 @@ func (s *Server) postMessage(c *echo.Context) error {
 	if err := svc.ValidateAttachments(s.cfg, agent, req.Attachments); err != nil {
 		return err
 	}
-	// Webhook vars override client vars; the client's are untrusted data.
-	vars, err := svc.ResolveVars(agent.Vars, req.Vars, cl.vars)
+	vars, err := svc.ResolveVars(agent.Vars, cl.vars)
 	if err != nil {
 		return err
 	}

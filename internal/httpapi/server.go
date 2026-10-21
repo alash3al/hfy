@@ -41,7 +41,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	}
 	e := echo.New()
 	e.HTTPErrorHandler = srv.handleError
-	e.Use(observe)
+	e.Use(observe, limitBody)
 	srv.echo = e
 
 	// Operational endpoints are unversioned; the API is under /v1.
@@ -107,6 +107,17 @@ func observe(next echo.HandlerFunc) echo.HandlerFunc {
 			metrics.Since(metrics.HTTPDuration.WithLabelValues(route, method), start)
 		}
 		return err
+	}
+}
+
+// maxBody bounds every request body (a message with its attachment
+// references is the largest), so no client makes the server allocate freely.
+const maxBody = 2 << 20
+
+func limitBody(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxBody)
+		return next(c)
 	}
 }
 

@@ -2,9 +2,12 @@ package builtins
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alash3al/hfy/internal/config"
 )
 
 func TestMathCalc(t *testing.T) {
@@ -57,3 +60,17 @@ func TestNow(t *testing.T) {
 }
 
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+// config reserves every built-in tool name, so no sub-agent (served on the
+// same hfy server) can shadow one.
+func TestBuiltinNamesAreReserved(t *testing.T) {
+	names := []string{ToolSearch, SessionSearch}
+	for _, c := range CoreTools() {
+		names = append(names, c.Tool.Name)
+	}
+	slices.Sort(names)
+	reserved := slices.Sorted(slices.Values(config.BuiltinTools))
+	if !slices.Equal(names, reserved) {
+		t.Fatalf("config.BuiltinTools = %v, want %v", reserved, names)
+	}
+}

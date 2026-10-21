@@ -12,32 +12,19 @@ import (
 
 func TestResolveVars(t *testing.T) {
 	decl := map[string]config.Var{
-		"name":  {Required: true, MaxLength: 5},
+		"name":  {Required: true},
 		"corp":  {Default: new("Acme")},
 		"extra": {},
 	}
-	got, err := svc.ResolveVars(decl, map[string]string{"name": "bob"}, nil)
-	if err != nil || got["name"] != "bob" || got["corp"] != "Acme" || got["extra"] != "" {
-		t.Fatalf("%v %v", got, err)
+	got, err := svc.ResolveVars(decl, map[string]string{"name": "alice", "undeclared": "x"})
+	if err != nil || got["name"] != "alice" || got["corp"] != "Acme" || got["extra"] != "" || len(got) != 3 {
+		t.Fatalf("declared vars from the webhook, defaults, undeclared dropped: %v %v", got, err)
 	}
-	// trusted values override client values
-	got, _ = svc.ResolveVars(decl, map[string]string{"name": "evil"}, map[string]string{"name": "alice", "undeclared": "x"})
-	if got["name"] != "alice" || len(got) != 3 {
-		t.Fatalf("trusted must win and undeclared trusted vars are dropped: %v", got)
-	}
-	for _, c := range []struct {
-		client map[string]string
-		want   string
-	}{
-		{nil, "missing required"},
-		{map[string]string{"name": "toolong"}, "longer than 5"},
-		{map[string]string{"name": "ok", "nope": "x"}, "unknown var"},
-	} {
-		_, err := svc.ResolveVars(decl, c.client, nil)
-		var bad *svc.BadRequestError
-		if !errors.As(err, &bad) || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("want %q, got %v", c.want, err)
-		}
+	// a required var the webhook left out is the webhook's mistake, not the client's
+	_, err = svc.ResolveVars(decl, nil)
+	var bad *svc.BadRequestError
+	if err == nil || errors.As(err, &bad) || !strings.Contains(err.Error(), `required var "name"`) {
+		t.Fatalf("missing required: %v", err)
 	}
 }
 
@@ -75,6 +62,14 @@ func TestValidateAttachments(t *testing.T) {
 	cfg.Agent.Settings.Vision = false
 	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok[:1]); err == nil || !strings.Contains(err.Error(), "vision") {
 		t.Errorf("images need vision: %v", err)
+	}
+	cfg.Agent.Settings.Vision = true
+	many := make([]types.Attachment, 11)
+	for i := range many {
+		many[i] = ok[0]
+	}
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, many); err == nil || !strings.Contains(err.Error(), "at most 10") {
+		t.Errorf("11 attachments must be refused: %v", err)
 	}
 	cfg.Attachments = nil
 	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err == nil {

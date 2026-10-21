@@ -1,10 +1,10 @@
 package svc
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/types"
@@ -17,37 +17,24 @@ func (e *BadRequestError) Error() string { return e.Msg }
 
 func badf(format string, a ...any) error { return &BadRequestError{fmt.Sprintf(format, a...)} }
 
-// ResolveVars merges client and trusted (webhook) vars against the declared
-// ones. Trusted values override client values; undeclared client vars are
-// rejected; defaults fill the gaps; a missing required var is an error.
-func ResolveVars(decl map[string]config.Var, client, trusted map[string]string) (map[string]string, error) {
+// ResolveVars fills the declared vars from the auth webhook's: vars render
+// into the system prompt, so only the app's backend sets them, never a
+// client. Undeclared webhook vars are dropped and defaults fill the gaps; a
+// required var the webhook left out is the webhook's mistake (a server error,
+// not the client's).
+func ResolveVars(decl map[string]config.Var, webhook map[string]string) (map[string]string, error) {
 	out := map[string]string{}
-	for k, v := range client {
-		if _, ok := decl[k]; !ok {
-			return nil, badf("unknown var %q", k)
-		}
-		out[k] = v
-	}
-	for k, v := range trusted {
-		if _, ok := decl[k]; ok {
-			out[k] = v
-		}
-	}
 	for name, d := range decl {
-		v, ok := out[name]
-		if !ok {
-			switch {
-			case d.Required:
-				return nil, badf("missing required var %q", name)
-			case d.Default != nil:
-				out[name] = *d.Default
-			default:
-				out[name] = ""
-			}
-			continue
-		}
-		if d.MaxLength > 0 && utf8.RuneCountInString(v) > d.MaxLength {
-			return nil, badf("var %q is longer than %d characters", name, d.MaxLength)
+		v, ok := webhook[name]
+		switch {
+		case ok:
+			out[name] = v
+		case d.Required:
+			return nil, fmt.Errorf("the auth webhook did not supply the required var %q", name)
+		case d.Default != nil:
+			out[name] = *d.Default
+		default:
+			out[name] = ""
 		}
 	}
 	return out, nil
@@ -75,6 +62,9 @@ func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.A
 	a := cfg.Attachments
 	if a == nil {
 		return badf("attachments are not enabled")
+	}
+	if max := cmp.Or(a.MaxCount, 10); len(atts) > max { // 10: the default, for configs built without Parse
+		return badf("at most %d attachments per message", max)
 	}
 	for _, at := range atts {
 		u, err := parseHTTPURL(at.URL)
