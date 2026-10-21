@@ -267,7 +267,7 @@ func TestLoopRules(t *testing.T) {
 	if !strings.Contains(results[0]["content"].(string), "unknown tool") || !strings.Contains(results[0]["content"].(string), "files__echo") {
 		t.Fatalf("unknown tool result: %v", results[0])
 	}
-	if !strings.Contains(results[1]["content"].(string), "missing required field") {
+	if results[1]["is_error"] != true || !strings.Contains(results[1]["content"].(string), "missing properties") { // the server's own validation
 		t.Fatalf("bad args result: %v", results[1])
 	}
 	if results[2]["content"] != "echo: again" || !strings.Contains(results[4]["content"].(string), "exact call") {

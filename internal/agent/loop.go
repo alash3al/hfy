@@ -253,11 +253,7 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", tc.Name, l.validNames(lookup)))
 	case !argsOK:
 		res = errResult("invalid arguments: they are not valid JSON. Send a JSON object. Schema: " + string(tool.Schema))
-	default:
-		if err := checkArgs(tool.Schema, args); err != nil {
-			res = errResult(fmt.Sprintf("invalid arguments: %v. Schema: %s", err, tool.Schema))
-			break
-		}
+	default: // the tool server validates the arguments against its schema
 		key := name + "\x00" + compact(args)
 		l.counts[key]++
 		switch n := l.counts[key]; {
@@ -472,56 +468,4 @@ func compact(b json.RawMessage) string {
 		return string(b)
 	}
 	return buf.String()
-}
-
-// checkArgs validates arguments against the parts of the schema that matter
-// most to a model that is guessing: required fields and basic types.
-func checkArgs(schema, args json.RawMessage) error {
-	var obj map[string]any
-	if err := json.Unmarshal(args, &obj); err != nil {
-		return errors.New("arguments must be a JSON object")
-	}
-	var s struct {
-		Required   []string                  `json:"required"`
-		Properties map[string]map[string]any `json:"properties"`
-	}
-	if len(schema) == 0 || json.Unmarshal(schema, &s) != nil {
-		return nil
-	}
-	var missing []string
-	for _, r := range s.Required {
-		if _, ok := obj[r]; !ok {
-			missing = append(missing, r)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
-	}
-	for k, v := range obj {
-		want, _ := s.Properties[k]["type"].(string)
-		if want == "" || jsonType(v) == want || (want == "number" && jsonType(v) == "integer") {
-			continue
-		}
-		return fmt.Errorf("field %q must be of type %s", k, want)
-	}
-	return nil
-}
-
-func jsonType(v any) string {
-	switch t := v.(type) {
-	case string:
-		return "string"
-	case bool:
-		return "boolean"
-	case float64:
-		if t == float64(int64(t)) {
-			return "integer"
-		}
-		return "number"
-	case []any:
-		return "array"
-	case map[string]any:
-		return "object"
-	}
-	return "null"
 }

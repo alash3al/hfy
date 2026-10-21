@@ -23,17 +23,15 @@ func TestPromptSize(t *testing.T) {
 	}
 }
 
-// Optional fields sent as null mean "not given"; required ones stay for
-// checkArgs to report.
+// Optional fields sent as null mean "not given"; required ones stay for the
+// tool server to refuse.
 func TestDropNullOptionals(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"limit":{"type":"integer"}}}`)
-	got := dropNullOptionals(schema, json.RawMessage(`{"query":"pizza","limit":null}`))
-	if string(got) != `{"query":"pizza"}` || checkArgs(schema, got) != nil {
+	if got := dropNullOptionals(schema, json.RawMessage(`{"query":"pizza","limit":null}`)); string(got) != `{"query":"pizza"}` {
 		t.Fatalf("optional null: %s", got)
 	}
-	got = dropNullOptionals(schema, json.RawMessage(`{"query":null}`))
-	if checkArgs(schema, got) == nil {
-		t.Fatalf("a required null must still be refused: %s", got)
+	if got := dropNullOptionals(schema, json.RawMessage(`{"query":null}`)); string(got) != `{"query":null}` {
+		t.Fatalf("a required null must stay: %s", got)
 	}
 	if in := json.RawMessage(`{"query": "x"}`); string(dropNullOptionals(schema, in)) != string(in) {
 		t.Fatal("arguments without nulls are passed through untouched")
