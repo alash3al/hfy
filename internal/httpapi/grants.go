@@ -43,8 +43,8 @@ type createGrantResponse struct {
 // only here; hfy keeps its hash.
 func (s *Server) createGrant(c *echo.Context) error {
 	var req createGrantRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
+	if err := bindJSON(c, &req); err != nil {
+		return err
 	}
 	req.Actor, req.Scope = strings.TrimSpace(types.Clean(req.Actor)), strings.TrimSpace(types.Clean(req.Scope))
 	switch {

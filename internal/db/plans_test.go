@@ -26,9 +26,9 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 	mustExec(`INSERT INTO conversations SELECT FROM generate_series(1, 5)`)
 	// 5 conversations x 600 turns, each with a message, a state, usage and 4 deltas
 	mustExec(`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, data)
-		SELECT s.id, 1, 'n/a', 'turn', '{}' FROM conversations s, generate_series(1, 600)`)
+		SELECT s.id, 1, 'u1', 'turn', '{}' FROM conversations s, generate_series(1, 600)`)
 	mustExec(`INSERT INTO conversation_events (conversation_id, parent_id, actor_id, scope, type, data, ephemeral)
-		SELECT t.conversation_id, t.id, 1, 'n/a', k.type, '{"text":"x"}', k.eph
+		SELECT t.conversation_id, t.id, 1, 'u1', k.type, '{"text":"x"}', k.eph
 		FROM conversation_events t,
 		     (VALUES ('message.text', false), ('turn.state', false), ('model.usage', false),
 		             ('text.delta', true), ('text.delta', true), ('text.delta', true), ('text.delta', true)) AS k(type, eph)
@@ -90,7 +90,7 @@ func TestEmbeddingsBackfillUsesTheMessageIndex(t *testing.T) {
 		`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`,
 		`INSERT INTO conversations SELECT FROM generate_series(1, 3)`,
 		`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, data, ephemeral)
-		 SELECT 1 + g % 3, 1, 'n/a', CASE WHEN g % 10 = 0 THEN 'message.text' ELSE 'text.delta' END,
+		 SELECT 1 + g % 3, 1, 'u1', CASE WHEN g % 10 = 0 THEN 'message.text' ELSE 'text.delta' END,
 		        '{"text":"x"}', g % 10 <> 0
 		 FROM generate_series(1, 30000) g`,
 		`ANALYZE`,

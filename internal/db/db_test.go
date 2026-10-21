@@ -27,16 +27,16 @@ func TestEventsAndActors(t *testing.T) {
 	if a1 != a2 {
 		t.Fatal("actor find-or-create not stable")
 	}
-	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a1, Scope: "n/a", Payload: types.Turn{}})
+	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a1, Scope: "u1", Payload: types.Turn{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
+	msg, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "u1",
 		Payload: types.MessageText{Text: "hi"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
+	if _, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "u1",
 		Payload: types.TextDelta{Text: "h"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestNotify(t *testing.T) {
 	conv, _ := s.CreateConversation(ctx)
 	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
-		_, err := s.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
+		_, err := s.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "u1", Payload: types.Turn{}})
 		return err
 	})
 	if err != nil {
@@ -153,7 +153,7 @@ func TestEmbeddingsSearch(t *testing.T) {
 	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	var ids []int64
 	for _, txt := range []string{"apples", "boats"} {
-		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.MessageText{Text: txt}})
+		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "u1", Payload: types.MessageText{Text: txt}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,9 +163,9 @@ func TestEmbeddingsSearch(t *testing.T) {
 	if err != nil || len(missing) != 2 {
 		t.Fatalf("missing: %v %v", missing, err)
 	}
-	s.UpsertEmbedding(ctx, ids[0], "n/a", []float32{1, 0, 0})
-	s.UpsertEmbedding(ctx, ids[1], "n/a", []float32{0, 1, 0})
-	hits, err := s.SearchEmbeddings(ctx, "n/a", []float32{0.9, 0.1, 0}, 1)
+	s.UpsertEmbedding(ctx, ids[0], "u1", []float32{1, 0, 0})
+	s.UpsertEmbedding(ctx, ids[1], "u1", []float32{0, 1, 0})
+	hits, err := s.SearchEmbeddings(ctx, "u1", []float32{0.9, 0.1, 0}, 1)
 	if err != nil || len(hits) != 1 || hits[0].Text != "apples" {
 		t.Fatalf("search: %+v %v", hits, err)
 	}
@@ -221,12 +221,12 @@ func TestEventVersions(t *testing.T) {
 	ctx := context.Background()
 	conv, _ := s.CreateConversation(ctx)
 	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
-	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
+	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "u1", Payload: types.Turn{}})
 	if err != nil || turn.V != types.Version(types.EventTurn) {
 		t.Fatalf("append: v%d %v", turn.V, err)
 	}
 	if _, err := s.Pool.Exec(ctx, `INSERT INTO conversation_events (conversation_id, parent_id, actor_id, scope, type, data, v)
-		VALUES ($1, $2, $3, 'n/a', 'message.text', '{"text":"hi","lang":"en"}', 9)`, conv.ID, turn.ID, actor); err != nil {
+		VALUES ($1, $2, $3, 'u1', 'message.text', '{"text":"hi","lang":"en"}', 9)`, conv.ID, turn.ID, actor); err != nil {
 		t.Fatal(err)
 	}
 	evs, err := s.TurnEvents(ctx, s.Pool, turn.ID)

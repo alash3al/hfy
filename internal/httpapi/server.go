@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -128,6 +129,20 @@ func limitBody(next echo.HandlerFunc) echo.HandlerFunc {
 		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxBody)
 		return next(c)
 	}
+}
+
+// bindJSON decodes a request body as JSON whatever its Content-Type says:
+// the API speaks only JSON, and `curl -d` labels it a form. An empty body is
+// an empty object.
+func bindJSON(c *echo.Context, v any) error {
+	err := json.NewDecoder(c.Request().Body).Decode(v)
+	if _, tooBig := errors.AsType[*http.MaxBytesError](err); tooBig {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "body over 2 MiB")
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
+	}
+	return nil
 }
 
 type errorBody struct {

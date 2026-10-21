@@ -131,8 +131,8 @@ func (a *api) grant(conv string, body map[string]any) (token, id string) {
 	return out["token"].(string), out["id"].(string)
 }
 
-// session is the common start: a conversation and one grant to it.
-func (a *api) session() (token string) {
+// newToken is the common start: a conversation and one grant to it.
+func (a *api) newToken() (token string) {
 	a.t.Helper()
 	token, _ = a.grant(a.newConversation(), nil)
 	return token
@@ -261,7 +261,7 @@ func TestServerSecretGuardsTheBackendRoutes(t *testing.T) {
 
 func TestMessageStreamResumeAndHistory(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "hello from the agent"}, fakeprov.Step{Content: "second answer"})
-	token := a.session()
+	token := a.newToken()
 
 	// validation
 	if code, _ := a.do("POST", client+"/messages", token, map[string]any{"text": " "}); code != 400 {
@@ -566,7 +566,7 @@ func TestGrantsShareARoom(t *testing.T) {
 
 func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	a := start(t, nil)
-	token := a.session()
+	token := a.newToken()
 	if code, _ := a.do("POST", client+"/approvals", token, map[string]any{"call_id": "x", "approve": true}); code != 409 {
 		t.Fatalf("approve nothing: %d", code)
 	}
@@ -642,7 +642,7 @@ func TestGrantPicksTheAgent(t *testing.T) {
 // a request may take to arrive.
 func TestStreamOutlivesReadTimeout(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "late but here"})
-	token := a.session()
+	token := a.newToken()
 	events, closeStream := a.stream(client+"/events", bearer(token))
 	defer closeStream()
 	time.Sleep(1500 * time.Millisecond) // five ReadTimeouts
@@ -655,13 +655,46 @@ func TestStreamOutlivesReadTimeout(t *testing.T) {
 // Every route bounds its body, not only messages.
 func TestEveryBodyIsBounded(t *testing.T) {
 	a := start(t, nil)
-	token := a.session()
+	token := a.newToken()
 	huge := map[string]any{"call_id": "x", "result": strings.Repeat("a", 3<<20)}
-	if code, _ := a.do("POST", client+"/approvals", token, huge); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+	if code, _ := a.do("POST", client+"/approvals", token, huge); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a 3 MiB approval body must be refused, got %d", code)
 	}
-	if code, _ := a.do("POST", "/v1/grants", secret, map[string]any{"actor": strings.Repeat("a", 3<<20)}); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+	if code, _ := a.do("POST", "/v1/grants", secret, map[string]any{"actor": strings.Repeat("a", 3<<20)}); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a 3 MiB grant body must be refused, got %d", code)
+	}
+}
+
+// Bodies are JSON whatever the Content-Type says: `curl -d` (a form type, as
+// in the README's quick start) and a missing type both work.
+func TestBodiesAreJSONWhateverTheContentType(t *testing.T) {
+	a := start(t, nil)
+	conv := a.newConversation()
+	post := func(path, auth, contentType, body string) (int, map[string]any) {
+		req, _ := http.NewRequest(http.MethodPost, a.url+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+auth)
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	code, out := post("/v1/grants", secret, "application/x-www-form-urlencoded", `{"conversation":"`+conv+`","actor":"u1"}`)
+	if code != 201 {
+		t.Fatalf("grant with a form content type: %d %v", code, out)
+	}
+	token := out["token"].(string)
+	if code, out := post(client+"/messages", token, "", `{"text":"hello"}`); code != 202 {
+		t.Fatalf("message without a content type: %d %v", code, out)
+	}
+	if code, out := post(client+"/messages", token, "application/json", `{"text":`); code != 400 || out["error"] != "invalid json body" {
+		t.Fatalf("broken json: %d %v", code, out)
 	}
 }
 
@@ -671,7 +704,7 @@ func TestEveryBodyIsBounded(t *testing.T) {
 func TestCORS(t *testing.T) {
 	const site, evil = "https://shop.example.com", "https://evil.example.com"
 	a := start(t, func(c *config.Config) { c.Server.CORSOrigins = []string{site} })
-	token := a.session()
+	token := a.newToken()
 	auth := "Bearer " + token
 
 	r := a.browser(http.MethodOptions, client+"/messages", site, "")

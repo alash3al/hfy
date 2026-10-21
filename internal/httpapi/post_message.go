@@ -23,8 +23,8 @@ type postMessageResponse struct {
 func (s *Server) postMessage(c *echo.Context) error {
 	g := grantOf(c)
 	var req postMessageRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
+	if err := bindJSON(c, &req); err != nil {
+		return err
 	}
 	req.Text = types.Clean(req.Text)
 	if strings.TrimSpace(req.Text) == "" && len(req.Attachments) == 0 {

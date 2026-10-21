@@ -29,15 +29,15 @@ Or `docker compose up` (see `compose.yaml`; it mounts `./hfy.yaml`).
 
 ```sh
 # your backend: create a conversation, then a grant for one person in it
-curl -XPOST :8080/v1/conversations -H "Authorization: Bearer $HFY_SERVER_SECRET"
+curl -XPOST localhost:8080/v1/conversations -H "Authorization: Bearer $HFY_SERVER_SECRET"
 # {"id":"7f3c…"}
-curl -XPOST :8080/v1/grants -H "Authorization: Bearer $HFY_SERVER_SECRET" \
+curl -XPOST localhost:8080/v1/grants -H "Authorization: Bearer $HFY_SERVER_SECRET" \
   -d '{"conversation":"7f3c…","actor":"alice"}'
 # {"id":"0b8d…","token":"hfy_Qm9…","expires_at":"…"}
 
 # the client, with only the token: open the stream, then post a message
-curl -N :8080/v1/conversation/events -H "Authorization: Bearer hfy_Qm9…"
-curl -XPOST :8080/v1/conversation/messages -H "Authorization: Bearer hfy_Qm9…" -d '{"text":"hello"}'
+curl -N localhost:8080/v1/conversation/events -H "Authorization: Bearer hfy_Qm9…"
+curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hfy_Qm9…" -d '{"text":"hello"}'
 # 202 {"turn":"a91e…"}
 ```
 
@@ -128,9 +128,10 @@ there is no credentials mode.
 - `POST /v1/conversation/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
 
-Errors are `{"error": "..."}`: `400` bad input (an empty message, a bad
-attachment, a body over 2 MiB), `401` no valid secret or token, `403` not your
-turn, `404` unknown conversation or grant, `409` no pending approval.
+Bodies are JSON (whatever the `Content-Type` says). Errors are
+`{"error": "..."}`: `400` bad input (an empty message, a bad attachment),
+`401` no valid secret or token, `403` not your turn, `404` unknown
+conversation or grant, `409` no pending approval, `413` a body over 2 MiB.
 
 ### Operations
 

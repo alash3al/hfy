@@ -33,12 +33,12 @@ func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
+		_, err := store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "u1", Payload: types.Turn{}})
 		done <- err
 	}()
 	time.Sleep(200 * time.Millisecond)
 	// a concurrent append from the worker side
-	go store.AppendEvent(ctx, store.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.MessageText{Text: "later"}})
+	go store.AppendEvent(ctx, store.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "u1", Payload: types.MessageText{Text: "later"}})
 	time.Sleep(500 * time.Millisecond)
 	if err := <-done; err != nil {
 		t.Fatal(err)

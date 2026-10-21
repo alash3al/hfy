@@ -17,7 +17,10 @@ type approveRequest struct {
 func (s *Server) approve(c *echo.Context) error {
 	g := grantOf(c)
 	var req approveRequest
-	if err := c.Bind(&req); err != nil || req.CallID == "" {
+	if err := bindJSON(c, &req); err != nil {
+		return err
+	}
+	if req.CallID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "call_id is required")
 	}
 	err := s.svc.Approve(c.Request().Context(), g.ConversationID, g.ActorID, types.ApprovalDecided{
