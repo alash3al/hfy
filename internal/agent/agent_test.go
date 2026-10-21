@@ -80,11 +80,11 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	go rt.ListenCancel(ctx)
 	time.Sleep(200 * time.Millisecond) // let the listeners attach
 
-	sess, err := store.CreateSession(ctx, types.AgentMain)
+	sess, err := store.CreateSession(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, _ := store.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
+	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
 	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, sess: sess, user: user}
 }
 
@@ -374,7 +374,7 @@ func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
 		t.Fatal(ok, err)
 	}
 	// The first worker appended a tool call and died before writing its result.
-	main, _ := e.store.FindOrCreateActor(e.ctx, types.ActorAgent, "main")
+	main, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorAgent, "main")
 	row, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
 	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main, Scope: row.Scope,
 		Payload: types.ToolCall{Name: "files.write_file", CallID: "lost", Arguments: json.RawMessage(`{"text":"x"}`)}})

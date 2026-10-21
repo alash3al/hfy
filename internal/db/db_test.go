@@ -16,12 +16,12 @@ import (
 func TestEventsAndActors(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, err := s.CreateSession(ctx, types.AgentMain)
+	sess, err := s.CreateSession(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a1, _ := s.FindOrCreateActor(ctx, types.ActorExternal, "u1")
-	a2, _ := s.FindOrCreateActor(ctx, types.ActorExternal, "u1")
+	a1, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
+	a2, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
 	if a1 != a2 {
 		t.Fatal("actor find-or-create not stable")
 	}
@@ -125,8 +125,8 @@ func TestNotify(t *testing.T) {
 	got := make(chan string, 4)
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
 	time.Sleep(300 * time.Millisecond)
-	sess, _ := s.CreateSession(ctx, types.AgentMain)
-	a, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, "n/a")
+	sess, _ := s.CreateSession(ctx)
+	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := s.AppendEvent(ctx, tx, db.NewEvent{SessionID: sess.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
 		return err
@@ -147,8 +147,8 @@ func TestNotify(t *testing.T) {
 func TestEmbeddingsSearch(t *testing.T) {
 	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx, types.AgentMain)
-	a, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, "n/a")
+	sess, _ := s.CreateSession(ctx)
+	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
 	var ids []int64
 	for _, txt := range []string{"apples", "boats"} {
 		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: a, Scope: "n/a", Payload: types.MessageText{Text: txt}})
@@ -217,8 +217,8 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 func TestEventVersions(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx, types.AgentMain)
-	actor, _ := s.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
+	sess, _ := s.CreateSession(ctx)
+	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, types.NoScope)
 	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
 	if err != nil || turn.V != types.Version(types.EventTurn) {
 		t.Fatalf("append: v%d %v", turn.V, err)

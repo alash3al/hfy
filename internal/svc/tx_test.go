@@ -27,9 +27,9 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 	defer store.Close()
 	cfg := &config.Config{Queue: config.Queue{MaxAttempts: 3}}
 	s := svc.New(store, cfg)
-	// The agent's actor is left uncached on purpose: the first mutation must
-	// resolve it without a second connection.
-	user, _ := store.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
+	// The agent's actor is left uncached on purpose: a mutation must resolve
+	// it on its transaction's connection.
+	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
 
 	step := func(name string, fn func(context.Context) error) {
 		t.Helper()
@@ -39,7 +39,7 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	sess, _ := store.CreateSession(ctx, types.AgentMain)
+	sess, _ := store.CreateSession(ctx)
 	var turn int64
 	step("post", func(c context.Context) error {
 		u, err := s.Post(c, svc.PostInput{SessionID: sess.ID, Actor: user, Scope: types.NoScope, Text: "hi"})

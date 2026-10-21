@@ -67,8 +67,8 @@ agent:                               # the default agent ("main")
   #   timeout: 10m
   # mcp: [files, search]             # optional; omit = all MCP servers via tool search
 
-# agents:                            # more agents, same fields as agent; a session
-#   store:                           # picks one when created: {"agent": "store"}
+# agents:                            # more agents, same fields as agent; the auth
+#   store:                           # webhook picks one per caller: {"agent": "store"}
 #     model: local/gemma3:1b
 #     settings: { context_window: 8192 }
 #     system: You answer for {{shop}}.

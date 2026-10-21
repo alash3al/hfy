@@ -11,22 +11,26 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// FindOrCreateActor returns the actor's internal id, creating the row on first use.
-func (s *Store) FindOrCreateActor(ctx context.Context, typ types.ActorType, ref string) (int64, error) {
+// FindOrCreateActor returns the actor's internal id, creating the row on first
+// use. Inside a transaction pass it (q): an id it creates is cached only once
+// committed, so a rollback cannot leave a cached id with no row.
+func (s *Store) FindOrCreateActor(ctx context.Context, q DBTX, typ types.ActorType, ref string) (int64, error) {
 	key := string(typ) + "/" + ref
 	if v, ok := s.actors.Load(key); ok {
 		return v.(int64), nil
 	}
 	args := pgx.NamedArgs{"type": string(typ), "ref": ref}
 	var id int64
-	err := s.Pool.QueryRow(ctx, s.q("InsertActor"), args).Scan(&id)
+	err := q.QueryRow(ctx, s.q("InsertActor"), args).Scan(&id)
 	if IsNotFound(err) { // lost the race, or it already existed
-		err = s.Pool.QueryRow(ctx, s.q("SelectActor"), args).Scan(&id)
+		err = q.QueryRow(ctx, s.q("SelectActor"), args).Scan(&id)
 	}
 	if err != nil {
 		return 0, err
 	}
-	s.actors.Store(key, id)
+	if _, inTx := q.(pgx.Tx); !inTx {
+		s.actors.Store(key, id)
+	}
 	return id, nil
 }
 

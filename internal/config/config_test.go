@@ -139,8 +139,8 @@ func TestNamedAgents(t *testing.T) {
 	if a, ok := cfg.AgentNamed("store"); !ok || a.Model != "p/small" || a.Approval.Timeout.D() == 0 {
 		t.Fatalf("store agent: %+v", a)
 	}
-	if a, ok := cfg.AgentNamed(MainAgent); !ok || a.Model != "p/m" {
-		t.Fatal("main must be the default agent")
+	if a, ok := cfg.AgentNamed(""); !ok || a.Model != "p/m" {
+		t.Fatal("empty name must be the main agent")
 	}
 	for yaml, want := range map[string]string{
 		"agents: {summarizer: {model: p/m, settings: {context_window: 1}}}\n":                                      "agents.summarizer: name is reserved",

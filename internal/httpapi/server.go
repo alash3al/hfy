@@ -3,11 +3,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -147,6 +149,34 @@ func bearer(c *echo.Context) string {
 	return ""
 }
 
+const maxMeta = 4 << 10
+
+// clientMeta is the "meta" field of a client POST body: a JSON object hfy
+// forwards to the auth webhook without reading it. The body is left in place
+// for the handler. Reads (GET) carry none: only acting needs hints.
+func clientMeta(c *echo.Context) (json.RawMessage, error) {
+	r := c.Request()
+	if r.Method != http.MethodPost || r.ContentLength == 0 {
+		return nil, nil
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxBody))
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusRequestEntityTooLarge, "body too large")
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var in struct {
+		Meta json.RawMessage `json:"meta"`
+	}
+	if json.Unmarshal(body, &in) != nil || in.Meta == nil || string(in.Meta) == "null" {
+		return nil, nil // none; a bad body is the handler's to report
+	}
+	var obj map[string]json.RawMessage
+	if len(in.Meta) > maxMeta || json.Unmarshal(in.Meta, &obj) != nil || obj == nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "meta must be a JSON object of at most 4 KiB")
+	}
+	return in.Meta, nil
+}
+
 // requireSecret guards the server-to-server endpoints. Hashing first makes the
 // comparison constant-time regardless of the secret's length.
 func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
@@ -165,6 +195,7 @@ type caller struct {
 	actorID int64
 	scope   string
 	vars    map[string]string
+	agent   string // the configured agent serving this caller ("" = main)
 	session db.SessionRow
 }
 
@@ -181,6 +212,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 		ctx := c.Request().Context()
 		actorType, ref, scope := types.ActorAnonymous, types.NoScope, types.NoScope
 		var vars map[string]string
+		agent := ""
 		if s.auth != nil {
 			key := bearer(c)
 			if key == "" {
@@ -189,24 +221,32 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 			if key == "" {
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing key")
 			}
-			id, err := s.auth.Check(ctx, key, sid.String())
+			meta, err := clientMeta(c)
+			if err != nil {
+				return err
+			}
+			id, err := s.auth.Check(ctx, key, sid.String(), meta)
 			switch {
 			case errors.Is(err, auth.ErrUnauthorized):
 				return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
 			case err != nil:
 				return echo.NewHTTPError(http.StatusForbidden, "forbidden")
 			}
-			actorType, ref, scope, vars = types.ActorExternal, id.Actor, id.Scope, id.Vars
+			if _, ok := s.cfg.AgentNamed(id.Agent); !ok {
+				slog.Error("auth webhook picked an unknown agent", "agent", id.Agent)
+				return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
+			}
+			actorType, ref, scope, vars, agent = types.ActorExternal, id.Actor, id.Scope, id.Vars, id.Agent
 		}
 		sess, err := s.store.SessionByUUID(ctx, sid)
 		if err != nil {
 			return err
 		}
-		actor, err := s.store.FindOrCreateActor(ctx, actorType, ref)
+		actor, err := s.store.FindOrCreateActor(ctx, s.store.Pool, actorType, ref)
 		if err != nil {
 			return err
 		}
-		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, session: sess})
+		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, agent: agent, session: sess})
 		return next(c)
 	}
 }

@@ -23,6 +23,7 @@ type Identity struct {
 	Actor string
 	Scope string // defaults to Actor
 	Vars  map[string]string
+	Agent string // which configured agent serves this caller ("" = main)
 }
 
 type Client struct {
@@ -34,10 +35,16 @@ func New(url string, timeout time.Duration) *Client {
 	return &Client{url: url, http: &http.Client{Timeout: timeout}}
 }
 
-// Check asks the webhook whether key may use the session. Anything but a clean
-// 200 with an actor denies (fail closed).
-func (c *Client) Check(ctx context.Context, key, sessionID string) (Identity, error) {
-	body, _ := json.Marshal(map[string]string{"key": key, "session_id": sessionID})
+// Check asks the webhook whether key may use the session. meta is the client's
+// own JSON object, forwarded unread: hints the webhook may use to decide (say,
+// which agent to ask), never trusted by hfy. Anything but a clean 200 with an
+// actor denies (fail closed).
+func (c *Client) Check(ctx context.Context, key, sessionID string, meta json.RawMessage) (Identity, error) {
+	body, _ := json.Marshal(struct {
+		Key       string          `json:"key"`
+		SessionID string          `json:"session_id"`
+		Meta      json.RawMessage `json:"meta,omitempty"`
+	}{key, sessionID, meta})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
 		return Identity{}, ErrDenied
@@ -58,11 +65,12 @@ func (c *Client) Check(ctx context.Context, key, sessionID string) (Identity, er
 		Actor string         `json:"actor"`
 		Scope string         `json:"scope"`
 		Vars  map[string]any `json:"vars"`
+		Agent string         `json:"agent"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil || out.Actor == "" {
 		return Identity{}, fmt.Errorf("%w: bad webhook response", ErrDenied)
 	}
-	id := Identity{Actor: out.Actor, Scope: out.Scope, Vars: map[string]string{}}
+	id := Identity{Actor: out.Actor, Scope: out.Scope, Vars: map[string]string{}, Agent: out.Agent}
 	if id.Scope == "" {
 		id.Scope = id.Actor
 	}

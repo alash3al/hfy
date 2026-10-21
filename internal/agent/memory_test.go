@@ -136,7 +136,7 @@ func TestSessionSearchIsScopedAndFindsMemory(t *testing.T) {
 		return n >= 2
 	})
 	// A message from another scope must not be visible.
-	other, _ := e.store.FindOrCreateActor(e.ctx, types.ActorExternal, "someone-else")
+	other, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorExternal, "someone-else")
 	e.store.Pool.Exec(e.ctx, `INSERT INTO embeddings_3 (embeddable_type, embeddable_id, scope, model, embedding)
 		SELECT 'session_event', id, 'other-scope', 'e', '[1,0,0]' FROM session_events WHERE type='turn' LIMIT 1`)
 	_ = other
@@ -176,7 +176,7 @@ func TestEmbeddingsTargetedBackfillAndDimensionMismatch(t *testing.T) {
 	waitFor(t, func() bool { return count() == 2 })
 
 	// Backfill: a message written without a job is picked up on the next boot.
-	main, _ := e.store.FindOrCreateActor(e.ctx, types.ActorAgent, "main")
+	main, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorAgent, "main")
 	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main,
 		Scope: types.NoScope, Payload: types.MessageText{Text: "written behind the queue's back"}})
 	if err := e.rt.Boot(e.ctx); err != nil {

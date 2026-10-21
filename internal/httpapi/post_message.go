@@ -34,10 +34,7 @@ func (s *Server) postMessage(c *echo.Context) error {
 	if strings.TrimSpace(req.Text) == "" && len(req.Attachments) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "text or attachments required")
 	}
-	agent, ok := s.cfg.AgentNamed(cl.session.Agent)
-	if !ok { // removed from the config after the session was created
-		return echo.NewHTTPError(http.StatusConflict, "the session's agent is not configured")
-	}
+	agent, _ := s.cfg.AgentNamed(cl.agent) // checked when the caller was resolved
 	if err := svc.ValidateAttachments(s.cfg, agent, req.Attachments); err != nil {
 		return err
 	}
@@ -47,7 +44,7 @@ func (s *Server) postMessage(c *echo.Context) error {
 		return err
 	}
 	turn, err := s.svc.Post(c.Request().Context(), svc.PostInput{
-		SessionID: cl.session.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars,
+		SessionID: cl.session.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars, Agent: cl.agent,
 		Text: req.Text, Attachments: req.Attachments,
 	})
 	if err != nil {

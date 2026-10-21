@@ -20,7 +20,7 @@ func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	store := a.rt.Store
 	u, _ := uuid.Parse(sid)
 	sess, _ := store.SessionByUUID(ctx, u)
-	actor, _ := store.FindOrCreateActor(ctx, types.ActorAnonymous, types.NoScope)
+	actor, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
 
 	events, closeStream := a.stream("/v1/sessions/"+sid+"/events", nil)
 	defer closeStream()
