@@ -73,15 +73,15 @@ func (a *usageAcc) snapshot() (types.Usage, int) {
 
 // TurnEnv is the per-turn context shared by the main loop and its sub-agents.
 type TurnEnv struct {
-	SessionID int64
-	TurnID    int64
-	Scope     string
-	Vars      map[string]string
-	Total     *usageAcc // the whole turn, sub-agents included
+	ConversationID int64
+	TurnID         int64
+	Scope          string
+	Vars           map[string]string
+	Total          *usageAcc // the whole turn, sub-agents included
 	// Sent to tool servers on every call (mcp.MetaKey): public ids and who
 	// started the turn, so tools can authorize the call themselves.
-	SessionUUID, TurnUUID string
-	Actor                 mcp.ActorMeta
+	ConversationUUID, TurnUUID string
+	Actor                      mcp.ActorMeta
 }
 
 type loop struct {
@@ -310,7 +310,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	ctx = withCall(ctx, &callCtx{spec: l.spec, env: l.env, loop: l})
 	start := time.Now()
 	res, err := l.rt.MCP.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
-		Session: l.env.SessionUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
+		Conversation: l.env.ConversationUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
 		Actor: l.env.Actor, Scope: l.env.Scope, Vars: l.env.Vars,
 	})
 	if err != nil {

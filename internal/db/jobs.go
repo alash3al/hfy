@@ -23,8 +23,8 @@ type NewJob struct {
 	DedupeStates []types.JobState
 }
 
-// SessionKey is the concurrency key that serializes a session's jobs.
-func SessionKey(session int64) string { return "session:" + itoa(session) }
+// ConversationKey is the concurrency key that serializes a conversation's jobs.
+func ConversationKey(conversation int64) string { return "conversation:" + itoa(conversation) }
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
@@ -63,20 +63,20 @@ func (s *Store) Enqueue(ctx context.Context, q DBTX, j NewJob) (bool, error) {
 	return true, err
 }
 
-// PendingTurnJob reports whether a run_turn job for the session is in one of
+// PendingTurnJob reports whether a run_turn job for the conversation is in one of
 // the given states.
-func (s *Store) PendingTurnJob(ctx context.Context, q DBTX, session int64, states ...types.JobState) (bool, error) {
+func (s *Store) PendingTurnJob(ctx context.Context, q DBTX, conversation int64, states ...types.JobState) (bool, error) {
 	ss := make([]string, len(states))
 	for i, st := range states {
 		ss[i] = string(st)
 	}
 	var ok bool
-	err := q.QueryRow(ctx, s.q("PendingTurnJob"), pgx.NamedArgs{"key": SessionKey(session), "states": ss}).Scan(&ok)
+	err := q.QueryRow(ctx, s.q("PendingTurnJob"), pgx.NamedArgs{"key": ConversationKey(conversation), "states": ss}).Scan(&ok)
 	return ok, err
 }
 
-func (s *Store) CancelQueuedTurnJobs(ctx context.Context, q DBTX, session int64) error {
-	_, err := q.Exec(ctx, s.q("CancelQueuedTurnJobs"), pgx.NamedArgs{"key": SessionKey(session)})
+func (s *Store) CancelQueuedTurnJobs(ctx context.Context, q DBTX, conversation int64) error {
+	_, err := q.Exec(ctx, s.q("CancelQueuedTurnJobs"), pgx.NamedArgs{"key": ConversationKey(conversation)})
 	return err
 }
 

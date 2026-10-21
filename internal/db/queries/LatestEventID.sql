@@ -1,1 +1,1 @@
-SELECT coalesce(max(id), 0) FROM session_events WHERE session_id = @session
+SELECT coalesce(max(id), 0) FROM conversation_events WHERE conversation_id = @conversation

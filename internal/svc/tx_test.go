@@ -12,7 +12,7 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// Every session mutation must run on its transaction's connection alone. A
+// Every conversation mutation must run on its transaction's connection alone. A
 // read that takes a second connection from the pool while the transaction
 // holds one deadlocks once the pool is exhausted; with a one-connection pool
 // it deadlocks every time.
@@ -39,22 +39,22 @@ func TestMutationsNeedOneConnection(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	sess, _ := store.CreateSession(ctx)
+	conv, _ := store.CreateConversation(ctx)
 	var turn int64
 	step("post", func(c context.Context) error {
-		u, err := s.Post(c, svc.PostInput{SessionID: sess.ID, Actor: user, Scope: types.NoScope, Text: "hi"})
+		u, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: types.NoScope, Text: "hi"})
 		if err == nil {
-			turn, err = store.TurnIDByUUID(c, sess.ID, u)
+			turn, err = store.TurnIDByUUID(c, conv.ID, u)
 		}
 		return err
 	})
-	step("start", func(c context.Context) error { _, err := s.StartTurn(c, sess.ID, turn); return err })
+	step("start", func(c context.Context) error { _, err := s.StartTurn(c, conv.ID, turn); return err })
 	step("end", func(c context.Context) error {
-		return s.EndTurn(c, sess.ID, turn, types.TurnStateEvent{State: types.StateCompleted})
+		return s.EndTurn(c, conv.ID, turn, types.TurnStateEvent{State: types.StateCompleted})
 	})
 	step("post again", func(c context.Context) error {
-		_, err := s.Post(c, svc.PostInput{SessionID: sess.ID, Actor: user, Scope: types.NoScope, Text: "again"})
+		_, err := s.Post(c, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: types.NoScope, Text: "again"})
 		return err
 	})
-	step("stop", func(c context.Context) error { return s.Stop(c, sess.ID, user) })
+	step("stop", func(c context.Context) error { return s.Stop(c, conv.ID, user) })
 }

@@ -155,7 +155,7 @@ func (w *Worker) run(parent context.Context, job db.JobRow) {
 		slog.Error("complete job", "job", job.ID, "err", err)
 	}
 	count(job, "done")
-	w.Wake() // the same session may have a queued job behind this one
+	w.Wake() // the same conversation may have a queued job behind this one
 }
 
 func (w *Worker) fail(ctx context.Context, job db.JobRow, err error) {

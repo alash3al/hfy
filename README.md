@@ -3,7 +3,7 @@
 A simple harness as a service. One Go binary plus Postgres, configured with one
 YAML file, serving your agents over HTTP.
 
-Your app creates sessions and posts messages. hfy runs the agent loop, calls the
+Your app creates conversations and posts messages. hfy runs the agent loop, calls the
 tools, keeps the history and streams events back. You stop rebuilding the same
 plumbing (loop, tools, history, streaming, auth hooks) in every app.
 
@@ -13,7 +13,7 @@ plumbing (loop, tools, history, streaming, auth hooks) in every app.
 - **Durable.** Every turn runs from a Postgres queue and every step is an
   append-only event. Dropped connections, restarts and crashes lose nothing.
 - **One instance = one domain = one tenant.** Many end users can share it
-  (isolation is per session). Run another instance for another app.
+  (isolation is per conversation). Run another instance for another app.
 
 ## Quick start
 
@@ -28,13 +28,13 @@ hfy serve --work                      # API + workers; migrations run on boot
 Or `docker compose up` (see `compose.yaml`; it mounts `./hfy.yaml`).
 
 ```sh
-# your backend: create a session and hand its id to the client
-curl -XPOST :8080/v1/sessions -H "Authorization: Bearer $HFY_SERVER_SECRET"
+# your backend: create a conversation and hand its id to the client
+curl -XPOST :8080/v1/conversations -H "Authorization: Bearer $HFY_SERVER_SECRET"
 # {"id":"7f3c…"}
 
 # the client: open the stream, then post a message
-curl -N :8080/v1/sessions/7f3c…/events
-curl -XPOST :8080/v1/sessions/7f3c…/messages -d '{"text":"hello"}'
+curl -N :8080/v1/conversations/7f3c…/events
+curl -XPOST :8080/v1/conversations/7f3c…/messages -d '{"text":"hello"}'
 # 202 {"turn":"a91e…"}
 ```
 
@@ -79,10 +79,10 @@ would come as `/v2`, served alongside `/v1`.
 
 Server to server (`Authorization: Bearer <server.secret>`):
 
-- `POST /v1/sessions` → `201 {"id": uuid}`
+- `POST /v1/conversations` → `201 {"id": uuid}`
 
 Client (`Authorization: Bearer <key>`, or `?key=` for `EventSource`). With
-`auth` configured, hfy sends `POST {key, session_id, hint?}` to your webhook and
+`auth` configured, hfy sends `POST {key, conversation_id, hint?}` to your webhook and
 expects `200 {actor, scope?, vars?, agent?}`; `401`/`403`, any other status, an
 error or a timeout denies. `agent` names the configured agent that serves this
 caller (`agents.<name>`; default `main`), so one deployment can run, say, a
@@ -93,25 +93,25 @@ ignore. hfy forwards it unread and never trusts or stores it. `vars` fill the
 agent's declared `{{vars}}`: they render into the system prompt, so only the
 webhook sets them, never a client (undeclared ones are dropped; a missing
 required one is a server error, the webhook's). Without `auth` the caller is
-`anonymous`, vars take their defaults, and unguessable session ids are the
+`anonymous`, vars take their defaults, and unguessable conversation ids are the
 only protection.
 
-- `POST /v1/sessions/{id}/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
+- `POST /v1/conversations/{id}/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
-- `GET /v1/sessions/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
+- `GET /v1/conversations/{id}/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
-- `GET /v1/sessions/{id}/history?limit=&before=` durable events grouped by turn,
+- `GET /v1/conversations/{id}/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns) and `live_after` (open `/events?after=<live_after>` to continue
   without a gap).
-- `POST /v1/sessions/{id}/approvals` `{call_id, approve, result?}`. Only the
+- `POST /v1/conversations/{id}/approvals` `{call_id, approve, result?}`. Only the
   actor who started the turn decides its calls (`403` otherwise).
-- `POST /v1/sessions/{id}/stop` stops the caller's own turns: the active one
+- `POST /v1/conversations/{id}/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
 Errors are `{"error": "..."}`: `400` bad input (an empty message, a bad
 attachment, a body over 2 MiB), `401`/`403` auth (or not your turn), `404`
-unknown session, `409` no pending approval.
+unknown conversation, `409` no pending approval.
 
 ### Operations
 
@@ -166,8 +166,8 @@ event as stored.
 
 ## How it behaves
 
-- **Turns** run one at a time per session. Messages posted meanwhile queue.
-  A turn paused for approval keeps the session blocked.
+- **Turns** run one at a time per conversation. Messages posted meanwhile queue.
+  A turn paused for approval keeps the conversation blocked.
 - **Crash recovery.** An expired lease re-runs the turn from its events. A tool
   call in flight when a worker died is never re-run: it gets
   `tool_call.interrupted` and the model is told. A worker that lost its lease
@@ -196,12 +196,12 @@ event as stored.
 - **Sub-agents** are tools (`hfy__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn. Every agent may call them.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
-  `"io.github.alash3al.hfy/turn": {session, turn, call_id, agent, actor: {type,
+  `"io.github.alash3al.hfy/turn": {conversation, turn, call_id, agent, actor: {type,
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
   actor is whoever started the turn; `vars` are the webhook's, so keep
   secrets out of them: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
-- **A session is a room.** Every agent that answers in it sees the whole
+- **A conversation is a room.** Every agent that answers in it sees the whole
   conversation: its own messages and tool calls as its own, and, once others
   speak (another agent, or a second person), everyone else's messages framed
   with who wrote them: `<message from="u1" kind="person">…</message>`. The
@@ -215,7 +215,7 @@ event as stored.
   would pass 80% of `context_window` (history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
   results can still outgrow the window. With `embeddings` configured,
-  `hfy__session_search` finds earlier messages of the same `scope`.
+  `hfy__conversation_search` finds earlier messages of the same `scope`.
 - **MCP servers.** A local server inherits only `PATH`, `HOME`, `USER`, locale,
   `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
   `environment`. Each tool call has `timeout` (default 2m) to answer.
@@ -264,12 +264,12 @@ survive many contributors, so prefer adding a check to adding a sentence.
 |---|---|
 | **Layering.** Imports follow the table in `arch_test.go`; `httpapi` never imports `agent` (API and workers scale apart), `types` imports nothing. | `TestLayering` |
 | **One transaction, one connection.** A function holding a `pgx.Tx` never touches `.Pool`: a second connection deadlocks once the pool runs out. | `TestTransactionsUseOnlyTheirConnection`, `TestMutationsNeedOneConnection` |
-| **`svc` owns turn state.** Every `turn.state` change is a `svc` method under the session lock; the agent appends only what it produces. | `TestOnlySvcWritesTurnState` |
+| **`svc` owns turn state.** Every `turn.state` change is a `svc` method under the conversation lock; the agent appends only what it produces. | `TestOnlySvcWritesTurnState` |
 | **The event log is the truth.** State is folded from events (`svc.ViewOf`, `agent.BuildContext`); events are never updated; payloads are read with `e.Payload[T]()`, and one that does not decode is an error. | review; `Payload` is the only decoder |
 | **Stored data is versioned.** Payloads carry `v` and are upgraded on read (`types.register`); SQL-read fields are frozen. A breaking job payload change is a new job type. Migrations stay compatible with the previous release (add first, remove a release later). | `TestEventVersions`, `TestClaimOnlyHandledTypes`, review |
 | **Writes that belong together commit together** (an event and the job it implies). | review |
 | **Jobs are fenced by attempt** and resume from the log; side effects are never repeated blindly. | `TestStaleWorkerCannotTouchAReclaimedJob`, crash-recovery tests |
-| **No silent failure.** Errors are returned, or logged with session and turn when nothing can act on them. | `errcheck`; review |
+| **No silent failure.** Errors are returned, or logged with conversation and turn when nothing can act on them. | `errcheck`; review |
 | **Current Go.** `slices`/`maps`, range-over-int, `new(expr)`, `t.Context()`, generic methods. | `modernize` |
 | **Every `//nolint` names its linter and says why.** | `nolintlint` |
 

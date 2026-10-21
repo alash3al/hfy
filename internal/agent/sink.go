@@ -113,7 +113,7 @@ func (s *turnSink) appendRow(ctx context.Context, q db.DBTX, p types.Payload, re
 		rid = req
 	}
 	return s.rt.Store.AppendEvent(ctx, q, db.NewEvent{
-		SessionID: s.env.SessionID, ParentID: &s.env.TurnID, ActorID: s.actor,
+		ConversationID: s.env.ConversationID, ParentID: &s.env.TurnID, ActorID: s.actor,
 		Scope: s.env.Scope, Payload: p, RequestID: rid})
 }
 
@@ -167,7 +167,7 @@ func (s *turnSink) flush(ctx context.Context) {
 
 func (s *turnSink) warn(err error, what string) {
 	if err != nil && s.ctx.Err() == nil {
-		slog.Warn("append "+what, "session", s.env.SessionID, "turn", s.env.TurnID, "err", err)
+		slog.Warn("append "+what, "conversation", s.env.ConversationID, "turn", s.env.TurnID, "err", err)
 	}
 }
 
@@ -215,7 +215,7 @@ func (s *turnSink) FlushPartial(ctx context.Context) {
 	s.flush(ctx)
 	if partial != "" {
 		if err := s.append(ctx, types.MessageText{Text: types.Clean(partial)}, nil); err != nil {
-			slog.Error("keep partial reply", "session", s.env.SessionID, "turn", s.env.TurnID, "err", err)
+			slog.Error("keep partial reply", "conversation", s.env.ConversationID, "turn", s.env.TurnID, "err", err)
 		}
 	}
 }
@@ -243,7 +243,7 @@ func (s *turnSink) NeedsApproval(full string) bool {
 
 // RequestApproval pauses the turn; no worker waits.
 func (s *turnSink) RequestApproval(ctx context.Context, c CallInfo) error {
-	return s.rt.Svc.RequestApproval(ctx, s.env.SessionID, s.env.TurnID, c.ID, s.approval.Timeout.D())
+	return s.rt.Svc.RequestApproval(ctx, s.env.ConversationID, s.env.TurnID, c.ID, s.approval.Timeout.D())
 }
 
 func (s *turnSink) Record(kind types.OutboundKind) func(provider.Record) int64 {
@@ -272,7 +272,7 @@ func (s *quietSink) Step(ctx context.Context, o StepOut) error {
 		rid = &o.RequestID
 	}
 	_, err := s.rt.Store.AppendEvent(ctx, s.rt.Store.Pool, db.NewEvent{
-		SessionID: s.env.SessionID, ParentID: &s.env.TurnID, ActorID: s.actor, Scope: s.env.Scope,
+		ConversationID: s.env.ConversationID, ParentID: &s.env.TurnID, ActorID: s.actor, Scope: s.env.Scope,
 		Payload:   types.ModelUsage{Model: o.Model, Input: o.Usage.Input, Output: o.Usage.Output, Cached: o.Usage.Cached},
 		RequestID: rid})
 	return err

@@ -538,7 +538,7 @@ func readJSON(r io.Reader, o Opts) (*Response, error) {
 }
 
 // Embed returns one vector per input. One attempt: its callers retry (the
-// embed job) or degrade (session_search).
+// embed job) or degrade (conversation_search).
 func (c *Client) Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error) {
 	body, err := json.Marshal(map[string]any{"model": model, "input": inputs})
 	if err != nil {

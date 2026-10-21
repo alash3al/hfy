@@ -45,7 +45,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if view.State.Terminal() || (view.State == types.StateAwaitingApproval && !view.Resumable()) {
 		return nil
 	}
-	ok, err := rt.Svc.StartTurn(ctx, turn.SessionID, turn.ID)
+	ok, err := rt.Svc.StartTurn(ctx, turn.ConversationID, turn.ID)
 	if err != nil || !ok {
 		return err
 	}
@@ -58,7 +58,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 
 	fresh := context.WithoutCancel(ctx)
 	if view.Cancelled {
-		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+		return rt.Svc.EndTurn(fresh, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 	}
 	t, err := turn.Payload[types.Turn]()
 	if err != nil {
@@ -66,7 +66,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	}
 	spec, ok := rt.Agents[cmp.Or(t.Agent, types.AgentMain)]
 	if !ok { // removed from the config after the turn was posted
-		return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
+		return rt.Svc.EndTurn(fresh, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
 			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", t.Agent)})
 	}
 	if d := spec.Limits.Timeout.D(); d > 0 {
@@ -82,13 +82,13 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	sess, err := rt.Store.SessionByID(ctx, turn.SessionID)
+	conv, err := rt.Store.ConversationByID(ctx, turn.ConversationID)
 	if err != nil {
 		return err
 	}
-	env := &TurnEnv{SessionID: turn.SessionID, TurnID: turn.ID, Scope: turn.Scope, Vars: t.Vars,
-		Total:       &usageAcc{u: used, calls: int(calls)},
-		SessionUUID: sess.UUID.String(), TurnUUID: turn.UUID.String(),
+	env := &TurnEnv{ConversationID: turn.ConversationID, TurnID: turn.ID, Scope: turn.Scope, Vars: t.Vars,
+		Total:            &usageAcc{u: used, calls: int(calls)},
+		ConversationUUID: conv.UUID.String(), TurnUUID: turn.UUID.String(),
 		Actor: mcp.ActorMeta{Type: turn.ActorType, Ref: turn.ActorRef}}
 	sink := newTurnSink(tctx, rt, env, spec, mainActor)
 	l := newLoop(rt, spec, sink, env, "")
@@ -98,7 +98,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	var res Result
 	if runErr == nil {
 		var bc *BuiltContext
-		if bc, runErr = rt.BuildContext(tctx, turn.SessionID, turn.ID, spec); runErr == nil {
+		if bc, runErr = rt.BuildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
 			l.system, l.msgs = bc.System, bc.Msgs
 			l.measure(0)
 			l.deriveActivated(tctx)
@@ -111,7 +111,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 
 func (rt *Runtime) finish(parent, tctx context.Context, sink *turnSink, turn db.EventRow, res Result, runErr error) error {
 	fresh := context.WithoutCancel(parent) // the cancelled context cannot write
-	end := func(st types.TurnStateEvent) error { return rt.Svc.EndTurn(fresh, turn.SessionID, turn.ID, st) }
+	end := func(st types.TurnStateEvent) error { return rt.Svc.EndTurn(fresh, turn.ConversationID, turn.ID, st) }
 	if runErr != nil {
 		cause := context.Cause(tctx)
 		switch {
@@ -228,7 +228,7 @@ func (rt *Runtime) OnTurnExhausted(ctx context.Context, job db.JobRow, err error
 		return
 	}
 	msg := fmt.Sprintf("worker gave up after %d attempts: %v", job.Attempts, err)
-	if e := rt.Svc.EndTurn(ctx, turn.SessionID, turn.ID, types.TurnStateEvent{State: types.StateFailed, Reason: "worker failed", Error: msg}); e != nil {
+	if e := rt.Svc.EndTurn(ctx, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateFailed, Reason: "worker failed", Error: msg}); e != nil {
 		slog.Error("end exhausted turn", "turn", turn.ID, "err", e)
 	}
 }

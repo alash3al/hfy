@@ -35,16 +35,16 @@ func New(url string, timeout time.Duration) *Client {
 	return &Client{url: url, http: &http.Client{Timeout: timeout}}
 }
 
-// Check asks the webhook whether key may use the session. hint is the
+// Check asks the webhook whether key may use the conversation. hint is the
 // client's, forwarded unread: something the webhook may use to decide (say,
 // which agent to ask), never trusted by hfy. Anything but a clean 200 with an
 // actor denies (fail closed).
-func (c *Client) Check(ctx context.Context, key, sessionID string, hint json.RawMessage) (Identity, error) {
+func (c *Client) Check(ctx context.Context, key, conversationID string, hint json.RawMessage) (Identity, error) {
 	body, _ := json.Marshal(struct {
-		Key       string          `json:"key"`
-		SessionID string          `json:"session_id"`
-		Hint      json.RawMessage `json:"hint,omitempty"`
-	}{key, sessionID, hint})
+		Key            string          `json:"key"`
+		ConversationID string          `json:"conversation_id"`
+		Hint           json.RawMessage `json:"hint,omitempty"`
+	}{key, conversationID, hint})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
 		return Identity{}, ErrDenied

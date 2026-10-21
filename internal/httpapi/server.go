@@ -50,9 +50,9 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 
 	v1 := e.Group("/v1")
 	server := v1.Group("", srv.requireSecret)
-	server.POST("/sessions", srv.createSession)
+	server.POST("/conversations", srv.createConversation)
 
-	client := v1.Group("/sessions/:id", srv.requireClient)
+	client := v1.Group("/conversations/:id", srv.requireClient)
 	client.POST("/messages", srv.postMessage)
 	client.GET("/events", srv.streamEvents)
 	client.GET("/history", srv.history)
@@ -89,7 +89,7 @@ func writeStatus(w http.ResponseWriter, code int, status string) {
 }
 
 // observe records request counts and latency by route pattern (never the raw
-// path, which would be one series per session).
+// path, which would be one series per conversation).
 func observe(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		start := time.Now()
@@ -190,20 +190,20 @@ func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
 
 // caller is who is acting on a client request.
 type caller struct {
-	actorID int64
-	scope   string
-	vars    map[string]string
-	agent   string // the configured agent serving this caller ("" = main)
-	session db.SessionRow
+	actorID      int64
+	scope        string
+	vars         map[string]string
+	agent        string // the configured agent serving this caller ("" = main)
+	conversation db.ConversationRow
 }
 
 const callerKey = "hfy.caller"
 
-// requireClient resolves the session and asks the webhook (if configured)
+// requireClient resolves the conversation and asks the webhook (if configured)
 // whether the key may use it. The webhook alone decides access.
 func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		sid, err := uuid.Parse(c.Param("id"))
+		cid, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, "not found")
 		}
@@ -223,7 +223,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 			if err != nil {
 				return err
 			}
-			id, err := s.auth.Check(ctx, key, sid.String(), hint)
+			id, err := s.auth.Check(ctx, key, cid.String(), hint)
 			switch {
 			case errors.Is(err, auth.ErrUnauthorized):
 				return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
@@ -236,7 +236,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 			actorType, ref, scope, vars, agent = types.ActorExternal, id.Actor, id.Scope, id.Vars, id.Agent
 		}
-		sess, err := s.store.SessionByUUID(ctx, sid)
+		conv, err := s.store.ConversationByUUID(ctx, cid)
 		if err != nil {
 			return err
 		}
@@ -244,7 +244,7 @@ func (s *Server) requireClient(next echo.HandlerFunc) echo.HandlerFunc {
 		if err != nil {
 			return err
 		}
-		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, agent: agent, session: sess})
+		c.Set(callerKey, &caller{actorID: actor, scope: scope, vars: vars, agent: agent, conversation: conv})
 		return next(c)
 	}
 }

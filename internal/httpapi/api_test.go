@@ -104,11 +104,11 @@ func (a *api) doWith(method, path, bearer string, header map[string]string, body
 	return resp.StatusCode, out
 }
 
-func (a *api) newSession() string {
+func (a *api) newConversation() string {
 	a.t.Helper()
-	code, out := a.do("POST", "/v1/sessions", "topsecret", nil)
+	code, out := a.do("POST", "/v1/conversations", "topsecret", nil)
 	if code != 201 {
-		a.t.Fatalf("create session: %d %v", code, out)
+		a.t.Fatalf("create conversation: %d %v", code, out)
 	}
 	return out["id"].(string)
 }
@@ -189,21 +189,21 @@ func completed(ev sseEvent) bool {
 	return ev.Type == "turn.state" && ev.Env["data"].(map[string]any)["state"] == "completed"
 }
 
-func TestServerSecretGuardsSessionCreation(t *testing.T) {
+func TestServerSecretGuardsConversationCreation(t *testing.T) {
 	a := start(t, nil)
-	if code, _ := a.do("POST", "/v1/sessions", "", nil); code != 401 {
+	if code, _ := a.do("POST", "/v1/conversations", "", nil); code != 401 {
 		t.Fatalf("no secret: %d", code)
 	}
-	if code, _ := a.do("POST", "/v1/sessions", "wrong", nil); code != 401 {
+	if code, _ := a.do("POST", "/v1/conversations", "wrong", nil); code != 401 {
 		t.Fatalf("wrong secret: %d", code)
 	}
-	a.newSession()
+	a.newConversation()
 }
 
 func TestMessageStreamResumeAndHistory(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "hello from the agent"}, fakeprov.Step{Content: "second answer"})
-	sid := a.newSession()
-	base := "/v1/sessions/" + sid
+	cid := a.newConversation()
+	base := "/v1/conversations/" + cid
 
 	// validation
 	if code, _ := a.do("POST", base+"/messages", "", map[string]any{"text": " "}); code != 400 {
@@ -213,7 +213,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 		"attachments": []map[string]string{{"url": "https://cdn.example.com/a.png", "mime": "image/png"}}}); code != 400 {
 		t.Fatalf("attachments without config: %d", code)
 	}
-	if code, _ := a.do("GET", "/v1/sessions/"+"not-a-uuid"+"/history", "", nil); code != 404 {
+	if code, _ := a.do("GET", "/v1/conversations/"+"not-a-uuid"+"/history", "", nil); code != 404 {
 		t.Fatalf("bad id: %d", code)
 	}
 
@@ -253,7 +253,7 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 	}
 	// internal fields never leak
 	raw, _ := json.Marshal(got[1].Env)
-	for _, leak := range []string{"scope", "session_id", "ephemeral", "request_id", `"id":1`} {
+	for _, leak := range []string{"scope", "conversation_id", "ephemeral", "request_id", `"id":1`} {
 		if strings.Contains(string(raw), leak) {
 			t.Fatalf("leaked %q in %s", leak, raw)
 		}
@@ -335,8 +335,8 @@ func TestWebhookAuth(t *testing.T) {
 	a := start(t, func(c *config.Config) {
 		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
 	}, fakeprov.Step{Content: "hi alice"})
-	sid := a.newSession()
-	base := "/v1/sessions/" + sid
+	cid := a.newConversation()
+	base := "/v1/conversations/" + cid
 
 	for key, want := range map[string]int{"": 401, "expired": 401, "nope": 403, "garbage": 403} {
 		if code, _ := a.do("GET", base+"/history", key, nil); code != want {
@@ -363,13 +363,13 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 	a := start(t, func(c *config.Config) {
 		c.Auth = &config.Auth{Webhook: hook.URL, Timeout: config.Duration(time.Second)}
 	}, fakeprov.Step{Content: "hi alice"})
-	sid := a.newSession()
-	base := "/v1/sessions/" + sid
+	cid := a.newConversation()
+	base := "/v1/conversations/" + cid
 
-	// the key may also arrive as ?key= (EventSource) and reaches the webhook with the session id
+	// the key may also arrive as ?key= (EventSource) and reaches the webhook with the conversation id
 	events, closeStream := a.stream(base+"/events?key=alice-token", nil)
 	defer closeStream()
-	if last["session_id"] != sid || last["key"] != "alice-token" {
+	if last["conversation_id"] != cid || last["key"] != "alice-token" {
 		t.Fatalf("webhook request: %v", last)
 	}
 	// vars come from the webhook only: a client's are ignored
@@ -394,7 +394,7 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 	}
 	// the scope is stored on the turn and copied to its events
 	var scopes []string
-	rows, _ := a.rt.Store.Pool.Query(context.Background(), "SELECT DISTINCT scope FROM session_events")
+	rows, _ := a.rt.Store.Pool.Query(context.Background(), "SELECT DISTINCT scope FROM conversation_events")
 	for rows.Next() {
 		var s string
 		rows.Scan(&s)
@@ -413,8 +413,8 @@ func TestWebhookIdentityVarsAndScope(t *testing.T) {
 
 func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 	a := start(t, nil)
-	sid := a.newSession()
-	base := "/v1/sessions/" + sid
+	cid := a.newConversation()
+	base := "/v1/conversations/" + cid
 	if code, _ := a.do("POST", base+"/approvals", "", map[string]any{"call_id": "x", "approve": true}); code != 409 {
 		t.Fatalf("approve nothing: %d", code)
 	}
@@ -422,10 +422,10 @@ func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 		t.Fatalf("approve without call_id: %d", code)
 	}
 	if code, _ := a.do("POST", base+"/stop", "", nil); code != 202 {
-		t.Fatalf("stop idle session: %d", code)
+		t.Fatalf("stop idle conversation: %d", code)
 	}
-	if code, _ := a.do("GET", "/v1/sessions/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
-		t.Fatalf("unknown session: %d", code)
+	if code, _ := a.do("GET", "/v1/conversations/00000000-0000-4000-8000-000000000000/history", "", nil); code != 404 {
+		t.Fatalf("unknown conversation: %d", code)
 	}
 }
 
@@ -458,8 +458,8 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
 			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
 	}, fakeprov.Step{Content: "store here"}, fakeprov.Step{Content: "main here"})
-	sid := a.newSession()
-	base := "/v1/sessions/" + sid
+	cid := a.newConversation()
+	base := "/v1/conversations/" + cid
 	events, closeStream := a.stream(base+"/events?key=buyer", nil)
 	defer closeStream()
 
@@ -514,7 +514,7 @@ func TestWebhookPicksTheAgent(t *testing.T) {
 // a request may take to arrive.
 func TestStreamOutlivesReadTimeout(t *testing.T) {
 	a := start(t, nil, fakeprov.Step{Content: "late but here"})
-	base := "/v1/sessions/" + a.newSession()
+	base := "/v1/conversations/" + a.newConversation()
 	events, closeStream := a.stream(base+"/events", nil)
 	defer closeStream()
 	time.Sleep(1500 * time.Millisecond) // five ReadTimeouts
@@ -527,7 +527,7 @@ func TestStreamOutlivesReadTimeout(t *testing.T) {
 // Every route bounds its body, not only messages.
 func TestEveryBodyIsBounded(t *testing.T) {
 	a := start(t, nil)
-	base := "/v1/sessions/" + a.newSession()
+	base := "/v1/conversations/" + a.newConversation()
 	huge := map[string]any{"call_id": "x", "result": strings.Repeat("a", 3<<20)}
 	if code, _ := a.do("POST", base+"/approvals", "", huge); code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a 3 MiB approval body must be refused, got %d", code)

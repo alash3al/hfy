@@ -23,7 +23,7 @@ func (rt *Runtime) registerBuiltins() {
 	}
 	rt.builtins.Add(builtins.ToolSearchTool(), rt.toolSearch)
 	if rt.Cfg.Embeddings != nil {
-		rt.builtins.Add(builtins.SessionSearchTool(), rt.sessionSearch)
+		rt.builtins.Add(builtins.ConversationSearchTool(), rt.conversationSearch)
 	}
 	for _, name := range slices.Sorted(maps.Keys(rt.Subs)) {
 		sub := rt.Subs[name]
@@ -107,7 +107,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 	return mcp.Result{Content: string(b)}, nil
 }
 
-func (rt *Runtime) sessionSearch(ctx context.Context, raw json.RawMessage) (mcp.Result, error) {
+func (rt *Runtime) conversationSearch(ctx context.Context, raw json.RawMessage) (mcp.Result, error) {
 	var a searchArgs
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
 		return errResult("query is required"), nil
@@ -117,7 +117,7 @@ func (rt *Runtime) sessionSearch(ctx context.Context, raw json.RawMessage) (mcp.
 	}
 	cc := callFrom(ctx)
 	if cc == nil {
-		return mcp.Result{}, errors.New("session_search needs a turn")
+		return mcp.Result{}, errors.New("conversation_search needs a turn")
 	}
 	// The harness injects the scope; the model never passes it.
 	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, []string{truncate(a.Query, maxEmbedChars)},

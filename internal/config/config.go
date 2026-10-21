@@ -469,7 +469,7 @@ const BuiltinServer = "hfy"
 
 // BuiltinTools are the names hfy's own tools take on that server, so no
 // sub-agent may (a test in package builtins keeps the list complete).
-var BuiltinTools = []string{"tool_search", "session_search", "now", "math_calc"}
+var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc"}
 
 // MainAgent is the default agent's name; sub-agents and the summarizer share
 // the agent namespace with it. (config imports nothing internal; a test keeps

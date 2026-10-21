@@ -52,13 +52,13 @@ func (s *Store) UpsertEmbedding(ctx context.Context, eventID int64, scope string
 }
 
 type SearchHit struct {
-	EventUUID   uuid.UUID `db:"event_uuid" json:"event"`
-	SessionUUID uuid.UUID `db:"session_uuid" json:"session"`
-	ActorType   string    `db:"actor_type" json:"actor_type"`
-	ActorRef    string    `db:"actor_ref" json:"actor"`
-	Text        string    `db:"text" json:"text"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	Dist        float64   `db:"dist" json:"distance"`
+	EventUUID        uuid.UUID `db:"event_uuid" json:"event"`
+	ConversationUUID uuid.UUID `db:"conversation_uuid" json:"conversation"`
+	ActorType        string    `db:"actor_type" json:"actor_type"`
+	ActorRef         string    `db:"actor_ref" json:"actor"`
+	Text             string    `db:"text" json:"text"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	Dist             float64   `db:"dist" json:"distance"`
 }
 
 // SearchEmbeddings runs a scoped similarity search. HNSW iterative scans keep

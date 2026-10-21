@@ -18,7 +18,7 @@
       ]
     }
   },
-  "session_search": {
+  "conversation_search": {
     "description": "Search earlier conversations by meaning. Returns the most similar past messages that you are allowed to see, with who said them and when. Use it to recall facts, decisions or preferences from before.",
     "schema": {
       "type": "object",

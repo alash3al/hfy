@@ -102,7 +102,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		s.Top, s.Approval = true, a.Approval
 		s.core()
 		s.Builtins[builtins.ToolSearch] = a.MCP == nil
-		s.Builtins[builtins.SessionSearch] = cfg.Embeddings != nil
+		s.Builtins[builtins.ConversationSearch] = cfg.Embeddings != nil
 		for sub := range cfg.Subagents {
 			s.Builtins[sub] = true // every agent may delegate to every sub-agent
 		}

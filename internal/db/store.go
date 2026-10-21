@@ -33,7 +33,7 @@ var templatesFS embed.FS
 
 // Postgres notification channels.
 const (
-	ChanEvents = "hfy_events" // payload "<session id>:<event id>"
+	ChanEvents = "hfy_events" // payload "<conversation id>:<event id>"
 	ChanCancel = "hfy_cancel" // payload "<turn event id>"
 	ChanJobs   = "hfy_jobs"   // payload "<queue>"
 )
@@ -61,12 +61,12 @@ type Store struct {
 
 // queryNames lists every query file the code uses; a missing file is a startup error.
 var queryNames = []string{
-	"InsertActor", "SelectActor", "InsertSession", "SelectSessionByUUID", "LockSession",
-	"SetActiveTurn", "SetSummary", "AddSessionUsage", "InsertEvent", "SelectEventByID",
+	"InsertActor", "SelectActor", "InsertConversation", "SelectConversationByUUID", "LockConversation",
+	"SetActiveTurn", "SetSummary", "AddConversationUsage", "InsertEvent", "SelectEventByID",
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
-	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectSessionByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
+	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectConversationByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
 }
 
@@ -247,8 +247,8 @@ func (s *Store) warnIfSchemaIsNewer(ctx context.Context, p *goose.Provider) {
 	}
 }
 
-// The boot lock uses the two-int advisory keyspace; per-session append locks use
-// the bigint one (session ids), so the two never collide.
+// The boot lock uses the two-int advisory keyspace; per-conversation append locks use
+// the bigint one (conversation ids), so the two never collide.
 const bootLockClass, bootLockID = 7261, 1
 
 // Boot is the one step outside goose: it depends on config, not on a schema

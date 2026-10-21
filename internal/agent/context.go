@@ -26,12 +26,12 @@ type BuiltContext struct {
 
 // BuildContext = the latest summary + the durable events of the turns after
 // the ones it covers, up to and including the current turn. One query.
-func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int64, spec *Spec) (*BuiltContext, error) {
-	summary, after, err := rt.summaryStart(ctx, sessionID)
+func (rt *Runtime) BuildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (*BuiltContext, error) {
+	summary, after, err := rt.summaryStart(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
-	events, err := rt.Store.LoadContext(ctx, sessionID, after, currentTurn)
+	events, err := rt.Store.LoadContext(ctx, conversationID, after, currentTurn)
 	if err != nil {
 		return nil, err
 	}
@@ -69,20 +69,20 @@ func (rt *Runtime) BuildContext(ctx context.Context, sessionID, currentTurn int6
 	return bc, nil
 }
 
-// summaryStart returns the session's latest summary (nil if none) and the id
+// summaryStart returns the conversation's latest summary (nil if none) and the id
 // of the last turn it covers (0 if none): context starts after that turn.
-func (rt *Runtime) summaryStart(ctx context.Context, sessionID int64) (*types.Summary, int64, error) {
-	summary, err := rt.Store.Summary(ctx, sessionID)
+func (rt *Runtime) summaryStart(ctx context.Context, conversationID int64) (*types.Summary, int64, error) {
+	summary, err := rt.Store.Summary(ctx, conversationID)
 	if err != nil || summary == nil {
 		return nil, 0, err
 	}
 	u, err := uuid.Parse(summary.CoversUntilTurn)
 	if err != nil {
-		return nil, 0, fmt.Errorf("summary of session %d: bad covers_until_turn_id: %w", sessionID, err)
+		return nil, 0, fmt.Errorf("summary of conversation %d: bad covers_until_turn_id: %w", conversationID, err)
 	}
-	after, err := rt.Store.TurnIDByUUID(ctx, sessionID, u)
+	after, err := rt.Store.TurnIDByUUID(ctx, conversationID, u)
 	if err != nil {
-		return nil, 0, fmt.Errorf("summary of session %d: covered turn %s: %w", sessionID, u, err)
+		return nil, 0, fmt.Errorf("summary of conversation %d: covered turn %s: %w", conversationID, u, err)
 	}
 	return summary, after, nil
 }

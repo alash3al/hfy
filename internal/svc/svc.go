@@ -1,6 +1,6 @@
-// Package svc holds the session mutations shared by the HTTP API and the
+// Package svc holds the conversation mutations shared by the HTTP API and the
 // workers: posting, stopping, approvals and ending turns. All of them take the
-// session row lock, so they serialize per session.
+// conversation row lock, so they serialize per conversation.
 package svc
 
 import (
@@ -48,17 +48,17 @@ func (s *Service) AgentActor(ctx context.Context, ref string) (int64, error) {
 }
 
 type PostInput struct {
-	SessionID   int64
-	Actor       int64
-	Scope       string
-	Vars        map[string]string
-	Text        string
-	Attachments []types.Attachment
-	Agent       string // the configured agent that runs the turn ("" = main)
+	ConversationID int64
+	Actor          int64
+	Scope          string
+	Vars           map[string]string
+	Text           string
+	Attachments    []types.Attachment
+	Agent          string // the configured agent that runs the turn ("" = main)
 }
 
 // Post appends a turn with its user message and a queued state, and enqueues
-// run_turn unless the session already has an active (or queued) turn.
+// run_turn unless the conversation already has an active (or queued) turn.
 func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 	main, err := s.AgentActor(ctx, cmp.Or(in.Agent, types.AgentMain))
 	if err != nil {
@@ -66,22 +66,22 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 	}
 	var turnUUID uuid.UUID
 	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		sess, err := s.Store.LockSession(ctx, tx, in.SessionID)
+		conv, err := s.Store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
 		}
-		turn, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ActorID: in.Actor,
+		turn, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ActorID: in.Actor,
 			Scope: in.Scope, Payload: types.Turn{Vars: in.Vars, Scope: in.Scope, Agent: in.Agent}})
 		if err != nil {
 			return err
 		}
 		turnUUID = turn.UUID
-		msg, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ParentID: &turn.ID, ActorID: in.Actor,
+		msg, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: in.Actor,
 			Scope: in.Scope, Payload: types.MessageText{Text: in.Text, Attachments: in.Attachments}})
 		if err != nil {
 			return err
 		}
-		if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: in.SessionID, ParentID: &turn.ID, ActorID: main,
+		if _, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: main,
 			Scope: in.Scope, Payload: types.TurnStateEvent{State: types.StateQueued}}); err != nil {
 			return err
 		}
@@ -90,22 +90,22 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 				return err
 			}
 		}
-		if sess.ActiveTurnID != nil {
+		if conv.ActiveTurnID != nil {
 			return nil // the running (or paused) turn chains to this one when it ends
 		}
-		queued, err := s.Store.PendingTurnJob(ctx, tx, in.SessionID, types.JobQueued)
+		queued, err := s.Store.PendingTurnJob(ctx, tx, in.ConversationID, types.JobQueued)
 		if err != nil || queued {
 			return err
 		}
-		return s.enqueueRun(ctx, tx, in.SessionID, turn.ID)
+		return s.enqueueRun(ctx, tx, in.ConversationID, turn.ID)
 	})
 	return turnUUID, err
 }
 
-func (s *Service) enqueueRun(ctx context.Context, q db.DBTX, session, turn int64) error {
+func (s *Service) enqueueRun(ctx context.Context, q db.DBTX, conversation, turn int64) error {
 	_, err := s.Store.Enqueue(ctx, q, db.NewJob{
 		Type: types.JobRunTurn, Queue: types.QueueTurns, Payload: RunTurnPayload{TurnEventID: turn},
-		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: db.SessionKey(session),
+		MaxAttempts: s.Cfg.Queue.MaxAttempts, Key: db.ConversationKey(conversation),
 	})
 	return err
 }
@@ -136,7 +136,7 @@ func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX, eventIDs ...int64
 // mutation every read and write goes through tx: a second pool connection
 // taken while the transaction holds one deadlocks once the pool is exhausted.
 func (s *Service) appendTo(ctx context.Context, tx pgx.Tx, turn db.EventRow, actor int64, p types.Payload) error {
-	_, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{SessionID: turn.SessionID, ParentID: &turn.ID,
+	_, err := s.Store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: turn.ConversationID, ParentID: &turn.ID,
 		ActorID: actor, Scope: turn.Scope, Payload: p})
 	return err
 }
@@ -152,12 +152,12 @@ func (s *Service) agentOf(ctx context.Context, q db.DBTX, turn db.EventRow) (int
 }
 
 // EndTurn appends the terminal state of a turn, books its usage on the
-// session, clears the active pointer and chains to the next queued turn.
+// conversation, clears the active pointer and chains to the next queued turn.
 // It is idempotent: a turn that already ended is left alone.
-func (s *Service) EndTurn(ctx context.Context, sessionID, turnID int64, st types.TurnStateEvent) error {
+func (s *Service) EndTurn(ctx context.Context, conversationID, turnID int64, st types.TurnStateEvent) error {
 	var ended bool
 	err := s.Store.Tx(ctx, func(tx pgx.Tx) (err error) {
-		ended, err = s.endTurnTx(ctx, tx, sessionID, turnID, st)
+		ended, err = s.endTurnTx(ctx, tx, conversationID, turnID, st)
 		return err
 	})
 	if err == nil && ended {
@@ -167,8 +167,8 @@ func (s *Service) EndTurn(ctx context.Context, sessionID, turnID int64, st types
 }
 
 // endTurnTx reports whether it ended the turn (false: it had already ended).
-func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID int64, st types.TurnStateEvent) (bool, error) {
-	sess, err := s.Store.LockSession(ctx, tx, sessionID)
+func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, conversationID, turnID int64, st types.TurnStateEvent) (bool, error) {
+	conv, err := s.Store.LockConversation(ctx, tx, conversationID)
 	if err != nil {
 		return false, err
 	}
@@ -193,28 +193,28 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, sessionID, turnID in
 	if err := s.appendTo(ctx, tx, turn, main, st); err != nil {
 		return false, err
 	}
-	if err := s.Store.AddSessionUsage(ctx, tx, sessionID, usage.Input, usage.Output, usage.Cached); err != nil {
+	if err := s.Store.AddConversationUsage(ctx, tx, conversationID, usage.Input, usage.Output, usage.Cached); err != nil {
 		return false, err
 	}
-	if err := s.settle(ctx, tx, sessionID); err != nil {
+	if err := s.settle(ctx, tx, conversationID); err != nil {
 		return false, err
 	}
-	if sess.ActiveTurnID != nil && *sess.ActiveTurnID == turnID {
-		if err := s.Store.SetActiveTurn(ctx, tx, sessionID, nil); err != nil {
+	if conv.ActiveTurnID != nil && *conv.ActiveTurnID == turnID {
+		if err := s.Store.SetActiveTurn(ctx, tx, conversationID, nil); err != nil {
 			return false, err
 		}
-	} else if sess.ActiveTurnID != nil {
+	} else if conv.ActiveTurnID != nil {
 		return true, nil // another turn is active; it will chain on its own
 	}
-	return true, s.chainNext(ctx, tx, sessionID, turnID)
+	return true, s.chainNext(ctx, tx, conversationID, turnID)
 }
 
-// settle moves the session's settled_until watermark past the turns that have
+// settle moves the conversation's settled_until watermark past the turns that have
 // ended, in the transaction that ended them. It can lag but never pass an
 // open turn: turn states are final, and only Post creates turns, under the
-// same session lock this runs under.
-func (s *Service) settle(ctx context.Context, tx pgx.Tx, sessionID int64) error {
-	open, err := s.Store.OpenTurns(ctx, tx, sessionID, 1)
+// same conversation lock this runs under.
+func (s *Service) settle(ctx context.Context, tx pgx.Tx, conversationID int64) error {
+	open, err := s.Store.OpenTurns(ctx, tx, conversationID, 1)
 	if err != nil {
 		return err
 	}
@@ -222,36 +222,36 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, sessionID int64) error 
 	if len(open) > 0 {
 		oldest = &open[0]
 	}
-	return s.Store.SettleTurns(ctx, tx, sessionID, oldest)
+	return s.Store.SettleTurns(ctx, tx, conversationID, oldest)
 }
 
 // chainNext enqueues run_turn for the oldest queued turn after the one that
 // ended (turns run oldest first, so none is older), if no job waits.
-func (s *Service) chainNext(ctx context.Context, tx pgx.Tx, sessionID, after int64) error {
-	queued, err := s.Store.QueuedTurns(ctx, tx, sessionID, after)
+func (s *Service) chainNext(ctx context.Context, tx pgx.Tx, conversationID, after int64) error {
+	queued, err := s.Store.QueuedTurns(ctx, tx, conversationID, after)
 	if err != nil || len(queued) == 0 {
 		return err
 	}
-	waiting, err := s.Store.PendingTurnJob(ctx, tx, sessionID, types.JobQueued)
+	waiting, err := s.Store.PendingTurnJob(ctx, tx, conversationID, types.JobQueued)
 	if err != nil || waiting {
 		return err
 	}
-	return s.enqueueRun(ctx, tx, sessionID, queued[0])
+	return s.enqueueRun(ctx, tx, conversationID, queued[0])
 }
 
 // StartTurn marks the turn running and active. It returns false when the turn
 // must not run now (finished, or an older turn is still open).
-func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool, error) {
+func (s *Service) StartTurn(ctx context.Context, conversationID, turnID int64) (bool, error) {
 	var ok bool
 	err := s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		if _, err := s.Store.LockSession(ctx, tx, sessionID); err != nil {
+		if _, err := s.Store.LockConversation(ctx, tx, conversationID); err != nil {
 			return err
 		}
 		st, err := s.Store.TurnStateOf(ctx, tx, turnID)
 		if err != nil || st == nil || st.State.Terminal() {
 			return err
 		}
-		open, err := s.Store.OpenTurns(ctx, tx, sessionID, 1)
+		open, err := s.Store.OpenTurns(ctx, tx, conversationID, 1)
 		if err != nil || len(open) == 0 || open[0] != turnID {
 			return err // an older turn goes first; its end chains to this one
 		}
@@ -259,7 +259,7 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 		if err != nil {
 			return err
 		}
-		if err := s.Store.SetActiveTurn(ctx, tx, sessionID, &turnID); err != nil {
+		if err := s.Store.SetActiveTurn(ctx, tx, conversationID, &turnID); err != nil {
 			return err
 		}
 		ok = true
@@ -276,22 +276,22 @@ func (s *Service) StartTurn(ctx context.Context, sessionID, turnID int64) (bool,
 }
 
 // Stop stops the caller's own turns: it cancels their queued ones and asks
-// the active one to stop if they started it. In a shared session nobody stops
+// the active one to stop if they started it. In a shared conversation nobody stops
 // another person's turn; everyone else's keep their place in line.
-func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
+func (s *Service) Stop(ctx context.Context, conversationID, actor int64) error {
 	var ended []types.TurnState // counted once committed
 	err := s.Store.Tx(ctx, func(tx pgx.Tx) error {
 		ended = ended[:0]
-		sess, err := s.Store.LockSession(ctx, tx, sessionID)
+		conv, err := s.Store.LockConversation(ctx, tx, conversationID)
 		if err != nil {
 			return err
 		}
-		queued, err := s.Store.QueuedTurns(ctx, tx, sessionID, 0)
+		queued, err := s.Store.QueuedTurns(ctx, tx, conversationID, 0)
 		if err != nil {
 			return err
 		}
 		for _, q := range queued {
-			if sess.ActiveTurnID != nil && *sess.ActiveTurnID == q {
+			if conv.ActiveTurnID != nil && *conv.ActiveTurnID == q {
 				continue
 			}
 			turn, err := s.Store.EventByID(ctx, tx, q)
@@ -311,12 +311,12 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			}
 			ended = append(ended, types.StateCancelled)
 		}
-		if err := s.settle(ctx, tx, sessionID); err != nil {
+		if err := s.settle(ctx, tx, conversationID); err != nil {
 			return err
 		}
 		var active db.EventRow
-		if sess.ActiveTurnID != nil {
-			if active, err = s.Store.EventByID(ctx, tx, *sess.ActiveTurnID); err != nil {
+		if conv.ActiveTurnID != nil {
+			if active, err = s.Store.EventByID(ctx, tx, *conv.ActiveTurnID); err != nil {
 				return err
 			}
 			if active.ActorID != actor {
@@ -327,11 +327,11 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 		// that turn's resume, dropped as the turn stops (its end chains on).
 		// With none active it is the next queued turn's, maybe one just
 		// cancelled, so it is dropped and the line restarts at whoever is next.
-		if err := s.Store.CancelQueuedTurnJobs(ctx, tx, sessionID); err != nil {
+		if err := s.Store.CancelQueuedTurnJobs(ctx, tx, conversationID); err != nil {
 			return err
 		}
-		if sess.ActiveTurnID == nil {
-			return s.chainNext(ctx, tx, sessionID, 0)
+		if conv.ActiveTurnID == nil {
+			return s.chainNext(ctx, tx, conversationID, 0)
 		}
 		if err := s.appendTo(ctx, tx, active, actor, types.TurnCancelRequested{}); err != nil {
 			return err
@@ -341,7 +341,7 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 			return err
 		}
 		if st != nil && st.State == types.StateAwaitingApproval { // no worker runs it
-			stopped, err := s.endTurnTx(ctx, tx, sessionID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
+			stopped, err := s.endTurnTx(ctx, tx, conversationID, active.ID, types.TurnStateEvent{State: types.StateStopped, Reason: "stop requested"})
 			if stopped {
 				ended = append(ended, types.StateStopped)
 			}
@@ -358,11 +358,11 @@ func (s *Service) Stop(ctx context.Context, sessionID, actor int64) error {
 }
 
 // Approve records a client's decision on a pending tool call and resumes the
-// turn. Only the actor who started the turn decides: in a shared session
+// turn. Only the actor who started the turn decides: in a shared conversation
 // nobody approves what another person's turn is about to do.
-func (s *Service) Approve(ctx context.Context, sessionID, actor int64, d types.ApprovalDecided) error {
+func (s *Service) Approve(ctx context.Context, conversationID, actor int64, d types.ApprovalDecided) error {
 	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, err := s.pendingCall(ctx, tx, sessionID, d.CallID)
+		turn, err := s.pendingCall(ctx, tx, conversationID, d.CallID)
 		if err != nil {
 			return err
 		}
@@ -384,7 +384,7 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 		return err
 	}
 	err = s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, err := s.pendingCall(ctx, tx, turn.SessionID, p.CallID)
+		turn, err := s.pendingCall(ctx, tx, turn.ConversationID, p.CallID)
 		if err != nil {
 			return err
 		}
@@ -396,17 +396,17 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 	return err
 }
 
-// pendingCall locks the session and returns the active turn if callID is
+// pendingCall locks the conversation and returns the active turn if callID is
 // awaiting a decision in it.
-func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, sessionID int64, callID string) (db.EventRow, error) {
-	sess, err := s.Store.LockSession(ctx, tx, sessionID)
+func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, conversationID int64, callID string) (db.EventRow, error) {
+	conv, err := s.Store.LockConversation(ctx, tx, conversationID)
 	if err != nil {
 		return db.EventRow{}, err
 	}
-	if sess.ActiveTurnID == nil {
+	if conv.ActiveTurnID == nil {
 		return db.EventRow{}, ErrNoPendingApproval
 	}
-	events, err := s.Store.TurnEvents(ctx, tx, *sess.ActiveTurnID)
+	events, err := s.Store.TurnEvents(ctx, tx, *conv.ActiveTurnID)
 	if err != nil {
 		return db.EventRow{}, err
 	}
@@ -425,17 +425,17 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, turn db.EventRow, actor
 	if err := s.appendTo(ctx, tx, turn, actor, d); err != nil {
 		return err
 	}
-	return s.enqueueRun(ctx, tx, turn.SessionID, turn.ID)
+	return s.enqueueRun(ctx, tx, turn.ConversationID, turn.ID)
 }
 
 // RequestApproval pauses the running turn on a tool call. The request, the
 // awaiting_approval state and the timeout job commit together under the
-// session lock, so a stop that committed first wins (ErrStopRequested) and a
+// conversation lock, so a stop that committed first wins (ErrStopRequested) and a
 // crash cannot leave a pause without its timeout.
 // timeout is the agent's approval.timeout.
-func (s *Service) RequestApproval(ctx context.Context, sessionID, turnID int64, callID string, timeout time.Duration) error {
+func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID int64, callID string, timeout time.Duration) error {
 	return s.Store.Tx(ctx, func(tx pgx.Tx) error {
-		if _, err := s.Store.LockSession(ctx, tx, sessionID); err != nil {
+		if _, err := s.Store.LockConversation(ctx, tx, conversationID); err != nil {
 			return err
 		}
 		events, err := s.Store.TurnEvents(ctx, tx, turnID)

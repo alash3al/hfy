@@ -33,7 +33,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 		if err != nil || !changed {
 			return err
 		}
-		bc, err := rt.BuildContext(ctx, env.SessionID, env.TurnID, l.spec)
+		bc, err := rt.BuildContext(ctx, env.ConversationID, env.TurnID, l.spec)
 		if err != nil {
 			return err
 		}
@@ -49,11 +49,11 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 // a summary was written.
 func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	sm := rt.Cfg.Summarizer
-	prev, after, err := rt.summaryStart(ctx, env.SessionID)
+	prev, after, err := rt.summaryStart(ctx, env.ConversationID)
 	if err != nil {
 		return false, err
 	}
-	events, err := rt.Store.LoadContext(ctx, env.SessionID, after, env.TurnID)
+	events, err := rt.Store.LoadContext(ctx, env.ConversationID, after, env.TurnID)
 	if err != nil {
 		return false, err
 	}
@@ -115,12 +115,12 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 		return false, err
 	}
 	ev, err := rt.Store.AppendEvent(ctx, rt.Store.Pool, db.NewEvent{
-		SessionID: env.SessionID, ParentID: &env.TurnID, ActorID: actor, Scope: env.Scope,
+		ConversationID: env.ConversationID, ParentID: &env.TurnID, ActorID: actor, Scope: env.Scope,
 		Payload: types.Summary{Text: text, CoversUntilTurn: lastCovered.UUID.String()}})
 	if err != nil {
 		return false, err
 	}
-	return true, rt.Store.SetSummary(ctx, rt.Store.Pool, env.SessionID, ev.ID)
+	return true, rt.Store.SetSummary(ctx, rt.Store.Pool, env.ConversationID, ev.ID)
 }
 
 // transcriptOf renders events for the summarizer, one framed line per

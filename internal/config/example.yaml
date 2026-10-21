@@ -9,7 +9,7 @@ server:
 #   webhook: http://localhost:8000/agent-auth
 #   timeout: 2s
 
-storage:                             # sessions, events, jobs, trace, vectors (pgvector 0.8.0+)
+storage:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
   url: ${DATABASE_URL}
 
 # metrics:                           # optional; omit = off. Every process (serve and
@@ -42,7 +42,7 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #     url: https://search.example.com/mcp
 #     headers: { Authorization: "Bearer ${SEARCH_TOKEN}" }
 
-# embeddings:                        # optional; omit = session_search is disabled
+# embeddings:                        # optional; omit = conversation_search is disabled
 #   model: local/nomic-embed-text
 #   dimensions: 768
 

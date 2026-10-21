@@ -17,10 +17,10 @@ import (
 const Server = config.BuiltinServer
 
 const (
-	ToolSearch    = "tool_search"
-	SessionSearch = "session_search"
-	Now           = "now"
-	MathCalc      = "math_calc"
+	ToolSearch         = "tool_search"
+	ConversationSearch = "conversation_search"
+	Now                = "now"
+	MathCalc           = "math_calc"
 )
 
 // Core is a built-in every agent gets. A tool is core only if it is pure (no
@@ -52,8 +52,8 @@ var defs = func() map[string]def {
 	return m
 }()
 
-func ToolSearchTool() mcp.Tool    { return build(ToolSearch, "") }
-func SessionSearchTool() mcp.Tool { return build(SessionSearch, "") }
+func ToolSearchTool() mcp.Tool         { return build(ToolSearch, "") }
+func ConversationSearchTool() mcp.Tool { return build(ConversationSearch, "") }
 
 // SubagentTool wraps a sub-agent as hfy.<name>.
 func SubagentTool(name, description string) mcp.Tool {

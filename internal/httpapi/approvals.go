@@ -20,7 +20,7 @@ func (s *Server) approve(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil || req.CallID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "call_id is required")
 	}
-	err := s.svc.Approve(c.Request().Context(), cl.session.ID, cl.actorID, types.ApprovalDecided{
+	err := s.svc.Approve(c.Request().Context(), cl.conversation.ID, cl.actorID, types.ApprovalDecided{
 		CallID: req.CallID, Approve: req.Approve, Result: types.Clean(req.Result)})
 	if err != nil {
 		return err

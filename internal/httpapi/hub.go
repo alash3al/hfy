@@ -20,7 +20,7 @@ type Hub struct {
 	subs  map[int64]map[*Subscription]struct{}
 }
 
-// Subscription receives the events of one session. If the subscriber is too
+// Subscription receives the events of one conversation. If the subscriber is too
 // slow its channel is closed (Dropped); it reconnects with Last-Event-ID.
 type Subscription struct {
 	C       chan db.EventRow
@@ -31,20 +31,20 @@ func NewHub(store *db.Store) *Hub {
 	return &Hub{store: store, subs: map[int64]map[*Subscription]struct{}{}}
 }
 
-func (h *Hub) Subscribe(session int64) (*Subscription, func()) {
+func (h *Hub) Subscribe(conversation int64) (*Subscription, func()) {
 	s := &Subscription{C: make(chan db.EventRow, 256)}
 	h.mu.Lock()
-	if h.subs[session] == nil {
-		h.subs[session] = map[*Subscription]struct{}{}
+	if h.subs[conversation] == nil {
+		h.subs[conversation] = map[*Subscription]struct{}{}
 	}
-	h.subs[session][s] = struct{}{}
+	h.subs[conversation][s] = struct{}{}
 	h.mu.Unlock()
 	return s, func() {
 		h.mu.Lock()
-		if _, ok := h.subs[session][s]; ok {
-			delete(h.subs[session], s)
-			if len(h.subs[session]) == 0 {
-				delete(h.subs, session)
+		if _, ok := h.subs[conversation][s]; ok {
+			delete(h.subs[conversation], s)
+			if len(h.subs[conversation]) == 0 {
+				delete(h.subs, conversation)
 			}
 			if !s.dropped {
 				close(s.C)
@@ -54,22 +54,22 @@ func (h *Hub) Subscribe(session int64) (*Subscription, func()) {
 	}
 }
 
-func (h *Hub) wanted(session int64) bool {
+func (h *Hub) wanted(conversation int64) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.subs[session]) > 0
+	return len(h.subs[conversation]) > 0
 }
 
 // Run listens for event notifications until ctx ends.
 func (h *Hub) Run(ctx context.Context) {
 	h.store.Listen(ctx, func(_, payload string) {
-		sid, eid, ok := strings.Cut(payload, ":")
+		cid, eid, ok := strings.Cut(payload, ":")
 		if !ok {
 			return
 		}
-		session, err1 := strconv.ParseInt(sid, 10, 64)
+		conversation, err1 := strconv.ParseInt(cid, 10, 64)
 		event, err2 := strconv.ParseInt(eid, 10, 64)
-		if err1 != nil || err2 != nil || !h.wanted(session) {
+		if err1 != nil || err2 != nil || !h.wanted(conversation) {
 			return
 		}
 		row, err := h.store.EventByID(ctx, h.store.Pool, event)
@@ -80,12 +80,12 @@ func (h *Hub) Run(ctx context.Context) {
 			return
 		}
 		h.mu.Lock()
-		for s := range h.subs[session] {
+		for s := range h.subs[conversation] {
 			select {
 			case s.C <- row:
 			default:
 				s.dropped = true
-				delete(h.subs[session], s)
+				delete(h.subs[conversation], s)
 				close(s.C)
 			}
 		}

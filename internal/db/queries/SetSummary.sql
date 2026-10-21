@@ -1,1 +1,1 @@
-UPDATE sessions SET summary_id = @summary, updated_at = now() WHERE id = @id
+UPDATE conversations SET summary_id = @summary, updated_at = now() WHERE id = @id

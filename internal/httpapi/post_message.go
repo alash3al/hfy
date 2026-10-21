@@ -39,7 +39,7 @@ func (s *Server) postMessage(c *echo.Context) error {
 		return err
 	}
 	turn, err := s.svc.Post(c.Request().Context(), svc.PostInput{
-		SessionID: cl.session.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars, Agent: cl.agent,
+		ConversationID: cl.conversation.ID, Actor: cl.actorID, Scope: cl.scope, Vars: vars, Agent: cl.agent,
 		Text: req.Text, Attachments: req.Attachments,
 	})
 	if err != nil {

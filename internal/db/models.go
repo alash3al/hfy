@@ -9,7 +9,7 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-type SessionRow struct {
+type ConversationRow struct {
 	ID           int64     `db:"id"`
 	UUID         uuid.UUID `db:"uuid"`
 	ActiveTurnID *int64    `db:"active_turn_id"`
@@ -21,24 +21,24 @@ type SessionRow struct {
 	UpdatedAt    time.Time `db:"updated_at"`
 }
 
-// EventRow is a session_events row joined with its parent's uuid and its actor.
+// EventRow is a conversation_events row joined with its parent's uuid and its actor.
 type EventRow struct {
-	ID         int64           `db:"id"`
-	UUID       uuid.UUID       `db:"uuid"`
-	SessionID  int64           `db:"session_id"`
-	ParentID   *int64          `db:"parent_id"`
-	ParentUUID *uuid.UUID      `db:"parent_uuid"`
-	ActorID    int64           `db:"actor_id"`
-	ActorUUID  uuid.UUID       `db:"actor_uuid"`
-	ActorType  string          `db:"actor_type"`
-	ActorRef   string          `db:"actor_ref"`
-	Scope      string          `db:"scope"`
-	Type       types.EventType `db:"type"`
-	Data       json.RawMessage `db:"data"`
-	V          int             `db:"v"` // payload version (see types.register)
-	Ephemeral  bool            `db:"ephemeral"`
-	RequestID  *int64          `db:"request_id"`
-	CreatedAt  time.Time       `db:"created_at"`
+	ID             int64           `db:"id"`
+	UUID           uuid.UUID       `db:"uuid"`
+	ConversationID int64           `db:"conversation_id"`
+	ParentID       *int64          `db:"parent_id"`
+	ParentUUID     *uuid.UUID      `db:"parent_uuid"`
+	ActorID        int64           `db:"actor_id"`
+	ActorUUID      uuid.UUID       `db:"actor_uuid"`
+	ActorType      string          `db:"actor_type"`
+	ActorRef       string          `db:"actor_ref"`
+	Scope          string          `db:"scope"`
+	Type           types.EventType `db:"type"`
+	Data           json.RawMessage `db:"data"`
+	V              int             `db:"v"` // payload version (see types.register)
+	Ephemeral      bool            `db:"ephemeral"`
+	RequestID      *int64          `db:"request_id"`
+	CreatedAt      time.Time       `db:"created_at"`
 }
 
 // TurnID is the id of the turn this event belongs to (itself for a turn event).

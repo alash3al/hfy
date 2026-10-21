@@ -15,14 +15,14 @@ import (
 // reach a live stream (bigserial ids are assigned at insert, not at commit).
 func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	a := start(t, nil)
-	sid := a.newSession()
+	cid := a.newConversation()
 	ctx := context.Background()
 	store := a.rt.Store
-	u, _ := uuid.Parse(sid)
-	sess, _ := store.SessionByUUID(ctx, u)
+	u, _ := uuid.Parse(cid)
+	conv, _ := store.ConversationByUUID(ctx, u)
 	actor, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
 
-	events, closeStream := a.stream("/v1/sessions/"+sid+"/events", nil)
+	events, closeStream := a.stream("/v1/conversations/"+cid+"/events", nil)
 	defer closeStream()
 
 	// tx1 takes the lower id but commits last
@@ -32,12 +32,12 @@ func TestStreamDeliversEventsCommittedOutOfIDOrder(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := store.AppendEvent(ctx, tx, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
+		_, err := store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
 		done <- err
 	}()
 	time.Sleep(200 * time.Millisecond)
 	// a concurrent append from the worker side
-	go store.AppendEvent(ctx, store.Pool, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.MessageText{Text: "later"}})
+	go store.AppendEvent(ctx, store.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.MessageText{Text: "later"}})
 	time.Sleep(500 * time.Millisecond)
 	if err := <-done; err != nil {
 		t.Fatal(err)

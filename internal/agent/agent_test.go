@@ -39,7 +39,7 @@ type env struct {
 	store *db.Store
 	rt    *agent.Runtime
 	fake  *fakeprov.Server
-	sess  db.SessionRow
+	conv  db.ConversationRow
 	user  int64
 }
 
@@ -84,12 +84,12 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	go rt.ListenCancel(ctx)
 	time.Sleep(200 * time.Millisecond) // let the listeners attach
 
-	sess, err := store.CreateSession(ctx)
+	conv, err := store.CreateConversation(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorAnonymous, types.NoScope)
-	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, sess: sess, user: user}
+	return &env{t: t, ctx: ctx, store: store, rt: rt, fake: fake, conv: conv, user: user}
 }
 
 func (e *env) post(text string) (turnID int64) {
@@ -98,12 +98,12 @@ func (e *env) post(text string) (turnID int64) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: e.user, Scope: types.NoScope,
+	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: types.NoScope,
 		Vars: vars, Text: text})
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	id, err := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
+	id, err := e.store.TurnIDByUUID(e.ctx, e.conv.ID, u)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -122,12 +122,12 @@ func (e *env) postAs(who, agent, text string) (turnID int64) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: actor, Scope: types.NoScope,
+	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: actor, Scope: types.NoScope,
 		Vars: vars, Text: text, Agent: agent})
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	id, err := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
+	id, err := e.store.TurnIDByUUID(e.ctx, e.conv.ID, u)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -215,9 +215,9 @@ func TestSimpleReply(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("outbound_requests: %d", n)
 	}
-	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
+	s, _ := e.store.ConversationByID(e.ctx, e.conv.ID)
 	if s.InputTokens != 12 || s.ActiveTurnID != nil {
-		t.Fatalf("session: %+v", s)
+		t.Fatalf("conversation: %+v", s)
 	}
 }
 
@@ -315,18 +315,18 @@ func TestApprovalApproveAndReject(t *testing.T) {
 	if n := len(e.find(t1, types.EventToolResult)); n != 0 {
 		t.Fatal("tool ran before approval")
 	}
-	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
+	s, _ := e.store.ConversationByID(e.ctx, e.conv.ID)
 	if s.ActiveTurnID == nil {
-		t.Fatal("a paused turn keeps the session blocked")
+		t.Fatal("a paused turn keeps the conversation blocked")
 	}
 	other := e.post("queued behind")
 	if e.state(other) != types.StateQueued {
 		t.Fatalf("second turn must queue, got %s", e.state(other))
 	}
-	if err := e.rt.Svc.Approve(e.ctx, e.sess.ID, e.user, types.ApprovalDecided{CallID: "w1", Approve: true}); err != nil {
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w1", Approve: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.rt.Svc.Approve(e.ctx, e.sess.ID, e.user, types.ApprovalDecided{CallID: "w1", Approve: true}); err == nil {
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w1", Approve: true}); err == nil {
 		t.Fatal("second decision on the same call must be refused")
 	}
 	e.waitState(t1, types.StateCompleted)
@@ -336,7 +336,7 @@ func TestApprovalApproveAndReject(t *testing.T) {
 
 	// the queued turn now runs and pauses on its own call; reject it with a result
 	e.waitState(other, types.StateAwaitingApproval)
-	if err := e.rt.Svc.Approve(e.ctx, e.sess.ID, e.user, types.ApprovalDecided{CallID: "w2", Approve: false, Result: "no, not today"}); err != nil {
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w2", Approve: false, Result: "no, not today"}); err != nil {
 		t.Fatal(err)
 	}
 	e.waitState(other, types.StateCompleted)
@@ -365,7 +365,7 @@ func TestStopRunningTurn(t *testing.T) {
 	e.waitState(turn, types.StateRunning)
 	time.Sleep(300 * time.Millisecond) // the model call is in flight
 	queued := e.post("behind it")
-	if err := e.rt.Svc.Stop(e.ctx, e.sess.ID, e.user); err != nil {
+	if err := e.rt.Svc.Stop(e.ctx, e.conv.ID, e.user); err != nil {
 		t.Fatal(err)
 	}
 	e.waitState(turn, types.StateStopped)
@@ -375,7 +375,7 @@ func TestStopRunningTurn(t *testing.T) {
 	if len(e.find(turn, types.EventTurnCancelRequested)) != 1 {
 		t.Fatal("cancel request event missing")
 	}
-	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
+	s, _ := e.store.ConversationByID(e.ctx, e.conv.ID)
 	if s.ActiveTurnID != nil {
 		t.Fatal("active turn must be cleared")
 	}
@@ -388,7 +388,7 @@ func TestStopWhileAwaitingApproval(t *testing.T) {
 	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__echo", Args: `{"text":"x"}`}}})
 	turn := e.post("go")
 	e.waitState(turn, types.StateAwaitingApproval)
-	if err := e.rt.Svc.Stop(e.ctx, e.sess.ID, e.user); err != nil {
+	if err := e.rt.Svc.Stop(e.ctx, e.conv.ID, e.user); err != nil {
 		t.Fatal(err)
 	}
 	if e.state(turn) != types.StateStopped {
@@ -403,13 +403,13 @@ func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
 		c.Queue.Workers = 0
 	}, fakeprov.Step{Content: "I will check first"})
 	turn := e.post("go")
-	if ok, err := e.rt.Svc.StartTurn(e.ctx, e.sess.ID, turn); err != nil || !ok {
+	if ok, err := e.rt.Svc.StartTurn(e.ctx, e.conv.ID, turn); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	// The first worker appended a tool call and died before writing its result.
 	main, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorAgent, "main")
 	row, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
-	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: main, Scope: row.Scope,
+	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{ConversationID: e.conv.ID, ParentID: &turn, ActorID: main, Scope: row.Scope,
 		Payload: types.ToolCall{Name: "files.write_file", CallID: "lost", Arguments: json.RawMessage(`{"text":"x"}`)}})
 
 	// The lease expired and the job runs again: attempt 2.
@@ -445,7 +445,7 @@ func TestApprovedCallIsNotReExecutedAfterACrash(t *testing.T) {
 	if e.state(turn) != types.StateAwaitingApproval {
 		t.Fatalf("state: %s", e.state(turn))
 	}
-	if err := e.rt.Svc.Approve(ctx, e.sess.ID, e.user, types.ApprovalDecided{CallID: "w", Approve: true}); err != nil {
+	if err := e.rt.Svc.Approve(ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w", Approve: true}); err != nil {
 		t.Fatal(err)
 	}
 	// The resumed job crashed after the decision: on its second attempt the
@@ -478,11 +478,11 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 
 	post := func(text string, atts ...types.Attachment) int64 {
 		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
-		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{SessionID: e.sess.ID, Actor: e.user, Scope: types.NoScope, Vars: vars, Text: text, Attachments: atts})
+		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: types.NoScope, Vars: vars, Text: text, Attachments: atts})
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, _ := e.store.TurnIDByUUID(e.ctx, e.sess.ID, u)
+		id, _ := e.store.TurnIDByUUID(e.ctx, e.conv.ID, u)
 		return id
 	}
 	t1 := post("look", types.Attachment{URL: files.URL + "/a.png", Mime: "image/png"})
@@ -526,7 +526,7 @@ func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 
 	// What Stop commits, minus the notification, which has not arrived yet.
 	row, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
-	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{SessionID: e.sess.ID, ParentID: &turn, ActorID: e.user,
+	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{ConversationID: e.conv.ID, ParentID: &turn, ActorID: e.user,
 		Scope: row.Scope, Payload: types.TurnCancelRequested{}})
 	close(block)
 	if err := <-done; err != nil {
@@ -535,7 +535,7 @@ func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 	if e.state(turn) != types.StateStopped {
 		t.Fatalf("state: %s\n%s", e.state(turn), e.dump(turn))
 	}
-	s, _ := e.store.SessionByID(e.ctx, e.sess.ID)
+	s, _ := e.store.ConversationByID(e.ctx, e.conv.ID)
 	if s.ActiveTurnID != nil {
 		t.Fatal("active turn must be cleared")
 	}
@@ -559,14 +559,14 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 		t.Fatalf("the tool did not get _meta: %v %v", results[0]["content"], err)
 	}
 	var got struct {
-		Session, Turn, Agent, Scope string
-		CallID                      string `json:"call_id"`
-		Actor                       struct{ Type, Ref string }
-		Vars                        map[string]string
+		Conversation, Turn, Agent, Scope string
+		CallID                           string `json:"call_id"`
+		Actor                            struct{ Type, Ref string }
+		Vars                             map[string]string
 	}
 	ok := json.Unmarshal(meta["io.github.alash3al.hfy/turn"], &got) == nil
 	turnRow, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
-	if !ok || got.Session != e.sess.UUID.String() || got.Turn != turnRow.UUID.String() || got.CallID != "w1" ||
+	if !ok || got.Conversation != e.conv.UUID.String() || got.Turn != turnRow.UUID.String() || got.CallID != "w1" ||
 		got.Agent != "main" || got.Actor.Type != "anonymous" || got.Scope != types.NoScope || got.Vars["who"] != "everyone" {
 		t.Fatalf("turn context: %+v", meta)
 	}
@@ -575,7 +575,7 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 	}
 }
 
-// A session is a room: each agent sees its own words and calls as its
+// A conversation is a room: each agent sees its own words and calls as its
 // assistant turns, and everyone else's words framed with who said them,
 // escaped so nobody can forge a frame. Another agent's tool calls stay out;
 // consecutive user turns are merged. A one-to-one chat stays plain.
@@ -638,7 +638,7 @@ func TestRoomContextIsAttributed(t *testing.T) {
 	}
 }
 
-// In a shared session a turn is its starter's: nobody else approves its calls
+// In a shared conversation a turn is its starter's: nobody else approves its calls
 // or stops it, and stopping your own turns leaves everyone else's in line.
 func TestOnlyTheStarterApprovesOrStopsATurn(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
@@ -654,16 +654,16 @@ func TestOnlyTheStarterApprovesOrStopsATurn(t *testing.T) {
 	b := e.postAs("u2", "main", "me too")
 	c := e.postAs("u1", "main", "and then")
 
-	if err := e.rt.Svc.Approve(e.ctx, e.sess.ID, e.actor("u2"), types.ApprovalDecided{CallID: "w1", Approve: true}); !errors.Is(err, svc.ErrNotTurnOwner) {
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.actor("u2"), types.ApprovalDecided{CallID: "w1", Approve: true}); !errors.Is(err, svc.ErrNotTurnOwner) {
 		t.Fatalf("u2 approved u1's call: %v", err)
 	}
-	if err := e.rt.Svc.Stop(e.ctx, e.sess.ID, e.actor("u2")); err != nil {
+	if err := e.rt.Svc.Stop(e.ctx, e.conv.ID, e.actor("u2")); err != nil {
 		t.Fatal(err)
 	}
 	if e.state(a) != types.StateAwaitingApproval || e.state(b) != types.StateCancelled || e.state(c) != types.StateQueued {
 		t.Fatalf("u2's stop: a=%s b=%s c=%s", e.state(a), e.state(b), e.state(c))
 	}
-	if err := e.rt.Svc.Approve(e.ctx, e.sess.ID, e.actor("u1"), types.ApprovalDecided{CallID: "w1", Approve: true}); err != nil {
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.actor("u1"), types.ApprovalDecided{CallID: "w1", Approve: true}); err != nil {
 		t.Fatal(err)
 	}
 	e.waitState(a, types.StateCompleted)
@@ -676,7 +676,7 @@ func TestStopPassesTheLineOn(t *testing.T) {
 	e := setup(t, func(c *config.Config) { c.Queue.Workers = 0 })
 	a := e.postAs("u1", "main", "first")
 	b := e.postAs("u2", "main", "second")
-	if err := e.rt.Svc.Stop(e.ctx, e.sess.ID, e.actor("u1")); err != nil {
+	if err := e.rt.Svc.Stop(e.ctx, e.conv.ID, e.actor("u1")); err != nil {
 		t.Fatal(err)
 	}
 	if e.state(a) != types.StateCancelled || e.state(b) != types.StateQueued {

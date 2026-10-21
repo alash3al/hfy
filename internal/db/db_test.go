@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 func TestEventsAndActors(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, err := s.CreateSession(ctx)
+	conv, err := s.CreateConversation(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,16 +26,16 @@ func TestEventsAndActors(t *testing.T) {
 	if a1 != a2 {
 		t.Fatal("actor find-or-create not stable")
 	}
-	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: a1, Scope: "n/a", Payload: types.Turn{}})
+	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a1, Scope: "n/a", Payload: types.Turn{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
+	msg, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
 		Payload: types.MessageText{Text: "hi"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
+	if _, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: &turn.ID, ActorID: a1, Scope: "n/a",
 		Payload: types.TextDelta{Text: "h"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,15 +46,15 @@ func TestEventsAndActors(t *testing.T) {
 	if mt, err := msg.Payload[types.MessageText](); err != nil || mt.Text != "hi" {
 		t.Fatalf("payload: %v %v", mt, err)
 	}
-	hist, _ := s.HistoryEvents(ctx, sess.ID, []int64{turn.ID})
+	hist, _ := s.HistoryEvents(ctx, conv.ID, []int64{turn.ID})
 	if len(hist) != 2 { // ephemeral delta excluded
 		t.Fatalf("history has %d events", len(hist))
 	}
-	after, _ := s.EventsAfter(ctx, sess.ID, 0, 100)
+	after, _ := s.EventsAfter(ctx, conv.ID, 0, 100)
 	if len(after) != 3 {
 		t.Fatalf("replay has %d events", len(after))
 	}
-	id, err := s.EventIDByUUID(ctx, sess.ID, msg.UUID)
+	id, err := s.EventIDByUUID(ctx, conv.ID, msg.UUID)
 	if err != nil || id != msg.ID {
 		t.Fatal("uuid lookup", err)
 	}
@@ -63,28 +64,28 @@ func TestJobsClaimAndConcurrency(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
 	for i := range 2 {
-		if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: map[string]int{"n": i}, Key: "session:1"}); err != nil {
+		if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: map[string]int{"n": i}, Key: "conversation:1"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 3, Key: "session:2"}); err != nil {
+	if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 3, Key: "conversation:2"}); err != nil {
 		t.Fatal(err)
 	}
 	j1, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
 	if err != nil || j1 == nil || j1.Attempts != 1 {
 		t.Fatalf("claim 1: %+v %v", j1, err)
 	}
-	// session:1 has a running job, so the second claim must skip its queued job.
+	// conversation:1 has a running job, so the second claim must skip its queued job.
 	j2, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute)
-	if err != nil || j2 == nil || *j2.ConcurrencyKey != "session:2" {
-		t.Fatalf("claim 2 should pick session:2, got %+v %v", j2, err)
+	if err != nil || j2 == nil || *j2.ConcurrencyKey != "conversation:2" {
+		t.Fatalf("claim 2 should pick conversation:2, got %+v %v", j2, err)
 	}
 	if j3, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j3 != nil {
 		t.Fatalf("claim 3 should find nothing, got %+v", j3)
 	}
 	s.CompleteJob(ctx, j1.ID, j1.Attempts)
 	if j3, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j3 == nil {
-		t.Fatal("after completion the next session:1 job must be claimable")
+		t.Fatal("after completion the next conversation:1 job must be claimable")
 	}
 }
 
@@ -125,10 +126,10 @@ func TestNotify(t *testing.T) {
 	got := make(chan string, 4)
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
 	time.Sleep(300 * time.Millisecond)
-	sess, _ := s.CreateSession(ctx)
+	conv, _ := s.CreateConversation(ctx)
 	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
-		_, err := s.AppendEvent(ctx, tx, db.NewEvent{SessionID: sess.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
+		_, err := s.AppendEvent(ctx, tx, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.Turn{}})
 		return err
 	})
 	if err != nil {
@@ -147,11 +148,11 @@ func TestNotify(t *testing.T) {
 func TestEmbeddingsSearch(t *testing.T) {
 	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx)
+	conv, _ := s.CreateConversation(ctx)
 	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, "n/a")
 	var ids []int64
 	for _, txt := range []string{"apples", "boats"} {
-		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: a, Scope: "n/a", Payload: types.MessageText{Text: txt}})
+		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "n/a", Payload: types.MessageText{Text: txt}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +178,7 @@ func TestEmbeddingsSearch(t *testing.T) {
 func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 1, Key: "session:1", MaxAttempts: 5})
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 1, Key: "conversation:1", MaxAttempts: 5})
 	stale, _ := s.ClaimJob(ctx, "turns", allTypes, 50*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	if _, err := s.ReapJobs(ctx); err != nil {
@@ -202,10 +203,10 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 	if state != string(types.JobRunning) {
 		t.Fatalf("the stale worker changed the reclaimed job to %q", state)
 	}
-	// The session's next job must still be blocked behind the running one.
-	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 2, Key: "session:1"})
+	// The conversation's next job must still be blocked behind the running one.
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 2, Key: "conversation:1"})
 	if j, _ := s.ClaimJob(ctx, "turns", allTypes, time.Minute); j != nil {
-		t.Fatalf("two jobs of one session running at once: %+v", j)
+		t.Fatalf("two jobs of one conversation running at once: %+v", j)
 	}
 	if ok, _ := s.HeartbeatJob(ctx, fresh.ID, fresh.Attempts, time.Minute); !ok {
 		t.Fatal("the current owner's heartbeat must succeed")
@@ -217,14 +218,14 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 func TestEventVersions(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	sess, _ := s.CreateSession(ctx)
+	conv, _ := s.CreateConversation(ctx)
 	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorAnonymous, types.NoScope)
-	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{SessionID: sess.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
+	turn, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: actor, Scope: "n/a", Payload: types.Turn{}})
 	if err != nil || turn.V != types.Version(types.EventTurn) {
 		t.Fatalf("append: v%d %v", turn.V, err)
 	}
-	if _, err := s.Pool.Exec(ctx, `INSERT INTO session_events (session_id, parent_id, actor_id, scope, type, data, v)
-		VALUES ($1, $2, $3, 'n/a', 'message.text', '{"text":"hi","lang":"en"}', 9)`, sess.ID, turn.ID, actor); err != nil {
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO conversation_events (conversation_id, parent_id, actor_id, scope, type, data, v)
+		VALUES ($1, $2, $3, 'n/a', 'message.text', '{"text":"hi","lang":"en"}', 9)`, conv.ID, turn.ID, actor); err != nil {
 		t.Fatal(err)
 	}
 	evs, err := s.TurnEvents(ctx, s.Pool, turn.ID)
@@ -256,5 +257,59 @@ func TestClaimOnlyHandledTypes(t *testing.T) {
 	}
 	if j, _ := s.ClaimJob(ctx, "turns", []types.JobType{"run_turn.v2"}, time.Minute); j == nil {
 		t.Fatal("a worker that handles the type must claim it")
+	}
+}
+
+// Migration 00006 renamed sessions to conversations: no table, column,
+// index, sequence or constraint keeps the old name, and the stored values that
+// carried it (job keys, embeddable types) move with it, both ways.
+func TestNothingIsNamedSession(t *testing.T) {
+	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
+	ctx := context.Background()
+	leftovers := func(word string) []string {
+		rows, err := s.Pool.Query(ctx, `
+			SELECT relname FROM pg_class WHERE relnamespace = current_schema()::regnamespace AND relname LIKE '%'||$1||'%'
+			UNION ALL SELECT table_name||'.'||column_name FROM information_schema.columns
+			  WHERE table_schema = current_schema() AND column_name LIKE '%'||$1||'%'
+			UNION ALL SELECT conname FROM pg_constraint WHERE connamespace = current_schema()::regnamespace AND conname LIKE '%'||$1||'%'
+			UNION ALL SELECT 'jobs:'||concurrency_key FROM jobs WHERE concurrency_key LIKE $1||':%'
+			UNION ALL SELECT 'embeddings_3:'||embeddable_type FROM embeddings_3 WHERE embeddable_type LIKE $1||'%'`, word)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
+	if _, err := s.Migrate(ctx, "down"); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO jobs (type, queue, concurrency_key) VALUES ('run_turn', 'turns', 'session:7')`,
+		`INSERT INTO embeddings_3 (embeddable_type, embeddable_id, model, embedding) VALUES ('session_event', 1, 'm', '[1,0,0]')`,
+	} {
+		if _, err := s.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Migrate(ctx, "up"); err != nil {
+		t.Fatal(err)
+	}
+	if left := leftovers("session"); len(left) > 0 {
+		t.Fatalf("still named after sessions: %v", left)
+	}
+	if got := leftovers("conversation"); !slices.Contains(got, "jobs:conversation:7") || !slices.Contains(got, "embeddings_3:conversation_event") {
+		t.Fatalf("stored values did not move: %v", got)
+	}
+	if _, err := s.Migrate(ctx, "down"); err != nil {
+		t.Fatal(err)
+	}
+	if left := leftovers("conversation"); len(left) > 0 {
+		t.Fatalf("down left conversation names: %v", left)
+	}
+	if _, err := s.Migrate(ctx, "up"); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -132,7 +132,7 @@ func takesTx(ft *ast.FuncType) bool {
 	return false
 }
 
-// svc owns turn state: only it appends turn.state events, under the session
+// svc owns turn state: only it appends turn.state events, under the conversation
 // lock. Everyone else asks svc (StartTurn, EndTurn, RequestApproval, Stop).
 func TestOnlySvcWritesTurnState(t *testing.T) {
 	appends := []string{"AppendEvent", "append", "appendRow", "appendTo"}

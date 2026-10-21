@@ -20,7 +20,7 @@ const (
 	replayPage   = 500
 )
 
-// streamEvents is the live SSE stream of a session, across turns and actors,
+// streamEvents is the live SSE stream of a conversation, across turns and actors,
 // durable and ephemeral events alike. Resume with Last-Event-ID, or ?after=
 // on a first connection; with neither it starts from now.
 func (s *Server) streamEvents(c *echo.Context) error {
@@ -28,12 +28,12 @@ func (s *Server) streamEvents(c *echo.Context) error {
 	req := c.Request()
 	ctx := req.Context()
 
-	after, err := s.resumePoint(c, cl.session.ID)
+	after, err := s.resumePoint(c, cl.conversation.ID)
 	if err != nil {
 		return err
 	}
 	// Subscribe before replaying so nothing falls between the two.
-	sub, cancel := s.hub.Subscribe(cl.session.ID)
+	sub, cancel := s.hub.Subscribe(cl.conversation.ID)
 	defer cancel()
 	metrics.Streams.Inc()
 	defer metrics.Streams.Dec()
@@ -60,7 +60,7 @@ func (s *Server) streamEvents(c *echo.Context) error {
 	}
 	replay := func() error {
 		for {
-			rows, err := s.store.EventsAfter(ctx, cl.session.ID, after, replayPage)
+			rows, err := s.store.EventsAfter(ctx, cl.conversation.ID, after, replayPage)
 			if err != nil {
 				return err
 			}
@@ -118,20 +118,20 @@ func (s *Server) streamEvents(c *echo.Context) error {
 }
 
 // resumePoint maps Last-Event-ID / ?after= (event uuids) to an internal id;
-// with neither it is the current end of the session.
-func (s *Server) resumePoint(c *echo.Context, session int64) (int64, error) {
+// with neither it is the current end of the conversation.
+func (s *Server) resumePoint(c *echo.Context, conversation int64) (int64, error) {
 	raw := c.Request().Header.Get("Last-Event-ID")
 	if raw == "" {
 		raw = c.QueryParam("after")
 	}
 	if raw == "" {
-		return s.store.LatestEventID(c.Request().Context(), session)
+		return s.store.LatestEventID(c.Request().Context(), conversation)
 	}
 	u, err := uuid.Parse(raw)
 	if err != nil {
 		return 0, echo.NewHTTPError(http.StatusBadRequest, "bad event id")
 	}
-	id, err := s.store.EventIDByUUID(c.Request().Context(), session, u)
+	id, err := s.store.EventIDByUUID(c.Request().Context(), conversation, u)
 	if db.IsNotFound(err) {
 		return 0, echo.NewHTTPError(http.StatusBadRequest, "unknown event id")
 	}

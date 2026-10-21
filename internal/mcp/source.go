@@ -29,19 +29,19 @@ type Result struct {
 }
 
 // MetaKey is the _meta key every tool call carries (reverse DNS, as the MCP
-// spec asks): who is acting, in which session and turn, so a tool server can
+// spec asks): who is acting, in which conversation and turn, so a tool server can
 // authorize the call itself. Its value is a TurnMeta.
 const MetaKey = "io.github.alash3al.hfy/turn"
 
 // TurnMeta is the per-call context sent under MetaKey.
 type TurnMeta struct {
-	Session string            `json:"session"` // session uuid
-	Turn    string            `json:"turn"`    // turn uuid
-	CallID  string            `json:"call_id"`
-	Agent   string            `json:"agent"` // the agent (or sub-agent) making the call
-	Actor   ActorMeta         `json:"actor"` // who started the turn
-	Scope   string            `json:"scope"`
-	Vars    map[string]string `json:"vars,omitempty"`
+	Conversation string            `json:"conversation"` // conversation uuid
+	Turn         string            `json:"turn"`         // turn uuid
+	CallID       string            `json:"call_id"`
+	Agent        string            `json:"agent"` // the agent (or sub-agent) making the call
+	Actor        ActorMeta         `json:"actor"` // who started the turn
+	Scope        string            `json:"scope"`
+	Vars         map[string]string `json:"vars,omitempty"`
 }
 
 type ActorMeta struct {

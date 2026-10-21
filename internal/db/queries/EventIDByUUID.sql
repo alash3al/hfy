@@ -1,1 +1,1 @@
-SELECT id FROM session_events WHERE uuid = @uuid AND session_id = @session
+SELECT id FROM conversation_events WHERE uuid = @uuid AND conversation_id = @conversation

@@ -1,3 +1,3 @@
-SELECT e.data FROM session_events e
-JOIN sessions s ON s.summary_id = e.id
-WHERE s.id = @session
+SELECT e.data FROM conversation_events e
+JOIN conversations s ON s.summary_id = e.id
+WHERE s.id = @conversation

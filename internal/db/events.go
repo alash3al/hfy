@@ -36,19 +36,19 @@ func (s *Store) FindOrCreateActor(ctx context.Context, q DBTX, typ types.ActorTy
 
 // NewEvent describes an event to append.
 type NewEvent struct {
-	SessionID int64
-	ParentID  *int64
-	ActorID   int64
-	Scope     string
-	Payload   types.Payload
-	RequestID *int64
+	ConversationID int64
+	ParentID       *int64
+	ActorID        int64
+	Scope          string
+	Payload        types.Payload
+	RequestID      *int64
 }
 
 // AppendEvent validates and inserts an event and notifies listeners on commit.
 // Events are never updated.
 //
-// Appends to one session are serialized (a transaction-scoped advisory lock on
-// the session id), so a session's event ids commit in id order. The stream and
+// Appends to one conversation are serialized (a transaction-scoped advisory lock on
+// the conversation id), so a conversation's event ids commit in id order. The stream and
 // Last-Event-ID resume rely on that: without it, an event that took a lower id
 // but committed later would be skipped forever.
 //
@@ -63,7 +63,7 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 		})
 		return row, err
 	}
-	if _, err := q.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", in.SessionID); err != nil {
+	if _, err := q.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", in.ConversationID); err != nil {
 		return EventRow{}, err
 	}
 	if err := in.Payload.Validate(); err != nil {
@@ -79,14 +79,14 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 		return EventRow{}, fmt.Errorf("event type %q is not registered", typ)
 	}
 	row, err := one[EventRow](q.Query(ctx, s.q("InsertEvent"), pgx.NamedArgs{
-		"session_id": in.SessionID, "parent_id": in.ParentID, "actor_id": in.ActorID,
+		"conversation_id": in.ConversationID, "parent_id": in.ParentID, "actor_id": in.ActorID,
 		"scope": in.Scope, "type": string(typ), "data": data, "v": v,
 		"ephemeral": types.Ephemeral(typ), "request_id": in.RequestID,
 	}))
 	if err != nil {
 		return EventRow{}, err
 	}
-	_, err = q.Exec(ctx, "SELECT pg_notify($1, $2)", ChanEvents, fmt.Sprintf("%d:%d", row.SessionID, row.ID))
+	_, err = q.Exec(ctx, "SELECT pg_notify($1, $2)", ChanEvents, fmt.Sprintf("%d:%d", row.ConversationID, row.ID))
 	return row, err
 }
 
@@ -119,28 +119,28 @@ func events(rows pgx.Rows, err error) ([]EventRow, error) {
 }
 
 // EventIDByUUID maps a public event uuid (cursor, Last-Event-ID) to its internal id.
-func (s *Store) EventIDByUUID(ctx context.Context, session int64, id uuid.UUID) (int64, error) {
+func (s *Store) EventIDByUUID(ctx context.Context, conversation int64, id uuid.UUID) (int64, error) {
 	var out int64
-	err := s.Pool.QueryRow(ctx, s.q("EventIDByUUID"), pgx.NamedArgs{"uuid": id, "session": session}).Scan(&out)
+	err := s.Pool.QueryRow(ctx, s.q("EventIDByUUID"), pgx.NamedArgs{"uuid": id, "conversation": conversation}).Scan(&out)
 	return out, err
 }
 
 // EventsAfter returns up to limit events (durable and ephemeral) after an internal id.
-func (s *Store) EventsAfter(ctx context.Context, session, after int64, limit int) ([]EventRow, error) {
+func (s *Store) EventsAfter(ctx context.Context, conversation, after int64, limit int) ([]EventRow, error) {
 	return events(s.Pool.Query(ctx, s.q("EventsAfter"),
-		pgx.NamedArgs{"session": session, "after": after, "limit": limit}))
+		pgx.NamedArgs{"conversation": conversation, "after": after, "limit": limit}))
 }
 
-func (s *Store) LatestEventID(ctx context.Context, session int64) (int64, error) {
+func (s *Store) LatestEventID(ctx context.Context, conversation int64) (int64, error) {
 	var id int64
-	err := s.Pool.QueryRow(ctx, s.q("LatestEventID"), pgx.NamedArgs{"session": session}).Scan(&id)
+	err := s.Pool.QueryRow(ctx, s.q("LatestEventID"), pgx.NamedArgs{"conversation": conversation}).Scan(&id)
 	return id, err
 }
 
 // HistoryTurnIDs returns turn ids newest first, keyset-paginated by before (nil = start).
-func (s *Store) HistoryTurnIDs(ctx context.Context, session int64, before *int64, limit int) ([]int64, error) {
+func (s *Store) HistoryTurnIDs(ctx context.Context, conversation int64, before *int64, limit int) ([]int64, error) {
 	rows, err := s.Pool.Query(ctx, s.q("HistoryTurns"),
-		pgx.NamedArgs{"session": session, "before": before, "limit": limit})
+		pgx.NamedArgs{"conversation": conversation, "before": before, "limit": limit})
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +148,9 @@ func (s *Store) HistoryTurnIDs(ctx context.Context, session int64, before *int64
 }
 
 // HistoryEvents returns the durable events of the given turns, grouped by turn.
-func (s *Store) HistoryEvents(ctx context.Context, session int64, turns []int64) ([]EventRow, error) {
+func (s *Store) HistoryEvents(ctx context.Context, conversation int64, turns []int64) ([]EventRow, error) {
 	return events(s.Pool.Query(ctx, s.q("HistoryEvents"),
-		pgx.NamedArgs{"session": session, "turns": turns}))
+		pgx.NamedArgs{"conversation": conversation, "turns": turns}))
 }
 
 // TurnEvents returns the durable events of one turn (the turn event first).
@@ -158,18 +158,18 @@ func (s *Store) TurnEvents(ctx context.Context, q DBTX, turn int64) ([]EventRow,
 	return events(q.Query(ctx, s.q("TurnEvents"), pgx.NamedArgs{"turn": turn}))
 }
 
-// TurnIDByUUID resolves a turn uuid within a session.
-func (s *Store) TurnIDByUUID(ctx context.Context, session int64, id uuid.UUID) (int64, error) {
+// TurnIDByUUID resolves a turn uuid within a conversation.
+func (s *Store) TurnIDByUUID(ctx context.Context, conversation int64, id uuid.UUID) (int64, error) {
 	var out int64
-	err := s.Pool.QueryRow(ctx, s.q("TurnIDByUUID"), pgx.NamedArgs{"uuid": id, "session": session}).Scan(&out)
+	err := s.Pool.QueryRow(ctx, s.q("TurnIDByUUID"), pgx.NamedArgs{"uuid": id, "conversation": conversation}).Scan(&out)
 	return out, err
 }
 
 // LoadContext returns the durable, prompt-relevant events of turns in
 // (afterTurn, uptoTurn], grouped by turn. One query.
-func (s *Store) LoadContext(ctx context.Context, session, afterTurn, uptoTurn int64) ([]EventRow, error) {
+func (s *Store) LoadContext(ctx context.Context, conversation, afterTurn, uptoTurn int64) ([]EventRow, error) {
 	return events(s.Pool.Query(ctx, s.q("LoadContext"),
-		pgx.NamedArgs{"session": session, "after_turn": afterTurn, "upto_turn": uptoTurn}))
+		pgx.NamedArgs{"conversation": conversation, "after_turn": afterTurn, "upto_turn": uptoTurn}))
 }
 
 // TurnStateOf returns the latest turn.state payload of a turn (nil if none).
@@ -187,8 +187,8 @@ func (s *Store) TurnStateOf(ctx context.Context, q DBTX, turn int64) (*types.Tur
 }
 
 // QueuedTurns returns ids of turns whose latest state is queued, oldest first.
-func (s *Store) QueuedTurns(ctx context.Context, q DBTX, session, after int64) ([]int64, error) {
-	rows, err := q.Query(ctx, s.q("QueuedTurns"), pgx.NamedArgs{"session": session, "after": after})
+func (s *Store) QueuedTurns(ctx context.Context, q DBTX, conversation, after int64) ([]int64, error) {
+	rows, err := q.Query(ctx, s.q("QueuedTurns"), pgx.NamedArgs{"conversation": conversation, "after": after})
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +204,10 @@ func (s *Store) TurnUsage(ctx context.Context, q DBTX, turn, actor int64) (u typ
 	return
 }
 
-// Summary returns the session's latest summary payload (nil if none).
-func (s *Store) Summary(ctx context.Context, session int64) (*types.Summary, error) {
+// Summary returns the conversation's latest summary payload (nil if none).
+func (s *Store) Summary(ctx context.Context, conversation int64) (*types.Summary, error) {
 	var raw []byte
-	err := s.Pool.QueryRow(ctx, s.q("SelectSummary"), pgx.NamedArgs{"session": session}).Scan(&raw)
+	err := s.Pool.QueryRow(ctx, s.q("SelectSummary"), pgx.NamedArgs{"conversation": conversation}).Scan(&raw)
 	if IsNotFound(err) {
 		return nil, nil
 	}
@@ -218,8 +218,8 @@ func (s *Store) Summary(ctx context.Context, session int64) (*types.Summary, err
 	return &sm, json.Unmarshal(raw, &sm)
 }
 
-func (s *Store) SetSummary(ctx context.Context, q DBTX, session, summaryEvent int64) error {
-	_, err := q.Exec(ctx, s.q("SetSummary"), pgx.NamedArgs{"id": session, "summary": summaryEvent})
+func (s *Store) SetSummary(ctx context.Context, q DBTX, conversation, summaryEvent int64) error {
+	_, err := q.Exec(ctx, s.q("SetSummary"), pgx.NamedArgs{"id": conversation, "summary": summaryEvent})
 	return err
 }
 
