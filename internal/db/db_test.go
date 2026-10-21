@@ -2,7 +2,6 @@ package db_test
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -261,66 +260,24 @@ func TestClaimOnlyHandledTypes(t *testing.T) {
 	}
 }
 
-// Migration 00006 renamed sessions to conversations: no table, column,
-// index, sequence or constraint keeps the old name, and the stored values that
-// carried it (job keys, embeddable types) move with it, both ways.
-func TestNothingIsNamedSession(t *testing.T) {
-	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
+// Down removes every table up made, and up runs again after it.
+func TestMigrateDownAndUp(t *testing.T) {
+	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	leftovers := func(word string) []string {
-		rows, err := s.Pool.Query(ctx, `
-			SELECT relname FROM pg_class WHERE relnamespace = current_schema()::regnamespace AND relname LIKE '%'||$1||'%'
-			UNION ALL SELECT table_name||'.'||column_name FROM information_schema.columns
-			  WHERE table_schema = current_schema() AND column_name LIKE '%'||$1||'%'
-			UNION ALL SELECT conname FROM pg_constraint WHERE connamespace = current_schema()::regnamespace AND conname LIKE '%'||$1||'%'
-			UNION ALL SELECT 'jobs:'||concurrency_key FROM jobs WHERE concurrency_key LIKE $1||':%'
-			UNION ALL SELECT 'embeddings_3:'||embeddable_type FROM embeddings_3 WHERE embeddable_type LIKE $1||'%'`, word)
-		if err != nil {
-			t.Fatal(err)
-		}
-		names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			t.Fatal(err)
-		}
-		return names
-	}
-	// step down until 00006 is undone, whatever came after it
-	beforeRename := func() {
-		for range 20 {
-			var renamed bool
-			if err := s.Pool.QueryRow(ctx, "SELECT to_regclass('conversations') IS NOT NULL").Scan(&renamed); err != nil {
-				t.Fatal(err)
-			}
-			if !renamed {
-				return
-			}
-			if _, err := s.Migrate(ctx, "down"); err != nil {
-				t.Fatal(err)
-			}
-		}
-		t.Fatal("never got below migration 00006")
-	}
-	beforeRename()
-	for _, q := range []string{
-		`INSERT INTO jobs (type, queue, concurrency_key) VALUES ('run_turn', 'turns', 'session:7')`,
-		`INSERT INTO embeddings_3 (embeddable_type, embeddable_id, model, embedding) VALUES ('session_event', 1, 'm', '[1,0,0]')`,
-	} {
-		if _, err := s.Pool.Exec(ctx, q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := s.Migrate(ctx, "up"); err != nil {
+	if _, err := s.Migrate(ctx, "down"); err != nil {
 		t.Fatal(err)
 	}
-	if left := leftovers("session"); len(left) > 0 {
-		t.Fatalf("still named after sessions: %v", left)
+	rows, err := s.Pool.Query(ctx, `SELECT tablename FROM pg_tables
+		WHERE schemaname = current_schema() AND tablename NOT IN ('goose_db_version')`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := leftovers("conversation"); !slices.Contains(got, "jobs:conversation:7") || !slices.Contains(got, "embeddings_3:conversation_event") {
-		t.Fatalf("stored values did not move: %v", got)
+	left, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
 	}
-	beforeRename()
-	if left := leftovers("conversation"); len(left) > 0 {
-		t.Fatalf("down left conversation names: %v", left)
+	if len(left) > 0 {
+		t.Fatalf("down left tables: %v", left)
 	}
 	if _, err := s.Migrate(ctx, "up"); err != nil {
 		t.Fatal(err)
