@@ -49,7 +49,7 @@ type ActorMeta struct {
 	Ref  string `json:"ref"`
 }
 
-// Source serves the tools of one MCP server (external) or the in-process harness server.
+// Source serves the tools of one MCP server (external) or the in-process built-in server (hfy).
 type Source interface {
 	Name() string
 	// Endpoint is the remote URL for remote servers, "" otherwise.
@@ -140,7 +140,7 @@ func (m *Manager) Call(ctx context.Context, full string, args json.RawMessage, m
 	return s.Call(ctx, tool, args, meta)
 }
 
-// Local is an in-process Source; the harness server is one.
+// Local is an in-process Source; the built-in server (hfy) is one.
 type Local struct {
 	name     string
 	mu       sync.RWMutex

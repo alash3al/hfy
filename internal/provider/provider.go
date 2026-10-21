@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,13 +98,18 @@ type Opts struct {
 	Backoff     time.Duration // first retry delay, doubled each time (default 1s)
 	OnText      func(string)
 	OnReasoning func(string)
-	Record      func(Record) int64
+	// OnRetry runs before an attempt that follows a failed one: what the
+	// failed attempt streamed through OnText/OnReasoning is void, since the
+	// answer starts over.
+	OnRetry func()
+	Record  func(Record) int64
 }
 
 // APIError is a non-2xx answer from the provider.
 type APIError struct {
-	Status int
-	Body   string
+	Status     int
+	Body       string
+	RetryAfter time.Duration // the provider's Retry-After, if any
 }
 
 func (e *APIError) Error() string { return fmt.Sprintf("provider returned %d: %s", e.Status, e.Body) }
@@ -135,10 +141,17 @@ func (c *Client) Chat(ctx context.Context, req Request, o Opts) (*Response, erro
 			return nil, err
 		}
 		if attempt < attempts {
+			wait := backoff << (attempt - 1)
+			if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.RetryAfter > 0 {
+				wait = apiErr.RetryAfter // the provider knows when it will take more
+			}
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(backoff << (attempt - 1)):
+			case <-time.After(wait):
+			}
+			if o.OnRetry != nil {
+				o.OnRetry()
 			}
 		}
 	}
@@ -214,10 +227,25 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(r, 8<<10))
-		return 0, &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(b))}
+		return 0, &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(b)),
+			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	rec.Response, err = read(resp.Header, r)
 	return 0, err
+}
+
+// maxRetryAfter caps how long a provider's Retry-After may hold a turn.
+const maxRetryAfter = time.Minute
+
+// retryAfter reads a Retry-After header: seconds or an HTTP date (RFC 9110).
+func retryAfter(h string, now time.Time) time.Duration {
+	var d time.Duration
+	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil {
+		d = time.Duration(secs) * time.Second
+	} else if t, err := http.ParseTime(h); err == nil {
+		d = t.Sub(now)
+	}
+	return min(max(d, 0), maxRetryAfter)
 }
 
 func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts) (*Response, error) {
@@ -329,6 +357,7 @@ func redactBody(body []byte) json.RawMessage {
 }
 
 type chunk struct {
+	Error   json.RawMessage `json:"error"` // some servers report a failure mid-stream
 	Choices []struct {
 		Delta struct {
 			Content          *string `json:"content"`
@@ -447,10 +476,15 @@ func (a *assembler) done() *Response {
 	return &a.resp
 }
 
+// errCutShort is a stream that ended before the answer did: neither [DONE]
+// nor a finish_reason arrived, so what came is not the whole answer.
+var errCutShort = errors.New("the stream ended before the answer finished")
+
 func readStream(r io.Reader, o Opts) (*Response, error) {
 	a := &assembler{calls: map[int]*ToolCall{}, o: o}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	done := false
 	for sc.Scan() {
 		line := sc.Text()
 		data, ok := strings.CutPrefix(line, "data:")
@@ -459,18 +493,38 @@ func readStream(r io.Reader, o Opts) (*Response, error) {
 		}
 		data = strings.TrimSpace(data)
 		if data == "[DONE]" {
+			done = true
 			break
 		}
 		var c chunk
 		if err := json.Unmarshal([]byte(data), &c); err != nil {
 			return nil, fmt.Errorf("bad stream chunk: %w", err)
 		}
+		if err := streamError(c.Error); err != nil {
+			return nil, err
+		}
 		a.add(c)
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
+	if !done && a.resp.FinishReason == "" {
+		return nil, errCutShort
+	}
 	return a.done(), nil
+}
+
+func streamError(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var e struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &e) == nil && e.Message != "" {
+		return fmt.Errorf("provider error in stream: %s", e.Message)
+	}
+	return fmt.Errorf("provider error in stream: %s", raw)
 }
 
 func readJSON(r io.Reader, o Opts) (*Response, error) {

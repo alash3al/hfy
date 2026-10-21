@@ -77,9 +77,10 @@ type Provider struct {
 type MCPServer struct {
 	Type        string            `yaml:"type"` // local | remote
 	Command     []string          `yaml:"command"`
-	Environment map[string]string `yaml:"environment"`
+	Environment map[string]string `yaml:"environment"` // a local server's only variables besides PATH, HOME and locale
 	URL         string            `yaml:"url"`
 	Headers     map[string]string `yaml:"headers"`
+	Timeout     Duration          `yaml:"timeout"` // longest a tool call may take
 }
 
 type Embeddings struct {
@@ -280,6 +281,12 @@ func (c *Config) applyDefaults() {
 			p.Timeout = Duration(60 * time.Second)
 		}
 		c.Providers[k] = p
+	}
+	for k, s := range c.MCP {
+		if s.Timeout == 0 {
+			s.Timeout = Duration(2 * time.Minute)
+		}
+		c.MCP[k] = s
 	}
 	if c.Agent.Approval != nil && c.Agent.Approval.Timeout == 0 {
 		c.Agent.Approval.Timeout = Duration(10 * time.Minute)

@@ -37,6 +37,10 @@ func MaybeRun() {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(meta)}}},
 				map[string]any{"component": "card", "title": "Margherita"}, nil
 		})
+	sdk.AddTool(s, &sdk.Tool{Name: "getenv", Description: "Return an environment variable of the server process"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: os.Getenv(in.Text)}}}, nil, nil
+		})
 	sdk.AddTool(s, &sdk.Tool{Name: "boom", Description: "Always fails"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
 			r := &sdk.CallToolResult{}

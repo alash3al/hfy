@@ -30,7 +30,7 @@ func TestLocalClientListsAndCalls(t *testing.T) {
 	m.Add(c)
 
 	tools, errs := m.Tools(ctx, nil)
-	if len(errs) > 0 || len(tools) != 5 { // echo, write_file, whoami, boom, slow
+	if len(errs) > 0 || len(tools) != 6 { // echo, write_file, whoami, getenv, boom, slow
 		t.Fatalf("tools=%v errs=%v", tools, errs)
 	}
 	if tools[0].FullName() != "files.boom" || mcp.WireName(tools[0]) != "files__boom" {
@@ -65,17 +65,48 @@ func TestCancelStopsTool(t *testing.T) {
 }
 
 func TestLocalSource(t *testing.T) {
-	l := mcp.NewLocal("harness")
+	l := mcp.NewLocal("local")
 	l.Add(mcp.Tool{Name: "ping"}, func(context.Context, json.RawMessage) (mcp.Result, error) {
 		return mcp.Result{Content: "pong"}, nil
 	})
 	m := mcp.NewManager()
 	m.Add(l)
-	r, err := m.Call(context.Background(), "harness.ping", nil, nil)
+	r, err := m.Call(context.Background(), "local.ping", nil, nil)
 	if err != nil || r.Content != "pong" {
 		t.Fatal(r, err)
 	}
-	if _, err := m.Call(context.Background(), "harness.nope", nil, nil); err == nil {
+	if _, err := m.Call(context.Background(), "local.nope", nil, nil); err == nil {
 		t.Fatal("unknown tool must error")
+	}
+}
+
+// A local server gets only what it needs from hfy's environment, never its
+// secrets, plus its own configured environment.
+func TestLocalServerDoesNotInheritSecrets(t *testing.T) {
+	t.Setenv("HFY_SERVER_SECRET", "leak")
+	c := mcp.NewClient(t.Context(), "files", fakeServer())
+	defer c.Close()
+	for name, want := range map[string]string{"HFY_SERVER_SECRET": "", "HFY_FAKE_MCP": "1", "PATH": os.Getenv("PATH")} {
+		res, err := c.Call(t.Context(), "getenv", json.RawMessage(`{"text":"`+name+`"}`), nil)
+		if err != nil || res.Content != want {
+			t.Fatalf("%s = %q (%v), want %q", name, res.Content, err, want)
+		}
+	}
+}
+
+// A tool that does not answer within the server's timeout fails the call, not
+// the turn, and the connection survives.
+func TestToolCallTimeout(t *testing.T) {
+	cfg := fakeServer()
+	cfg.Timeout = config.Duration(300 * time.Millisecond)
+	c := mcp.NewClient(t.Context(), "files", cfg)
+	defer c.Close()
+	start := time.Now()
+	_, err := c.Call(t.Context(), "slow", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "did not answer within 300ms") || time.Since(start) > 5*time.Second {
+		t.Fatalf("slow call: %v after %v", err, time.Since(start))
+	}
+	if res, err := c.Call(t.Context(), "echo", json.RawMessage(`{"text":"still here"}`), nil); err != nil || !strings.Contains(res.Content, "still here") {
+		t.Fatalf("after a timeout: %+v %v", res, err)
 	}
 }

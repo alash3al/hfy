@@ -32,10 +32,10 @@ var layers = map[string][]string{
 	"internal/provider":          {"metrics", "types"},
 	"internal/provider/fakeprov": {},
 	"internal/mcp":               {"config"},
-	"internal/mcp/harness":       {"config", "mcp"},
+	"internal/mcp/builtins":      {"config", "mcp"},
 	"internal/mcp/fakemcp":       {},
 	"internal/svc":               {"config", "db", "metrics", "types"}, // owns turn state; never the agent
-	"internal/agent":             {"config", "db", "jobs", "mcp", "mcp/harness", "metrics", "provider", "svc", "types"},
+	"internal/agent":             {"config", "db", "jobs", "mcp", "mcp/builtins", "metrics", "provider", "svc", "types"},
 	"internal/httpapi":           {"auth", "config", "db", "metrics", "svc", "types"}, // never the agent: API and workers scale apart
 }
 

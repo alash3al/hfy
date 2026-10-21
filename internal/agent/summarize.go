@@ -13,14 +13,20 @@ import (
 
 type providerMessage = provider.Message
 
-// summarizeHook triggers summarization before a model request once the prompt
-// reached the agent's context_window, then rebuilds the loop's context.
+// compactAt is the share of context_window (the model's real window) at
+// which history is summarized: the rest is room for the reply and the tool
+// results of the step, so a request never overflows before compaction.
+const compactAt = 0.8
+
+// summarizeHook triggers summarization before a model request once the
+// prompt reached compactAt of the agent's context_window, then rebuilds the
+// loop's context.
 func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) error {
 	if rt.Summ == nil {
 		return nil
 	}
 	return func(ctx context.Context, l *loop) error {
-		if l.lastPrompt < int64(l.spec.Settings.ContextWindow) {
+		if float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow) {
 			return nil
 		}
 		changed, err := rt.summarize(ctx, env)
@@ -32,7 +38,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 			return err
 		}
 		l.system, l.msgs = bc.System, bc.Msgs
-		l.lastPrompt = estimateTokens(bc.System, bc.Msgs)
+		l.measure(0)
 		l.deriveActivated(ctx)
 		return nil
 	}

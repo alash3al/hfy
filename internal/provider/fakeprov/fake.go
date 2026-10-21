@@ -25,6 +25,8 @@ type Step struct {
 	Delay     chan struct{}
 	// ChunkDelay is slept before every streamed chunk (a slow generation).
 	ChunkDelay time.Duration
+	RetryAfter string // Retry-After header of a failed Status
+	CutShort   bool   // stream Content, then end without finishing (a dropped connection)
 }
 
 type Call struct {
@@ -93,6 +95,9 @@ func (f *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if step.Status != 0 && step.Status != 200 {
+		if step.RetryAfter != "" {
+			w.Header().Set("Retry-After", step.RetryAfter)
+		}
 		http.Error(w, "scripted failure", step.Status)
 		return
 	}
@@ -134,6 +139,9 @@ func (f *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, part := range split(step.Content, 3) {
 		send(map[string]any{"content": part}, nil)
+	}
+	if step.CutShort {
+		return
 	}
 	for i, c := range step.Calls {
 		half := len(c.Args) / 2

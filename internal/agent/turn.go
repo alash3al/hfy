@@ -99,7 +99,8 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if runErr == nil {
 		var bc *BuiltContext
 		if bc, runErr = rt.BuildContext(tctx, turn.SessionID, turn.ID, spec); runErr == nil {
-			l.system, l.msgs, l.lastPrompt = bc.System, bc.Msgs, estimateTokens(bc.System, bc.Msgs)
+			l.system, l.msgs = bc.System, bc.Msgs
+			l.measure(0)
 			l.deriveActivated(tctx)
 			l.prepare = rt.summarizeHook(env)
 			res, runErr = l.run(tctx)

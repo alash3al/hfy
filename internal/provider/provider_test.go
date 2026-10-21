@@ -104,3 +104,28 @@ func TestChatTimeoutIsIdleNotTotal(t *testing.T) {
 		t.Fatalf("timeout took %s", d)
 	}
 }
+
+// A retried answer starts over: the hook tells the caller to drop what the
+// failed attempt streamed, and a provider's Retry-After sets the wait.
+func TestRetryStartsOver(t *testing.T) {
+	f := fakeprov.New(t,
+		fakeprov.Step{Content: "Hello wor", CutShort: true},
+		fakeprov.Step{Status: 429, RetryAfter: "1"},
+		fakeprov.Step{Content: "Hello world"},
+	)
+	c := provider.New("p", f.URL1(), "", time.Second)
+	var streamed string
+	retries := 0
+	start := time.Now()
+	resp, err := c.Chat(t.Context(), provider.Request{Model: "m"}, provider.Opts{
+		MaxAttempts: 3, Backoff: time.Millisecond,
+		OnText:  func(s string) { streamed += s },
+		OnRetry: func() { retries++; streamed = "" },
+	})
+	if err != nil || resp.Content != "Hello world" || streamed != "Hello world" || retries != 2 {
+		t.Fatalf("resp=%+v err=%v streamed=%q retries=%d", resp, err, streamed, retries)
+	}
+	if time.Since(start) < time.Second {
+		t.Fatal("Retry-After: 1 must be honored")
+	}
+}

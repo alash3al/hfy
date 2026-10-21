@@ -42,6 +42,12 @@ func NewClient(base context.Context, name string, cfg config.MCPServer) *Client 
 // retryAfter keeps an unreachable server from adding a connect attempt to every step.
 const retryAfter = 10 * time.Second
 
+// inherited is all a local server gets from hfy's environment: enough to run
+// a program. hfy's environment holds its secrets (the config's ${VAR}s:
+// database URL, server secret, provider keys), so anything else a server
+// needs is given to it explicitly in its environment setting.
+var inherited = []string{"PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TZ", "SYSTEMROOT"}
+
 func (c *Client) Name() string { return c.name }
 
 func (c *Client) Endpoint() string {
@@ -69,7 +75,12 @@ func (c *Client) connect() (*sdk.ClientSession, error) {
 	switch c.cfg.Type {
 	case "local":
 		cmd := exec.Command(c.cfg.Command[0], c.cfg.Command[1:]...)
-		cmd.Env = os.Environ()
+		cmd.Env = []string{}
+		for _, k := range inherited {
+			if v, ok := os.LookupEnv(k); ok {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+		}
 		for k, v := range c.cfg.Environment {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
@@ -141,13 +152,19 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 		args = json.RawMessage(`{}`)
 	}
 	// Cancelling ctx makes the SDK send notifications/cancelled to the server.
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout())
+	defer cancel()
 	params := &sdk.CallToolParams{Name: tool, Arguments: args}
 	if meta != nil {
 		params.Meta = sdk.Meta{MetaKey: meta}
 	}
-	res, err := sess.CallTool(ctx, params)
+	res, err := sess.CallTool(callCtx, params)
 	if err != nil {
-		if ctx.Err() == nil { // a transport failure, not a cancellation
+		switch {
+		case ctx.Err() != nil: // the turn was cancelled
+		case callCtx.Err() != nil:
+			err = fmt.Errorf("%s.%s did not answer within %s", c.name, tool, c.timeout())
+		default: // a transport failure: reconnect on the next call
 			c.mu.Lock()
 			if c.session == sess {
 				c.drop()
@@ -161,6 +178,13 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 		out.Structured, _ = json.Marshal(res.StructuredContent)
 	}
 	return out, nil
+}
+
+func (c *Client) timeout() time.Duration {
+	if d := c.cfg.Timeout.D(); d > 0 {
+		return d
+	}
+	return 2 * time.Minute // a Client made without config defaults (tests)
 }
 
 // Close ends the connection (and the child process for local servers).

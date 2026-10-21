@@ -1,8 +1,8 @@
-// Package harness holds the built-in tools, served by the in-process MCP
+// Package builtins holds the built-in tools, served by the in-process MCP
 // server named "hfy" as hfy.<tool>. The core tools are pure and served from
 // here; the handlers of those that need runtime state (searches, sub-agents)
 // live in the agent package.
-package harness
+package builtins
 
 import (
 	"context"
@@ -47,7 +47,7 @@ type def struct {
 var defs = func() map[string]def {
 	m := map[string]def{}
 	if err := json.Unmarshal(raw, &m); err != nil {
-		panic("harness/tools.json: " + err.Error())
+		panic("builtins/tools.json: " + err.Error())
 	}
 	return m
 }()

@@ -35,7 +35,8 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #   files:
 #     type: local
 #     command: [mcp-filesystem, /data]
-#     environment: { LOG: "1" }
+#     environment: { LOG: "1" }      # its only variables besides PATH, HOME, locale
+#     timeout: 2m                    # longest a tool call may take (default 2m)
 #   search:
 #     type: remote
 #     url: https://search.example.com/mcp

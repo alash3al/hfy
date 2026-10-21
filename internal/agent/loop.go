@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/alash3al/hfy/internal/mcp"
-	"github.com/alash3al/hfy/internal/mcp/harness"
+	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
@@ -24,12 +25,15 @@ var (
 )
 
 // toolSearchName is the full name of the built-in tool search.
-const toolSearchName = harness.Server + "." + harness.ToolSearch
+const toolSearchName = builtins.Server + "." + builtins.ToolSearch
 
 const (
-	repeatWarn  = 3 // the third identical call is refused with advice
-	repeatAbort = 6 // the sixth ends the turn
-	maxResult   = 100_000
+	repeatWarn  = 3       // the third identical call is refused with advice
+	repeatAbort = 6       // the sixth ends the turn
+	maxResult   = 100_000 // bytes of a tool result the model sees
+	// maxStructured bounds a tool's structuredContent, stored with its result
+	// for clients.
+	maxStructured = 1 << 20
 )
 
 // Outcome is how a loop run ended (cancellation is returned as an error).
@@ -93,7 +97,10 @@ type loop struct {
 	counts    map[string]int
 	steps     int // steps already taken (includes earlier runs of a resumed turn)
 
+	// The prompt's size in tokens when last measured, and len(msgs) then:
+	// what was added since is estimated on top (see promptSize).
 	lastPrompt int64
+	measuredAt int
 	// prepare may rebuild msgs before a model call (summarization).
 	prepare func(ctx context.Context, l *loop) error
 }
@@ -114,6 +121,21 @@ func (l *loop) addUsage(u types.Usage) {
 	if l.total != l.env.Total {
 		l.env.Total.add(u) // sub-agent usage counts toward the parent's turn
 	}
+}
+
+// measure records the size of the prompt just sent: what the provider
+// reported, or an estimate when it reports none (0).
+func (l *loop) measure(reported int64) {
+	l.lastPrompt, l.measuredAt = reported, len(l.msgs)
+	if reported == 0 {
+		l.lastPrompt = estimateTokens(l.system, l.msgs)
+	}
+}
+
+// promptSize is the size the next request will have: the last measurement
+// plus an estimate of the messages added since (replies, tool results).
+func (l *loop) promptSize() int64 {
+	return l.lastPrompt + estimateTokens("", l.msgs[l.measuredAt:])
 }
 
 func (l *loop) limitHit() string {
@@ -156,7 +178,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		}
 		resp, err := l.spec.Client.Chat(ctx, req, provider.Opts{
 			MaxAttempts: l.rt.Cfg.Queue.MaxAttempts,
-			OnText:      l.sink.TextDelta, OnReasoning: l.sink.ReasoningDelta,
+			OnText:      l.sink.TextDelta, OnReasoning: l.sink.ReasoningDelta, OnRetry: l.sink.Restart,
 			Record: l.sink.Record(kind),
 		})
 		if err != nil {
@@ -170,7 +192,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		for kind, n := range map[string]int64{"input": resp.Usage.Input, "output": resp.Usage.Output, "cached": resp.Usage.Cached} {
 			metrics.Tokens.WithLabelValues(l.spec.Name, kind).Add(float64(n))
 		}
-		l.lastPrompt = resp.PromptTokens
+		l.measure(resp.PromptTokens)
 		text := types.Clean(resp.Content)
 		if err := l.sink.Step(ctx, StepOut{Reasoning: types.Clean(resp.Reasoning), Text: text,
 			Usage: resp.Usage, Model: l.spec.Model, RequestID: resp.RequestID}); err != nil {
@@ -216,6 +238,9 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 		name = tool.FullName()
 	}
 	args, argsOK := normalizeArgs(tc.Arguments)
+	if known && argsOK {
+		args = dropNullOptionals(tool.Schema, args)
+	}
 	info := CallInfo{ID: tc.ID, Name: name, Args: args}
 	if err := l.sink.CallStarted(ctx, info); err != nil {
 		return callOutcome{}, err
@@ -305,7 +330,11 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	}
 	res.Content = types.Clean(res.Content)
 	if len(res.Content) > maxResult {
-		res.Content = res.Content[:maxResult] + "\n[truncated]"
+		res.Content = strings.ToValidUTF8(res.Content[:maxResult], "") + "\n[truncated]" // never half a character
+	}
+	if len(res.Structured) > maxStructured {
+		slog.Warn("tool's structured result dropped: too large", "tool", tool.FullName(), "bytes", len(res.Structured))
+		res.Structured = nil
 	}
 	return res
 }
@@ -314,9 +343,9 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 // wire-name lookup used to resolve its calls.
 func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.Tool) {
 	var shown, all []mcp.Tool
-	hs, _ := l.rt.harness.Tools(ctx)
+	hs, _ := l.rt.builtins.Tools(ctx)
 	for _, t := range hs {
-		if l.spec.Harness[t.Name] {
+		if l.spec.Builtins[t.Name] {
 			shown = append(shown, t)
 			all = append(all, t)
 		}
@@ -324,7 +353,7 @@ func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.To
 	if l.spec.MCP == nil {
 		ext, _ := l.rt.MCP.Tools(ctx, nil)
 		for _, t := range ext {
-			if t.Server == harness.Server {
+			if t.Server == builtins.Server {
 				continue
 			}
 			all = append(all, t) // callable if the model names it, shown once found
@@ -357,7 +386,7 @@ func (l *loop) validNames(lookup map[string]mcp.Tool) string {
 	if len(names) > 40 {
 		names = append(names[:40], "...")
 	}
-	if l.spec.Harness[harness.ToolSearch] {
+	if l.spec.Builtins[builtins.ToolSearch] {
 		names = append(names, "(use "+mcp.WireNameOf(toolSearchName)+" to find more)")
 	}
 	return strings.Join(names, ", ")
@@ -410,6 +439,31 @@ func normalizeArgs(raw string) (json.RawMessage, bool) {
 	}
 	b, _ := json.Marshal(types.Clean(raw)) // keep what the model said, as a JSON string
 	return b, false
+}
+
+// dropNullOptionals removes optional fields the model set to null: models
+// (strict modes especially) send null for "not given", which a schema typed
+// "integer" would reject, here and in the tool server.
+func dropNullOptionals(schema, args json.RawMessage) json.RawMessage {
+	var obj map[string]json.RawMessage
+	var s struct {
+		Required []string `json:"required"`
+	}
+	if json.Unmarshal(args, &obj) != nil || json.Unmarshal(schema, &s) != nil {
+		return args
+	}
+	dropped := false
+	for k, v := range obj {
+		if string(v) == "null" && !slices.Contains(s.Required, k) {
+			delete(obj, k)
+			dropped = true
+		}
+	}
+	if !dropped {
+		return args
+	}
+	b, _ := json.Marshal(obj)
+	return b
 }
 
 func compact(b json.RawMessage) string {

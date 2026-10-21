@@ -17,7 +17,7 @@ import (
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
-	"github.com/alash3al/hfy/internal/mcp/harness"
+	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
@@ -38,10 +38,10 @@ var promptSummarizer string
 //go:embed prompts/room.txt
 var promptRoom string
 
-// core gives the spec hfy's core tools (harness.CoreTools).
+// core gives the spec hfy's core tools (builtins.CoreTools).
 func (s *Spec) core() {
-	for _, c := range harness.CoreTools() {
-		s.Harness[c.Tool.Name] = true
+	for _, c := range builtins.CoreTools() {
+		s.Builtins[c.Tool.Name] = true
 	}
 }
 
@@ -55,7 +55,7 @@ type Spec struct {
 	System      string
 	Limits      config.Limits
 	MCP         []string        // nil = all servers, through tool search
-	Harness     map[string]bool // harness tools this agent may use
+	Builtins    map[string]bool // built-in (hfy.*) tools this agent may use
 	Top         bool            // a configured agent that runs turns (not a sub-agent or the summarizer)
 	Approval    *config.Approval
 }
@@ -74,16 +74,16 @@ type Runtime struct {
 	Embedder  *provider.Client
 	EmbModel  string
 
-	harness *mcp.Local
-	cancels sync.Map // turn event id -> context.CancelCauseFunc
-	http    *attachmentFetcher
+	builtins *mcp.Local
+	cancels  sync.Map // turn event id -> context.CancelCauseFunc
+	http     *attachmentFetcher
 }
 
 func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime, error) {
 	rt := &Runtime{
 		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), MCP: mgr,
 		Providers: map[string]*provider.Client{}, Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
-		harness: mcp.NewLocal(harness.Server),
+		builtins: mcp.NewLocal(builtins.Server),
 	}
 	for name, p := range cfg.Providers {
 		rt.Providers[name] = provider.New(name, p.URL, p.APIKey, p.Timeout.D())
@@ -91,7 +91,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	spec := func(name, model string, st config.Settings, system string, lim config.Limits, servers []string) *Spec {
 		prov, m := config.SplitModel(model)
 		return &Spec{Name: name, Client: rt.Providers[prov], Model: m, Settings: st, System: system,
-			Limits: lim, MCP: servers, Harness: map[string]bool{}}
+			Limits: lim, MCP: servers, Builtins: map[string]bool{}}
 	}
 	if cfg.Embeddings != nil {
 		prov, m := config.SplitModel(cfg.Embeddings.Model)
@@ -101,10 +101,10 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
 		s.Top, s.Approval = true, a.Approval
 		s.core()
-		s.Harness[harness.ToolSearch] = a.MCP == nil
-		s.Harness[harness.SessionSearch] = cfg.Embeddings != nil
+		s.Builtins[builtins.ToolSearch] = a.MCP == nil
+		s.Builtins[builtins.SessionSearch] = cfg.Embeddings != nil
 		for sub := range cfg.Subagents {
-			s.Harness[sub] = true // every agent may delegate to every sub-agent
+			s.Builtins[sub] = true // every agent may delegate to every sub-agent
 		}
 		rt.Agents[name] = s
 	}
@@ -114,7 +114,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		s.Description = sc.Description
 		s.core()
 		if sc.MCP == nil {
-			s.Harness[harness.ToolSearch] = true
+			s.Builtins[builtins.ToolSearch] = true
 		}
 		rt.Subs[name] = s
 	}
@@ -126,8 +126,8 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		rt.Summ = spec(types.AgentSummarizer, sm.Model, sm.Settings, system, config.Limits{}, []string{})
 	}
 	rt.http = newAttachmentFetcher(cfg)
-	rt.registerHarness()
-	mgr.Add(rt.harness)
+	rt.registerBuiltins()
+	mgr.Add(rt.builtins)
 	return rt, nil
 }
 

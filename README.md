@@ -64,7 +64,9 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 - `${VAR}` / `${VAR:-default}` expand from the environment in string values
   (never keys); a missing variable without a default stops startup and names
   it; `$$` is a literal `$`. Quote the value inside YAML flow maps (`{ a: "${X}" }`).
-- `agent.settings.context_window` is required (there is no auto-discovery).
+- `agent.settings.context_window` is required (there is no auto-discovery):
+  the model's real window. History is compacted at 80% of it, leaving room
+  for the reply and the step's tool results.
   Set it somewhat below the model's real limit.
 - `agent.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
   (small prompt). Set it to restrict, and the tools are listed directly.
@@ -205,9 +207,14 @@ event as stored.
   unchanged); make actor refs readable (the webhook's `actor`) if the model
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
-- **Memory.** The summarizer appends a `summary` event when the prompt reaches
-  `context_window` (history is never deleted). With `embeddings` configured,
+- **Memory.** The summarizer appends a `summary` event when the next prompt
+  would pass 80% of `context_window` (history is never deleted). It folds
+  earlier turns, never the running one, so a single turn with very large tool
+  results can still outgrow the window. With `embeddings` configured,
   `hfy__session_search` finds earlier messages of the same `scope`.
+- **MCP servers.** A local server inherits only `PATH`, `HOME`, `USER`, locale,
+  `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
+  `environment`. Each tool call has `timeout` (default 2m) to answer.
 - **Attachments** are references your app hosts. Hosts, types and size are
   checked when the message is posted. Images go to the model only in the turn
   they arrive in; local providers get the bytes inlined.

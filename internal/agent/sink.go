@@ -36,6 +36,9 @@ type StepOut struct {
 type Sink interface {
 	TextDelta(string)
 	ReasoningDelta(string)
+	// Restart drops what the current model call streamed: the provider is
+	// answering again from the start (a retried attempt).
+	Restart()
 	Step(ctx context.Context, s StepOut) error
 	CallStarted(ctx context.Context, c CallInfo) error
 	CallFinished(ctx context.Context, c CallInfo, r mcp.Result) error
@@ -126,6 +129,15 @@ func (s *turnSink) ReasoningDelta(t string) {
 	s.mu.Lock()
 	s.reason += t
 	s.armLocked()
+	s.mu.Unlock()
+}
+
+// Restart forgets the failed attempt's text, so a stop keeps only the answer
+// being streamed now. Deltas already sent stay in the live preview, which the
+// step's message.text replaces.
+func (s *turnSink) Restart() {
+	s.mu.Lock()
+	s.text, s.reason, s.partial = "", "", ""
 	s.mu.Unlock()
 }
 
@@ -249,6 +261,7 @@ type quietSink struct {
 
 func (s *quietSink) TextDelta(string)      {}
 func (s *quietSink) ReasoningDelta(string) {}
+func (s *quietSink) Restart()              {}
 
 func (s *quietSink) Step(ctx context.Context, o StepOut) error {
 	if !s.persisted {

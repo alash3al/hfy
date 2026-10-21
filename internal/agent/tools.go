@@ -10,24 +10,24 @@ import (
 	"strings"
 
 	"github.com/alash3al/hfy/internal/mcp"
-	"github.com/alash3al/hfy/internal/mcp/harness"
+	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// registerHarness serves the built-ins from the in-process "hfy" server, so
+// registerBuiltins serves the built-ins from the in-process "hfy" server, so
 // they take the same path as every other tool.
-func (rt *Runtime) registerHarness() {
-	for _, c := range harness.CoreTools() {
-		rt.harness.Add(c.Tool, c.Run)
+func (rt *Runtime) registerBuiltins() {
+	for _, c := range builtins.CoreTools() {
+		rt.builtins.Add(c.Tool, c.Run)
 	}
-	rt.harness.Add(harness.ToolSearchTool(), rt.toolSearch)
+	rt.builtins.Add(builtins.ToolSearchTool(), rt.toolSearch)
 	if rt.Cfg.Embeddings != nil {
-		rt.harness.Add(harness.SessionSearchTool(), rt.sessionSearch)
+		rt.builtins.Add(builtins.SessionSearchTool(), rt.sessionSearch)
 	}
 	for _, name := range slices.Sorted(maps.Keys(rt.Subs)) {
 		sub := rt.Subs[name]
-		rt.harness.Add(harness.SubagentTool(name, sub.Description),
+		rt.builtins.Add(builtins.SubagentTool(name, sub.Description),
 			func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
 				var in struct {
 					Task string `json:"task"`
@@ -65,7 +65,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 	}
 	var hits []scored
 	for _, t := range all {
-		if t.Server == harness.Server {
+		if t.Server == builtins.Server {
 			continue
 		}
 		name := strings.ToLower(t.FullName())
