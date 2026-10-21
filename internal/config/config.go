@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"reflect"
@@ -46,6 +47,9 @@ type Metrics struct {
 type Server struct {
 	Listen string `yaml:"listen"`
 	Secret string `yaml:"secret"`
+	// CORSOrigins are the web origins whose pages may call the client routes
+	// (["*"] for any). The backend routes never answer a browser.
+	CORSOrigins []string `yaml:"cors_origins"`
 }
 
 type Storage struct {
@@ -308,6 +312,11 @@ func (c *Config) Validate() error {
 	if c.Server.Secret == "" {
 		bad("server.secret is required")
 	}
+	for _, o := range c.Server.CORSOrigins {
+		if !validOrigin(o) || o == "*" && len(c.Server.CORSOrigins) > 1 {
+			bad("server.cors_origins: %q must be scheme://host[:port] with no path or trailing slash, or \"*\" alone", o)
+		}
+	}
 	if c.Storage.URL == "" {
 		bad("storage.url is required")
 	}
@@ -446,6 +455,19 @@ func (c *Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// validOrigin reports whether o is written as a browser sends its Origin
+// header, so it can ever match: "*", or lowercase http(s)://host[:port] with
+// no path, no trailing slash and no default port.
+func validOrigin(o string) bool {
+	if o == "*" {
+		return true
+	}
+	u, err := url.Parse(o)
+	defaultPort := u != nil && (u.Scheme == "https" && u.Port() == "443" || u.Scheme == "http" && u.Port() == "80")
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && !defaultPort &&
+		u.String() == u.Scheme+"://"+u.Host && strings.ToLower(o) == o
 }
 
 // BuiltinServer names the in-process MCP server of hfy's own tools (hfy.now,

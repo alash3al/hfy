@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
@@ -50,6 +51,16 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	// A client's routes name no conversation: its grant holds it. Only the
 	// stream takes the token as ?token=, since EventSource cannot set headers.
 	client := v1.Group("/conversation")
+	if origins := cfg.Server.CORSOrigins; len(origins) > 0 {
+		// Browsers may call these routes only. Tokens travel in a header, never
+		// in cookies, so no credentials mode; preflights are cached an hour.
+		client.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: origins,
+			AllowMethods: []string{http.MethodGet, http.MethodPost},
+			AllowHeaders: []string{"Authorization", "Content-Type", "Last-Event-ID"},
+			MaxAge:       3600,
+		}))
+	}
 	header, headerOrQuery := srv.requireGrant(false), srv.requireGrant(true)
 	client.POST("/messages", srv.postMessage, header)
 	client.GET("/events", srv.streamEvents, headerOrQuery)

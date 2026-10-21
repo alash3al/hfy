@@ -4,6 +4,7 @@
 server:
   listen: ":8080"                    # optional (default :8080)
   secret: ${HFY_SERVER_SECRET}       # required: your backend's key (conversations, grants)
+  # cors_origins: ["https://shop.example.com"]  # web pages that may call the client routes; ["*"] = any
 
 storage:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
   url: ${DATABASE_URL}

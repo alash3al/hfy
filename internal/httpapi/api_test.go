@@ -664,3 +664,80 @@ func TestEveryBodyIsBounded(t *testing.T) {
 		t.Fatalf("a 3 MiB grant body must be refused, got %d", code)
 	}
 }
+
+// Browsers on the configured origins may call the client routes, errors
+// included (so a page can read its 401). The backend routes never answer a
+// browser, and an origin not listed gets no CORS headers.
+func TestCORS(t *testing.T) {
+	const site, evil = "https://shop.example.com", "https://evil.example.com"
+	a := start(t, func(c *config.Config) { c.Server.CORSOrigins = []string{site} })
+	token := a.session()
+	auth := "Bearer " + token
+
+	r := a.browser(http.MethodOptions, client+"/messages", site, "")
+	if r.code != http.StatusNoContent || r.Get("Access-Control-Allow-Origin") != site ||
+		!strings.Contains(r.Get("Access-Control-Allow-Methods"), "POST") ||
+		!strings.Contains(strings.ToLower(r.Get("Access-Control-Allow-Headers")), "authorization") ||
+		r.Get("Access-Control-Max-Age") != "3600" || r.Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatalf("preflight: %d %v", r.code, r.Header)
+	}
+	for _, c := range []struct {
+		path, auth string
+		code       int
+	}{
+		{client + "/history", auth, http.StatusOK},
+		{client + "/history", "", http.StatusUnauthorized}, // a page must be able to read its 401
+		{client + "/events?token=" + token, "", http.StatusOK},
+	} {
+		if r := a.browser(http.MethodGet, c.path, site, c.auth); r.code != c.code || r.Get("Access-Control-Allow-Origin") != site {
+			t.Errorf("GET %s: %d %v", c.path, r.code, r.Header)
+		}
+	}
+	for _, c := range []struct{ method, path, origin, auth string }{
+		{http.MethodOptions, client + "/messages", evil, ""},
+		{http.MethodGet, client + "/history", evil, auth},
+		{http.MethodOptions, "/v1/grants", site, ""},
+		{http.MethodOptions, "/v1/conversations", site, ""},
+		{http.MethodPost, "/v1/conversations", site, "Bearer " + secret},
+	} {
+		if v := a.browser(c.method, c.path, c.origin, c.auth).Get("Access-Control-Allow-Origin"); v != "" {
+			t.Errorf("%s %s answered a browser from %s: %q", c.method, c.path, c.origin, v)
+		}
+	}
+}
+
+// Without cors_origins no route answers a browser on another origin.
+func TestNoCORSByDefault(t *testing.T) {
+	a := start(t, nil)
+	if v := a.browser(http.MethodOptions, client+"/messages", "https://shop.example.com", "").Get("Access-Control-Allow-Origin"); v != "" {
+		t.Fatalf("CORS without config: %q", v)
+	}
+}
+
+type answer struct {
+	code int
+	http.Header
+}
+
+// browser sends what a page on origin would: an OPTIONS is a preflight for a
+// POST with a token and JSON. It returns the status and headers only.
+func (a *api) browser(method, path, origin, auth string) answer {
+	a.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // a stream answers, then is cut
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, method, a.url+path, nil)
+	req.Header.Set("Origin", origin)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	if method == http.MethodOptions {
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		req.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	resp.Body.Close()
+	return answer{resp.StatusCode, resp.Header}
+}

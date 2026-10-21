@@ -107,7 +107,11 @@ Your backend (`Authorization: Bearer <server.secret>`):
 The client (`Authorization: Bearer <token>`; on `/events` also `?token=`, for
 `EventSource`). The grant names the conversation, so these paths name none. A
 token that is missing, unknown, expired or revoked is `401`; a grant whose
-agent the config no longer has is `403`.
+agent the config no longer has is `403`. Pages on another origin need it in
+`server.cors_origins` (exact origins as the browser sends them, or `["*"]`).
+Only these routes answer browsers, errors included; the backend routes never
+do, so the server secret cannot work from a page. Tokens are never cookies, so
+there is no credentials mode.
 
 - `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
@@ -301,6 +305,6 @@ survive many contributors, so prefer adding a check to adding a sentence.
 
 ### Not in v1
 
-Images returned by MCP tools (they become a text placeholder), CORS (browser
-clients on another origin), semantic `tool_search` (keyword today), structured output, provider failover,
+Images returned by MCP tools (they become a text placeholder),
+semantic `tool_search` (keyword today), structured output, provider failover,
 other stream formats, a JS client, an OpenAI-compatible adapter.

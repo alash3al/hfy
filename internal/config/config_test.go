@@ -157,3 +157,27 @@ func TestNamedAgents(t *testing.T) {
 		}
 	}
 }
+
+// An origin is accepted only as a browser writes it, so it can ever match.
+func TestCORSOrigins(t *testing.T) {
+	base := "storage: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	for origins, ok := range map[string]bool{
+		`["https://shop.example.com"]`:                       true,
+		`["http://localhost:5173", "https://a.example.com"]`: true,
+		`["*"]`:                             true,
+		`["https://shop.example.com/"]`:     false, // trailing slash
+		`["https://shop.example.com/app"]`:  false,
+		`["https://shop.example.com:443"]`:  false, // browsers omit the default port
+		`["http://shop.example.com:80"]`:    false,
+		`["https://Shop.example.com"]`:      false,
+		`["shop.example.com"]`:              false,
+		`["ftp://shop.example.com"]`:        false,
+		`["https://shop.example.com?x=1"]`:  false,
+		`["*", "https://shop.example.com"]`: false, // "*" alone
+	} {
+		_, err := Parse([]byte(base+"server: {secret: s, cors_origins: "+origins+"}\n"), env(nil))
+		if (err == nil) != ok {
+			t.Errorf("%s: ok=%v, got %v", origins, ok, err)
+		}
+	}
+}
