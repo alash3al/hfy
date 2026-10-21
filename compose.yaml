@@ -23,7 +23,7 @@ services:
       DATABASE_URL: postgres://postgres:hfy@db:5432/hfy?sslmode=disable
       HFY_SERVER_SECRET: ${HFY_SERVER_SECRET:?set HFY_SERVER_SECRET}
     volumes:
-      - ./harness.yaml:/etc/hfy/harness.yaml:ro
+      - ./hfy.yaml:/etc/hfy/hfy.yaml:ro
     ports:
       - "8080:8080"
     healthcheck:                           # readiness: the database is reachable

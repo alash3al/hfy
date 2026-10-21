@@ -13,6 +13,6 @@ RUN apk add --no-cache ca-certificates && adduser -D -u 10001 hfy
 COPY --from=build /out/hfy /usr/local/bin/hfy
 USER hfy
 EXPOSE 8080
-ENV HFY_CONFIG=/etc/hfy/harness.yaml
+ENV HFY_CONFIG=/etc/hfy/hfy.yaml
 ENTRYPOINT ["hfy"]
 CMD ["serve", "--work"]

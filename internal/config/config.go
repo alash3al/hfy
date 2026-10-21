@@ -1,4 +1,4 @@
-// Package config loads harness.yaml: YAML parsing, ${VAR} expansion and the
+// Package config loads hfy.yaml: YAML parsing, ${VAR} expansion and the
 // startup checks that stop a bad config before anything is served.
 package config
 

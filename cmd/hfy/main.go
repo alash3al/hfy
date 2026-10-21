@@ -34,8 +34,8 @@ func app() *cli.Command {
 		Usage: "a simple harness as a service",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name: "config", Aliases: []string{"c"}, Value: "./harness.yaml",
-				Usage: "path to harness.yaml", Sources: cli.EnvVars("HFY_CONFIG"),
+				Name: "config", Aliases: []string{"c"}, Value: "./hfy.yaml",
+				Usage: "path to hfy.yaml", Sources: cli.EnvVars("HFY_CONFIG"),
 			},
 		},
 		Commands: []*cli.Command{
@@ -97,7 +97,7 @@ func app() *cli.Command {
 				},
 			},
 			{
-				Name: "config:example", Usage: "print a commented starter harness.yaml",
+				Name: "config:example", Usage: "print a commented starter hfy.yaml",
 				Action: func(context.Context, *cli.Command) error {
 					fmt.Print(config.ExampleYAML)
 					return nil

@@ -18,14 +18,14 @@ plumbing (loop, tools, history, streaming, auth hooks) in every app.
 ## Quick start
 
 ```sh
-hfy config:example > harness.yaml     # edit: provider, model, system prompt
+hfy config:example > hfy.yaml     # edit: provider, model, system prompt
 export HFY_SERVER_SECRET=$(openssl rand -hex 24)
 export DATABASE_URL=postgres://postgres:hfy@localhost:5432/hfy   # pgvector 0.8.0+
 hfy validate
 hfy serve --work                      # API + workers; migrations run on boot
 ```
 
-Or `docker compose up` (see `compose.yaml`; it mounts `./harness.yaml`).
+Or `docker compose up` (see `compose.yaml`; it mounts `./hfy.yaml`).
 
 ```sh
 # your backend: create a session and hand its id to the client
@@ -42,7 +42,7 @@ curl -XPOST :8080/v1/sessions/7f3c…/messages -d '{"text":"hello","vars":{"user
 
 | Command | |
 |---|---|
-| `hfy -c harness.yaml serve [--work]` | HTTP API and SSE; `--work` adds workers in the same process |
+| `hfy -c hfy.yaml serve [--work]` | HTTP API and SSE; `--work` adds workers in the same process |
 | `hfy queue:work [-q turns,embeddings] [--workers N]` | workers only; `-q` is a priority-ordered list (default: all) |
 | `hfy validate` | check config, env expansion and startup rules |
 | `hfy migrate [up\|down\|status]` | goose migrations (`serve` and `queue:work` also run `up` on boot) |
