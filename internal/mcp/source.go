@@ -1,5 +1,6 @@
-// Package mcp gives the agent loop one tool path: every tool, external or
-// built in, is a Tool served by a Source and addressed as <server>.<tool>.
+// Package mcp calls the tools of the configured MCP servers. Every tool, theirs
+// or one of hfy's built-ins (which the agent loop runs itself), is a Tool
+// addressed as <server>.<tool>.
 package mcp
 
 import (
@@ -49,15 +50,6 @@ type ActorMeta struct {
 	Ref  string `json:"ref"`
 }
 
-// Source serves the tools of one MCP server (external) or the in-process built-in server (hfy).
-type Source interface {
-	Name() string
-	// Endpoint is the remote URL for remote servers, "" otherwise.
-	Endpoint() string
-	Tools(ctx context.Context) ([]Tool, error)
-	Call(ctx context.Context, tool string, args json.RawMessage, meta *TurnMeta) (Result, error)
-}
-
 var wireUnsafe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 // WireName is the provider-safe function name for a tool ("files.read" -> "files__read").
@@ -74,21 +66,21 @@ func WireNameOf(full string) string {
 	return WireName(Tool{Server: server, Name: tool})
 }
 
-// Manager holds all sources and resolves full names to calls.
+// Manager holds the configured servers and resolves full names to calls.
 type Manager struct {
 	mu      sync.RWMutex
-	sources map[string]Source
+	sources map[string]*Client
 }
 
-func NewManager() *Manager { return &Manager{sources: map[string]Source{}} }
+func NewManager() *Manager { return &Manager{sources: map[string]*Client{}} }
 
-func (m *Manager) Add(s Source) {
+func (m *Manager) Add(c *Client) {
 	m.mu.Lock()
-	m.sources[s.Name()] = s
+	m.sources[c.Name()] = c
 	m.mu.Unlock()
 }
 
-func (m *Manager) Source(name string) (Source, bool) {
+func (m *Manager) Source(name string) (*Client, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	s, ok := m.sources[name]
@@ -99,7 +91,7 @@ func (m *Manager) Source(name string) (Source, bool) {
 // A server that fails to list is skipped and reported in errs.
 func (m *Manager) Tools(ctx context.Context, servers []string) (tools []Tool, errs map[string]error) {
 	m.mu.RLock()
-	var srcs []Source
+	var srcs []*Client
 	if servers == nil {
 		for _, s := range m.sources {
 			srcs = append(srcs, s)
@@ -138,44 +130,4 @@ func (m *Manager) Call(ctx context.Context, full string, args json.RawMessage, m
 		return Result{}, fmt.Errorf("unknown server %q", server)
 	}
 	return s.Call(ctx, tool, args, meta)
-}
-
-// Local is an in-process Source; the built-in server (hfy) is one.
-type Local struct {
-	name     string
-	mu       sync.RWMutex
-	tools    []Tool
-	handlers map[string]func(context.Context, json.RawMessage) (Result, error)
-}
-
-func NewLocal(name string) *Local {
-	return &Local{name: name, handlers: map[string]func(context.Context, json.RawMessage) (Result, error){}}
-}
-
-func (l *Local) Add(t Tool, h func(context.Context, json.RawMessage) (Result, error)) {
-	t.Server = l.name
-	l.mu.Lock()
-	l.tools = append(l.tools, t)
-	l.handlers[t.Name] = h
-	l.mu.Unlock()
-}
-
-func (l *Local) Name() string     { return l.name }
-func (l *Local) Endpoint() string { return "" }
-
-func (l *Local) Tools(context.Context) ([]Tool, error) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return append([]Tool(nil), l.tools...), nil
-}
-
-// Call runs a built-in; they read the turn from ctx, not from meta.
-func (l *Local) Call(ctx context.Context, tool string, args json.RawMessage, _ *TurnMeta) (Result, error) {
-	l.mu.RLock()
-	h, ok := l.handlers[tool]
-	l.mu.RUnlock()
-	if !ok {
-		return Result{}, fmt.Errorf("unknown tool %q on %s", tool, l.name)
-	}
-	return h(ctx, args)
 }

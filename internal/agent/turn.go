@@ -184,6 +184,9 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 }
 
 func (rt *Runtime) findTool(ctx context.Context, full string) (mcp.Tool, bool) {
+	if b, ok := rt.findBuiltin(full); ok {
+		return b.tool, true
+	}
 	all, _ := rt.MCP.Tools(ctx, nil)
 	for _, t := range all {
 		if t.FullName() == full {

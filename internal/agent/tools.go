@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -15,29 +14,47 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// registerBuiltins serves the built-ins from the in-process "hfy" server, so
-// they take the same path as every other tool.
+// builtin is an hfy.* tool. The loop runs it itself: most need the calling
+// loop (its agent, its turn), which an MCP call cannot carry.
+type builtin struct {
+	tool mcp.Tool
+	run  func(ctx context.Context, l *loop, args json.RawMessage) (mcp.Result, error)
+}
+
+// registerBuiltins lists the built-ins in the order they are offered.
 func (rt *Runtime) registerBuiltins() {
 	for _, c := range builtins.CoreTools() {
-		rt.builtins.Add(c.Tool, c.Run)
+		rt.builtins = append(rt.builtins, builtin{c.Tool, func(ctx context.Context, _ *loop, args json.RawMessage) (mcp.Result, error) {
+			return c.Run(ctx, args)
+		}})
 	}
-	rt.builtins.Add(builtins.ToolSearchTool(), rt.toolSearch)
+	rt.builtins = append(rt.builtins, builtin{builtins.ToolSearchTool(), rt.toolSearch})
 	if rt.Cfg.Embeddings != nil {
-		rt.builtins.Add(builtins.ConversationSearchTool(), rt.conversationSearch)
+		rt.builtins = append(rt.builtins, builtin{builtins.ConversationSearchTool(), rt.conversationSearch})
 	}
 	for _, name := range slices.Sorted(maps.Keys(rt.Subs)) {
 		sub := rt.Subs[name]
-		rt.builtins.Add(builtins.SubagentTool(name, sub.Description),
-			func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
+		rt.builtins = append(rt.builtins, builtin{builtins.SubagentTool(name, sub.Description),
+			func(ctx context.Context, l *loop, args json.RawMessage) (mcp.Result, error) {
 				var in struct {
 					Task string `json:"task"`
 				}
 				if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Task) == "" {
 					return errResult("task is required"), nil
 				}
-				return rt.runSubagent(ctx, sub, in.Task)
-			})
+				return rt.runSubagent(ctx, l, sub, in.Task)
+			}})
 	}
+}
+
+// findBuiltin returns the built-in named full (hfy.<tool>).
+func (rt *Runtime) findBuiltin(full string) (builtin, bool) {
+	for _, b := range rt.builtins {
+		if b.tool.FullName() == full {
+			return b, true
+		}
+	}
+	return builtin{}, false
 }
 
 type searchArgs struct {
@@ -45,7 +62,7 @@ type searchArgs struct {
 	Limit int    `json:"limit"`
 }
 
-func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Result, error) {
+func (rt *Runtime) toolSearch(ctx context.Context, l *loop, raw json.RawMessage) (mcp.Result, error) {
 	var a searchArgs
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
 		return errResult("query is required"), nil
@@ -53,11 +70,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 	if a.Limit <= 0 || a.Limit > 20 {
 		a.Limit = 8
 	}
-	var servers []string // nil = all
-	if cc := callFrom(ctx); cc != nil {
-		servers = cc.spec.MCP
-	}
-	all, errs := rt.MCP.Tools(ctx, servers)
+	all, errs := rt.MCP.Tools(ctx, l.spec.MCP)
 	words := strings.Fields(strings.ToLower(a.Query))
 	type scored struct {
 		t mcp.Tool
@@ -65,9 +78,6 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 	}
 	var hits []scored
 	for _, t := range all {
-		if t.Server == builtins.Server {
-			continue
-		}
 		name := strings.ToLower(t.FullName())
 		desc := strings.ToLower(t.Description)
 		n := 0
@@ -107,7 +117,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, raw json.RawMessage) (mcp.Res
 	return mcp.Result{Content: string(b)}, nil
 }
 
-func (rt *Runtime) conversationSearch(ctx context.Context, raw json.RawMessage) (mcp.Result, error) {
+func (rt *Runtime) conversationSearch(ctx context.Context, l *loop, raw json.RawMessage) (mcp.Result, error) {
 	var a searchArgs
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
 		return errResult("query is required"), nil
@@ -115,17 +125,13 @@ func (rt *Runtime) conversationSearch(ctx context.Context, raw json.RawMessage) 
 	if a.Limit <= 0 || a.Limit > 20 {
 		a.Limit = 5
 	}
-	cc := callFrom(ctx)
-	if cc == nil {
-		return mcp.Result{}, errors.New("conversation_search needs a turn")
-	}
 	// The harness injects the scope; the model never passes it.
 	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, []string{truncate(a.Query, maxEmbedChars)},
-		rt.recorder(&cc.env.TurnID, types.OutboundEmbedding))
+		rt.recorder(&l.env.TurnID, types.OutboundEmbedding))
 	if err != nil {
 		return errResult("search is unavailable: " + err.Error()), nil
 	}
-	hits, err := rt.Store.SearchEmbeddings(ctx, cc.env.Scope, vecs[0], a.Limit)
+	hits, err := rt.Store.SearchEmbeddings(ctx, l.env.Scope, vecs[0], a.Limit)
 	if err != nil {
 		return mcp.Result{}, err
 	}
@@ -148,17 +154,13 @@ func truncate(s string, n int) string {
 
 // runSubagent runs a specialist in isolation: it sees only the task, no parent
 // history and no parent vars. Its usage counts toward the parent's turn.
-func (rt *Runtime) runSubagent(ctx context.Context, sub *Spec, task string) (mcp.Result, error) {
-	cc := callFrom(ctx)
-	if cc == nil {
-		return mcp.Result{}, errors.New("sub-agents run inside a turn")
-	}
+func (rt *Runtime) runSubagent(ctx context.Context, parent *loop, sub *Spec, task string) (mcp.Result, error) {
 	actor, err := rt.Svc.AgentActor(ctx, sub.Name)
 	if err != nil {
 		return mcp.Result{}, err
 	}
-	sink := &quietSink{rt: rt, env: cc.env, actor: actor, persisted: true}
-	l := newLoop(rt, sub, sink, cc.env, sub.System)
+	sink := &quietSink{rt: rt, env: parent.env, actor: actor, persisted: true}
+	l := newLoop(rt, sub, sink, parent.env, sub.System)
 	l.msgs = []provider.Message{{Role: "user", Content: task}}
 	res, err := l.run(ctx)
 	if err != nil {

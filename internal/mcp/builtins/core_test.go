@@ -61,8 +61,8 @@ func TestNow(t *testing.T) {
 
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
-// config reserves every built-in tool name, so no sub-agent (served on the
-// same hfy server) can shadow one.
+// config reserves every built-in tool name, so no sub-agent (an hfy.* tool
+// too) can shadow one.
 func TestBuiltinNamesAreReserved(t *testing.T) {
 	names := []string{ToolSearch, ConversationSearch}
 	for _, c := range CoreTools() {

@@ -64,22 +64,6 @@ func TestCancelStopsTool(t *testing.T) {
 	}
 }
 
-func TestLocalSource(t *testing.T) {
-	l := mcp.NewLocal("local")
-	l.Add(mcp.Tool{Name: "ping"}, func(context.Context, json.RawMessage) (mcp.Result, error) {
-		return mcp.Result{Content: "pong"}, nil
-	})
-	m := mcp.NewManager()
-	m.Add(l)
-	r, err := m.Call(context.Background(), "local.ping", nil, nil)
-	if err != nil || r.Content != "pong" {
-		t.Fatal(r, err)
-	}
-	if _, err := m.Call(context.Background(), "local.nope", nil, nil); err == nil {
-		t.Fatal("unknown tool must error")
-	}
-}
-
 // A local server gets only what it needs from hfy's environment, never its
 // secrets, plus its own configured environment.
 func TestLocalServerDoesNotInheritSecrets(t *testing.T) {

@@ -47,23 +47,6 @@ type Sink interface {
 	Record(kind types.OutboundKind) func(provider.Record) int64
 }
 
-type callCtx struct {
-	spec *Spec
-	env  *TurnEnv
-	loop *loop
-}
-
-type callKey struct{}
-
-func withCall(ctx context.Context, c *callCtx) context.Context {
-	return context.WithValue(ctx, callKey{}, c)
-}
-
-func callFrom(ctx context.Context) *callCtx {
-	c, _ := ctx.Value(callKey{}).(*callCtx)
-	return c
-}
-
 // recorder writes outbound_requests rows for a turn.
 func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provider.Record) int64 {
 	return func(r provider.Record) int64 {

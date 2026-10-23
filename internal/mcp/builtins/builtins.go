@@ -1,7 +1,7 @@
-// Package builtins holds the built-in tools, served by the in-process MCP
-// server named "hfy" as hfy.<tool>. The core tools are pure and served from
-// here; the handlers of those that need runtime state (searches, sub-agents)
-// live in the agent package.
+// Package builtins holds the built-in tools, named hfy.<tool> as if served by
+// an MCP server named "hfy"; the agent loop runs them itself. The core tools
+// are pure and run from here; the handlers of those that need runtime state
+// (searches, sub-agents) live in the agent package.
 package builtins
 
 import (
@@ -13,7 +13,7 @@ import (
 	"github.com/alash3al/hfy/internal/mcp"
 )
 
-// Server is the name of the in-process MCP server (reserved in the config).
+// Server is the server part of a built-in's name (reserved in the config).
 const Server = config.BuiltinServer
 
 const (

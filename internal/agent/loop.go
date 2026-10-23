@@ -301,14 +301,20 @@ func toolText(r mcp.Result) string {
 
 func errResult(msg string) mcp.Result { return mcp.Result{Content: msg, IsError: true} }
 
-// exec runs a tool through the one tool path and records remote calls.
+// exec runs a tool, a built-in here and any other through MCP, and records
+// remote calls.
 func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, callID string) mcp.Result {
-	ctx = withCall(ctx, &callCtx{spec: l.spec, env: l.env, loop: l})
 	start := time.Now()
-	res, err := l.rt.MCP.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
-		Conversation: l.env.ConversationUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
-		Actor: l.env.Actor, Scope: l.env.Scope, Vars: l.env.Vars,
-	})
+	var res mcp.Result
+	var err error
+	if b, ok := l.rt.findBuiltin(tool.FullName()); ok {
+		res, err = b.run(ctx, l, args)
+	} else {
+		res, err = l.rt.MCP.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
+			Conversation: l.env.ConversationUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
+			Actor: l.env.Actor, Scope: l.env.Scope, Vars: l.env.Vars,
+		})
+	}
 	if err != nil {
 		res = errResult(err.Error())
 	}
@@ -339,19 +345,15 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 // wire-name lookup used to resolve its calls.
 func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.Tool) {
 	var shown, all []mcp.Tool
-	hs, _ := l.rt.builtins.Tools(ctx)
-	for _, t := range hs {
-		if l.spec.Builtins[t.Name] {
-			shown = append(shown, t)
-			all = append(all, t)
+	for _, b := range l.rt.builtins {
+		if l.spec.Builtins[b.tool.Name] {
+			shown = append(shown, b.tool)
+			all = append(all, b.tool)
 		}
 	}
 	if l.spec.MCP == nil {
 		ext, _ := l.rt.MCP.Tools(ctx, nil)
 		for _, t := range ext {
-			if t.Server == builtins.Server {
-				continue
-			}
 			all = append(all, t) // callable if the model names it, shown once found
 			if l.activated[t.FullName()] {
 				shown = append(shown, t)

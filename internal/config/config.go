@@ -470,7 +470,7 @@ func validOrigin(o string) bool {
 		u.String() == u.Scheme+"://"+u.Host && strings.ToLower(o) == o
 }
 
-// BuiltinServer names the in-process MCP server of hfy's own tools (hfy.now,
+// BuiltinServer is the server part of hfy's own tools' names (hfy.now,
 // hfy.tool_search, sub-agents as hfy.<name>); no configured server may take it.
 const BuiltinServer = "hfy"
 

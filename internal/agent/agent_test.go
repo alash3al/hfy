@@ -704,3 +704,23 @@ func TestCoreToolsAreOffered(t *testing.T) {
 		t.Fatalf("math_calc result: %v", r)
 	}
 }
+
+// Approval patterns cover built-ins too; an approved one runs when the turn resumes.
+func TestApprovedBuiltinRuns(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Agent.Approval = &config.Approval{Tools: []string{"hfy.math_*"}, Timeout: config.Duration(time.Minute)}
+	},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "m", Name: "hfy__math_calc", Args: `{"expression":"3 * 19.99"}`}}},
+		fakeprov.Step{Content: "59.97 in total"},
+	)
+	turn := e.post("three at 19.99?")
+	e.waitState(turn, types.StateAwaitingApproval)
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "m", Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateCompleted)
+	if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["content"] != "59.97" {
+		t.Fatalf("approved math_calc result: %v", r)
+	}
+}

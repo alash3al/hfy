@@ -74,8 +74,8 @@ type Runtime struct {
 	Embedder  *provider.Client
 	EmbModel  string
 
-	builtins *mcp.Local
-	cancels  sync.Map // turn event id -> context.CancelCauseFunc
+	builtins []builtin // hfy.* tools, in the order they are offered
+	cancels  sync.Map  // turn event id -> context.CancelCauseFunc
 	http     *attachmentFetcher
 }
 
@@ -83,7 +83,6 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	rt := &Runtime{
 		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), MCP: mgr,
 		Providers: map[string]*provider.Client{}, Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
-		builtins: mcp.NewLocal(builtins.Server),
 	}
 	for name, p := range cfg.Providers {
 		rt.Providers[name] = provider.New(name, p.URL, p.APIKey, p.Timeout.D())
@@ -127,7 +126,6 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	}
 	rt.http = newAttachmentFetcher(cfg)
 	rt.registerBuiltins()
-	mgr.Add(rt.builtins)
 	return rt, nil
 }
 
