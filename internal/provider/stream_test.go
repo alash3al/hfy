@@ -1,11 +1,29 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+// An assistant message that only calls tools sends null content, a call
+// without arguments sends {}, and a tool without parameters an empty object
+// schema.
+func TestRequestBodyDefaults(t *testing.T) {
+	b, err := json.Marshal(buildBody(Request{Model: "m",
+		Messages: []Message{{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "x__now"}}}},
+		Tools:    []ToolDef{{Name: "x__now"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"content":null`, `"arguments":"{}"`, `"parameters":{"type":"object","properties":{}}`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("body lacks %s: %s", want, b)
+		}
+	}
+}
 
 func TestStreamToolCallIndicesNeedNotBeContiguous(t *testing.T) {
 	sse := `data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"a","function":{"name":"x__one","arguments":"{}"}}]}}]}

@@ -6,6 +6,7 @@ package provider
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -273,56 +274,74 @@ func (c *Client) chatOnce(ctx context.Context, body []byte, attempt int, o Opts)
 	return resp, nil
 }
 
-func buildBody(r Request) map[string]any {
-	msgs := make([]map[string]any, 0, len(r.Messages))
-	for _, m := range r.Messages {
-		jm := map[string]any{"role": m.Role}
+// The wire* types are the request body as OpenAI-compatible servers read it
+// (answers name a call's function the same way: wireFunc).
+type wireRequest struct {
+	Model         string        `json:"model"`
+	Messages      []wireMessage `json:"messages"`
+	Stream        bool          `json:"stream"`
+	StreamOptions struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options"`
+	Tools       []wireTool `json:"tools,omitempty"`
+	Temperature *float64   `json:"temperature,omitempty"`
+	TopP        *float64   `json:"top_p,omitempty"`
+}
+
+type wireMessage struct {
+	Role       string     `json:"role"`
+	Content    any        `json:"content"` // the text, the []Part, or null
+	ToolCalls  []wireCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+type wireCall struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type"`
+	Function wireFunc `json:"function"`
+}
+
+type wireFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type wireTool struct {
+	Type     string       `json:"type"`
+	Function wireToolFunc `json:"function"`
+}
+
+type wireToolFunc struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+func buildBody(r Request) wireRequest {
+	b := wireRequest{Model: r.Model, Messages: make([]wireMessage, len(r.Messages)), Stream: true,
+		Temperature: r.Temperature, TopP: r.TopP}
+	b.StreamOptions.IncludeUsage = true
+	for i, m := range r.Messages {
+		wm := wireMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
 		switch {
 		case len(m.Parts) > 0:
-			jm["content"] = m.Parts
+			wm.Content = m.Parts
 		case m.Role == "assistant" && len(m.ToolCalls) > 0 && m.Content == "":
-			jm["content"] = nil
-		default:
-			jm["content"] = m.Content
+			wm.Content = nil
 		}
-		if len(m.ToolCalls) > 0 {
-			calls := make([]map[string]any, len(m.ToolCalls))
-			for i, tc := range m.ToolCalls {
-				args := tc.Arguments
-				if args == "" {
-					args = "{}"
-				}
-				calls[i] = map[string]any{"id": tc.ID, "type": "function",
-					"function": map[string]any{"name": tc.Name, "arguments": args}}
-			}
-			jm["tool_calls"] = calls
+		for _, tc := range m.ToolCalls {
+			wm.ToolCalls = append(wm.ToolCalls, wireCall{ID: tc.ID, Type: "function",
+				Function: wireFunc{Name: tc.Name, Arguments: cmp.Or(tc.Arguments, "{}")}})
 		}
-		if m.ToolCallID != "" {
-			jm["tool_call_id"] = m.ToolCallID
+		b.Messages[i] = wm
+	}
+	for _, t := range r.Tools {
+		params := t.Parameters
+		if len(params) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
-		msgs = append(msgs, jm)
-	}
-	b := map[string]any{
-		"model": r.Model, "messages": msgs, "stream": true,
-		"stream_options": map[string]any{"include_usage": true},
-	}
-	if len(r.Tools) > 0 {
-		tools := make([]map[string]any, len(r.Tools))
-		for i, t := range r.Tools {
-			params := t.Parameters
-			if len(params) == 0 {
-				params = json.RawMessage(`{"type":"object","properties":{}}`)
-			}
-			tools[i] = map[string]any{"type": "function", "function": map[string]any{
-				"name": t.Name, "description": t.Description, "parameters": params}}
-		}
-		b["tools"] = tools
-	}
-	if r.Temperature != nil {
-		b["temperature"] = *r.Temperature
-	}
-	if r.TopP != nil {
-		b["top_p"] = *r.TopP
+		b.Tools = append(b.Tools, wireTool{Type: "function",
+			Function: wireToolFunc{Name: t.Name, Description: t.Description, Parameters: params}})
 	}
 	return b
 }
@@ -356,34 +375,24 @@ func redactBody(body []byte) json.RawMessage {
 	return out
 }
 
+// delta is what a choice carries: a streamed delta, or the whole message of
+// an answer that is not streamed.
+type delta struct {
+	Content          *string `json:"content"`
+	ReasoningContent *string `json:"reasoning_content"`
+	Reasoning        *string `json:"reasoning"`
+	ToolCalls        []struct {
+		Index    int      `json:"index"` // streamed calls only
+		ID       string   `json:"id"`
+		Function wireFunc `json:"function"`
+	} `json:"tool_calls"`
+}
+
 type chunk struct {
 	Error   json.RawMessage `json:"error"` // some servers report a failure mid-stream
 	Choices []struct {
-		Delta struct {
-			Content          *string `json:"content"`
-			ReasoningContent *string `json:"reasoning_content"`
-			Reasoning        *string `json:"reasoning"`
-			ToolCalls        []struct {
-				Index    int    `json:"index"`
-				ID       string `json:"id"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls"`
-		} `json:"delta"`
-		Message *struct {
-			Content          *string `json:"content"`
-			ReasoningContent *string `json:"reasoning_content"`
-			Reasoning        *string `json:"reasoning"`
-			ToolCalls        []struct {
-				ID       string `json:"id"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls"`
-		} `json:"message"`
+		Delta        delta   `json:"delta"`
+		Message      *delta  `json:"message"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
