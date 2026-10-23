@@ -234,8 +234,10 @@ event as stored.
 - **Memory.** The summarizer appends a `summary` event when the next prompt
   would pass 80% of `context_window` (history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
-  results can still outgrow the window. With `embeddings` configured,
-  `hfy__conversation_search` finds earlier messages of the same `scope`.
+  results can still outgrow the window. If summarizing fails, hfy logs it and
+  the turn goes on uncompacted, without a second try in that turn. With
+  `embeddings` configured, `hfy__conversation_search` finds earlier messages
+  of the same `scope`.
 - **MCP servers.** A local server inherits only `PATH`, `HOME`, `USER`, locale,
   `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
   `environment`. Each tool call has `timeout` (default 2m) to answer.
