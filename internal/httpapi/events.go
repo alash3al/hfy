@@ -7,8 +7,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/labstack/echo/v5"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/metrics"
 )
@@ -28,11 +26,10 @@ var grantCheckEvery = 15 * time.Second
 // durable and ephemeral events alike. Resume with Last-Event-ID, or ?after=
 // on a first connection; with neither it starts from now. It ends when the
 // grant does: the client reconnects with a fresh token.
-func (s *Server) streamEvents(c *echo.Context, g *db.GrantRow) error {
-	req := c.Request()
-	ctx := req.Context()
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error {
+	ctx := r.Context()
 
-	after, err := s.resumePoint(c, g.ConversationID)
+	after, err := s.resumePoint(r, g.ConversationID)
 	if err != nil {
 		return err
 	}
@@ -42,7 +39,6 @@ func (s *Server) streamEvents(c *echo.Context, g *db.GrantRow) error {
 	metrics.Streams.Inc()
 	defer metrics.Streams.Dec()
 
-	w := c.Response()
 	rc := http.NewResponseController(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -133,21 +129,21 @@ func (s *Server) streamEvents(c *echo.Context, g *db.GrantRow) error {
 
 // resumePoint maps Last-Event-ID / ?after= (event uuids) to an internal id;
 // with neither it is the current end of the conversation.
-func (s *Server) resumePoint(c *echo.Context, conversation int64) (int64, error) {
-	raw := c.Request().Header.Get("Last-Event-ID")
+func (s *Server) resumePoint(r *http.Request, conversation int64) (int64, error) {
+	raw := r.Header.Get("Last-Event-ID")
 	if raw == "" {
-		raw = c.QueryParam("after")
+		raw = r.URL.Query().Get("after")
 	}
 	if raw == "" {
-		return s.store.LatestEventID(c.Request().Context(), conversation)
+		return s.store.LatestEventID(r.Context(), conversation)
 	}
 	u, err := uuid.Parse(raw)
 	if err != nil {
-		return 0, echo.NewHTTPError(http.StatusBadRequest, "bad event id")
+		return 0, &httpError{http.StatusBadRequest, "bad event id"}
 	}
-	id, err := s.store.EventIDByUUID(c.Request().Context(), conversation, u)
+	id, err := s.store.EventIDByUUID(r.Context(), conversation, u)
 	if db.IsNotFound(err) {
-		return 0, echo.NewHTTPError(http.StatusBadRequest, "unknown event id")
+		return 0, &httpError{http.StatusBadRequest, "unknown event id"}
 	}
 	return id, err
 }

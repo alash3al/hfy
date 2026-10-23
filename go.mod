@@ -5,7 +5,6 @@ go 1.27.3
 require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/labstack/echo/v5 v5.4.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/prometheus/client_golang v1.25.0

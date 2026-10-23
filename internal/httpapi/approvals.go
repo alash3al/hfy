@@ -3,8 +3,6 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v5"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -15,18 +13,18 @@ type approveRequest struct {
 	Result  string `json:"result"` // optional text the model sees when rejected
 }
 
-func (s *Server) approve(c *echo.Context, g *db.GrantRow) error {
+func (s *Server) approve(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error {
 	var req approveRequest
-	if err := bindJSON(c, &req); err != nil {
+	if err := bindJSON(r, &req); err != nil {
 		return err
 	}
 	if req.CallID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "call_id is required")
+		return &httpError{http.StatusBadRequest, "call_id is required"}
 	}
-	err := s.svc.Approve(c.Request().Context(), g.ConversationID, g.ActorID, types.ApprovalDecided{
+	err := s.svc.Approve(r.Context(), g.ConversationID, g.ActorID, types.ApprovalDecided{
 		CallID: req.CallID, Approve: req.Approve, Result: types.Clean(req.Result)})
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusAccepted, struct{}{})
+	return writeJSON(w, http.StatusAccepted, struct{}{})
 }

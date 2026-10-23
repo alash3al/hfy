@@ -3,8 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"uuid"
-
-	"github.com/labstack/echo/v5"
 )
 
 type createConversationResponse struct {
@@ -13,10 +11,10 @@ type createConversationResponse struct {
 
 // createConversation is server to server: your backend stores the uuid and hands it
 // to clients.
-func (s *Server) createConversation(c *echo.Context) error {
-	conv, err := s.store.CreateConversation(c.Request().Context())
+func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) error {
+	conv, err := s.store.CreateConversation(r.Context())
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusCreated, createConversationResponse{ID: conv.UUID})
+	return writeJSON(w, http.StatusCreated, createConversationResponse{ID: conv.UUID})
 }

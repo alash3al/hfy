@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"uuid"
 
-	"github.com/labstack/echo/v5"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -26,25 +24,25 @@ type historyResponse struct {
 
 // history returns durable events grouped by turn, newest page first, keyset
 // paginated by turn uuid.
-func (s *Server) history(c *echo.Context, g *db.GrantRow) error {
-	ctx := c.Request().Context()
+func (s *Server) history(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error {
+	ctx, query := r.Context(), r.URL.Query()
 	limit := 20
-	if v := c.QueryParam("limit"); v != "" {
+	if v := query.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 100 {
-			return echo.NewHTTPError(http.StatusBadRequest, "limit must be 1..100")
+			return &httpError{http.StatusBadRequest, "limit must be 1..100"}
 		}
 		limit = n
 	}
 	var before *int64
-	if v := c.QueryParam("before"); v != "" {
+	if v := query.Get("before"); v != "" {
 		u, err := uuid.Parse(v)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "bad before cursor")
+			return &httpError{http.StatusBadRequest, "bad before cursor"}
 		}
 		id, err := s.store.TurnIDByUUID(ctx, g.ConversationID, u)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "unknown before cursor")
+			return &httpError{http.StatusBadRequest, "unknown before cursor"}
 		}
 		before = &id
 	}
@@ -92,5 +90,5 @@ func (s *Server) history(c *echo.Context, g *db.GrantRow) error {
 			resp.Next = &oldest.ID
 		}
 	}
-	return c.JSON(http.StatusOK, resp)
+	return writeJSON(w, http.StatusOK, resp)
 }

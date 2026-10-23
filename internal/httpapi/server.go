@@ -1,8 +1,9 @@
-// Package httpapi is the HTTP surface: Echo routes, the two auth middlewares
+// Package httpapi is the HTTP surface: net/http routes, the two auth checks
 // (the server secret, a grant's token) and SSE. One file per action, each holding its own DTOs.
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,12 +13,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
@@ -26,52 +25,57 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *db.Store
-	svc   *svc.Service
-	hub   *Hub
-	echo  *echo.Echo
+	cfg     *config.Config
+	store   *db.Store
+	svc     *svc.Service
+	hub     *Hub
+	handler http.Handler
 }
 
 func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server {
 	srv := &Server{cfg: cfg, store: store, svc: s, hub: hub}
-	e := echo.New()
-	e.HTTPErrorHandler = srv.handleError
-	e.Use(observe, limitBody)
-	srv.echo = e
+	mux := http.NewServeMux()
+	// route serves pattern and answers its path's other methods: OPTIONS (a
+	// client route's CORS preflight) with 204, the rest with 405.
+	route := func(pattern string, h http.Handler) {
+		method, path, _ := strings.Cut(pattern, " ")
+		mux.Handle(pattern, h)
+		mux.Handle(path, handler(func(w http.ResponseWriter, r *http.Request) error {
+			w.Header().Set("Allow", method+", OPTIONS")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return nil
+			}
+			return &httpError{http.StatusMethodNotAllowed, "method not allowed"}
+		}))
+	}
 
 	// Operational endpoints are unversioned; the API is under /v1.
-	e.GET("/healthz", echo.WrapHandler(http.HandlerFunc(Healthz)))
-	e.GET("/readyz", echo.WrapHandler(Readyz(store)))
+	route("GET /healthz", http.HandlerFunc(Healthz))
+	route("GET /readyz", Readyz(store))
 
-	v1 := e.Group("/v1")
-	server := v1.Group("", srv.requireSecret)
-	server.POST("/conversations", srv.createConversation)
-	server.POST("/grants", srv.createGrant)
-	server.DELETE("/grants/:id", srv.revokeGrant)
+	route("POST /v1/conversations", srv.requireSecret(srv.createConversation))
+	route("POST /v1/grants", srv.requireSecret(srv.createGrant))
+	route("DELETE /v1/grants/{id}", srv.requireSecret(srv.revokeGrant))
 
 	// A client's routes name no conversation: its grant holds it. Only the
 	// stream takes the token as ?token=, since EventSource cannot set headers.
-	client := v1.Group("/conversation")
-	if origins := cfg.Server.CORSOrigins; len(origins) > 0 {
-		// Browsers may call these routes only. Tokens travel in a header, never
-		// in cookies, so no credentials mode; preflights are cached an hour.
-		client.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins: origins,
-			AllowMethods: []string{http.MethodGet, http.MethodPost},
-			AllowHeaders: []string{"Authorization", "Content-Type", "Last-Event-ID"},
-			MaxAge:       3600,
-		}))
-	}
-	client.POST("/messages", srv.withGrant(false, srv.postMessage))
-	client.GET("/events", srv.withGrant(true, srv.streamEvents))
-	client.GET("/history", srv.withGrant(false, srv.history))
-	client.POST("/approvals", srv.withGrant(false, srv.approve))
-	client.POST("/stop", srv.withGrant(false, srv.stop))
+	route("POST /v1/conversation/messages", srv.withGrant(false, srv.postMessage))
+	route("GET /v1/conversation/events", srv.withGrant(true, srv.streamEvents))
+	route("GET /v1/conversation/history", srv.withGrant(false, srv.history))
+	route("POST /v1/conversation/approvals", srv.withGrant(false, srv.approve))
+	route("POST /v1/conversation/stop", srv.withGrant(false, srv.stop))
+
+	mux.Handle("/", handler(func(http.ResponseWriter, *http.Request) error { // the mux's own 404 is plain text
+		return &httpError{http.StatusNotFound, "not found"}
+	}))
+	// MaxBytesHandler copies the request, so it stays outside observe, which
+	// reads the pattern the mux sets on the request it was handed.
+	srv.handler = http.MaxBytesHandler(observe(srv.cors(mux)), maxBody)
 	return srv
 }
 
-func (s *Server) Handler() http.Handler { return s.echo }
+func (s *Server) Handler() http.Handler { return s.handler }
 
 // Healthz is liveness: the process serves requests. It never checks
 // dependencies, so a database outage does not restart every instance.
@@ -93,76 +97,137 @@ func Readyz(store *db.Store) http.HandlerFunc {
 }
 
 func writeStatus(w http.ResponseWriter, code int, status string) {
+	_ = writeJSON(w, code, map[string]string{"status": status}) // the client is gone; nothing to do
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": status}) // the client is gone; nothing to do
+	return json.NewEncoder(w).Encode(v)
 }
 
 // observe records request counts and latency by route pattern (never the raw
 // path, which would be one series per conversation).
-func observe(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
+func observe(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		err := next(c)
-		if err != nil {
-			c.Echo().HTTPErrorHandler(c, err) // settles the status code
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		route := r.Pattern // set by the mux on this same request
+		if _, path, ok := strings.Cut(route, " "); ok {
+			route = path
 		}
-		_, code := echo.ResolveResponseStatus(c.Response(), err)
-		route, method := c.Path(), c.Request().Method
-		if route == "" {
+		if route == "" || route == "/" { // "/" is the 404 for everything else
 			route = "unmatched"
 		}
-		metrics.HTTPRequests.WithLabelValues(route, method, strconv.Itoa(code)).Inc()
+		metrics.HTTPRequests.WithLabelValues(route, r.Method, strconv.Itoa(cmp.Or(sw.code, http.StatusOK))).Inc()
 		if !strings.HasSuffix(route, "/events") { // streams last minutes; not latency
-			metrics.Since(metrics.HTTPDuration.WithLabelValues(route, method), start)
+			metrics.Since(metrics.HTTPDuration.WithLabelValues(route, r.Method), start)
 		}
-		return err
-	}
+	})
 }
+
+// statusWriter records the status a response started with (0: not yet).
+// Unwrap lets http.ResponseController (the stream's flushes and write
+// deadlines) reach the connection.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // maxBody bounds every request body (a message with its attachment
 // references is the largest), so no client makes the server allocate freely.
 const maxBody = 2 << 20
 
-func limitBody(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxBody)
-		return next(c)
+// cors lets pages on the configured origins call the client routes, errors
+// included; the backend routes never answer a browser. Tokens travel in a
+// header, never in cookies, so no credentials mode; preflights are cached an hour.
+func (s *Server) cors(next http.Handler) http.Handler {
+	origins := s.cfg.Server.CORSOrigins
+	if len(origins) == 0 {
+		return next
 	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/conversation/") {
+			h := w.Header()
+			h.Add("Vary", "Origin")
+			origin := r.Header.Get("Origin")
+			if origin != "" && origins[0] == "*" {
+				origin = "*"
+			}
+			if origin != "" && slices.Contains(origins, origin) {
+				h.Set("Access-Control-Allow-Origin", origin)
+				if r.Method == http.MethodOptions {
+					h.Set("Access-Control-Allow-Methods", "GET,POST")
+					h.Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Last-Event-ID")
+					h.Set("Access-Control-Max-Age", "3600")
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // bindJSON decodes a request body as JSON whatever its Content-Type says:
 // the API speaks only JSON, and `curl -d` labels it a form. An empty body is
 // an empty object.
-func bindJSON(c *echo.Context, v any) error {
-	err := json.NewDecoder(c.Request().Body).Decode(v)
+func bindJSON(r *http.Request, v any) error {
+	err := json.NewDecoder(r.Body).Decode(v)
 	if _, tooBig := errors.AsType[*http.MaxBytesError](err); tooBig {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "body over 2 MiB")
+		return &httpError{http.StatusRequestEntityTooLarge, "body over 2 MiB"}
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid json body")
+		return &httpError{http.StatusBadRequest, "invalid json body"}
 	}
 	return nil
 }
+
+// handler is an endpoint. The error it returns is answered in JSON, unless
+// the response has started (a stream).
+type handler func(w http.ResponseWriter, r *http.Request) error
+
+func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	sw := &statusWriter{ResponseWriter: w}
+	if err := h(sw, r); err != nil && sw.code == 0 {
+		writeError(sw, r, err)
+	}
+}
+
+// httpError is an answer: its status and what the client reads.
+type httpError struct {
+	code int
+	msg  string
+}
+
+func (e *httpError) Error() string { return e.msg }
 
 type errorBody struct {
 	Error string `json:"error"`
 }
 
-func (s *Server) handleError(c *echo.Context, err error) {
-	if resp, _ := echo.UnwrapResponse(c.Response()); resp != nil && resp.Committed {
-		return
-	}
+func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	code, msg := http.StatusInternalServerError, "internal error"
-	he, isHTTP := errors.AsType[*echo.HTTPError](err)
-	var sc echo.HTTPStatusCoder // Echo's own errors (404, 405) are a private type; not an error type, so no AsType
-	hasCode := errors.As(err, &sc)
+	he, isHTTP := errors.AsType[*httpError](err)
 	bad, isBad := errors.AsType[*svc.BadRequestError](err)
 	switch {
 	case isHTTP:
-		code, msg = he.Code, he.Message
-	case hasCode:
-		code, msg = sc.StatusCode(), strings.ToLower(http.StatusText(sc.StatusCode()))
+		code, msg = he.code, he.msg
 	case isBad:
 		code, msg = http.StatusBadRequest, bad.Msg
 	case errors.Is(err, svc.ErrNoPendingApproval):
@@ -172,13 +237,13 @@ func (s *Server) handleError(c *echo.Context, err error) {
 	case db.IsNotFound(err):
 		code, msg = http.StatusNotFound, "not found"
 	default:
-		slog.Error("request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
+		slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 	}
-	_ = c.JSON(code, errorBody{Error: msg})
+	_ = writeJSON(w, code, errorBody{Error: msg}) // the client is gone; nothing to do
 }
 
-func bearer(c *echo.Context) string {
-	if h := c.Request().Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+func bearer(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimSpace(h[len("Bearer "):])
 	}
 	return ""
@@ -186,14 +251,14 @@ func bearer(c *echo.Context) string {
 
 // requireSecret guards the server-to-server endpoints. Hashing first makes the
 // comparison constant-time regardless of the secret's length.
-func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
+func (s *Server) requireSecret(next handler) handler {
 	want := sha256.Sum256([]byte(s.cfg.Server.Secret))
-	return func(c *echo.Context) error {
-		got := sha256.Sum256([]byte(bearer(c)))
+	return func(w http.ResponseWriter, r *http.Request) error {
+		got := sha256.Sum256([]byte(bearer(r)))
 		if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
-			return echo.NewHTTPError(http.StatusUnauthorized, "invalid server secret")
+			return &httpError{http.StatusUnauthorized, "invalid server secret"}
 		}
-		return next(c)
+		return next(w, r)
 	}
 }
 
@@ -201,27 +266,27 @@ func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
 // conversation, as which agent, with which vars) and hands it to h. A token
 // that is unknown, expired or revoked gets one answer, so a client learns
 // nothing about which.
-func (s *Server) withGrant(queryToken bool, h func(c *echo.Context, g *db.GrantRow) error) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		token := bearer(c)
+func (s *Server) withGrant(queryToken bool, h func(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error) handler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		token := bearer(r)
 		if token == "" && queryToken {
-			token = c.QueryParam("token")
+			token = r.URL.Query().Get("token")
 		}
 		if token == "" {
-			return echo.NewHTTPError(http.StatusUnauthorized, "missing token")
+			return &httpError{http.StatusUnauthorized, "missing token"}
 		}
-		g, err := s.store.GrantByToken(c.Request().Context(), hashToken(token))
+		g, err := s.store.GrantByToken(r.Context(), hashToken(token))
 		if db.IsNotFound(err) {
-			return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+			return &httpError{http.StatusUnauthorized, "invalid or expired token"}
 		}
 		if err != nil {
 			return err
 		}
 		if _, ok := s.cfg.AgentNamed(g.Agent); !ok {
 			slog.Error("a grant names an agent the config no longer has", "agent", g.Agent, "grant", g.ID)
-			return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
+			return &httpError{http.StatusForbidden, "forbidden"} // fail closed
 		}
-		if err := h(c, &g); err != nil {
+		if err := h(w, r, &g); err != nil {
 			return fmt.Errorf("conversation %s: %w", g.ConversationUUID, err) // client URLs name no conversation; logs should
 		}
 		return nil

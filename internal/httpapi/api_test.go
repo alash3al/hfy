@@ -709,6 +709,18 @@ func TestBodiesAreJSONWhateverTheContentType(t *testing.T) {
 	}
 }
 
+// Another method on a known path is a 405 and an unknown path a 404, both in
+// JSON like every other error.
+func TestWrongMethodAndUnknownPath(t *testing.T) {
+	a := start(t, nil)
+	if code, out := a.do("GET", "/v1/conversations", secret, nil); code != http.StatusMethodNotAllowed || out["error"] != "method not allowed" {
+		t.Fatalf("wrong method: %d %v", code, out)
+	}
+	if code, out := a.do("GET", "/v1/nope", secret, nil); code != http.StatusNotFound || out["error"] != "not found" {
+		t.Fatalf("unknown path: %d %v", code, out)
+	}
+}
+
 // Browsers on the configured origins may call the client routes, errors
 // included (so a page can read its 401). The backend routes never answer a
 // browser, and an origin not listed gets no CORS headers.

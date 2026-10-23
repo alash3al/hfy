@@ -9,8 +9,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/labstack/echo/v5"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
@@ -41,17 +39,17 @@ type createGrantResponse struct {
 // createGrant is server to server: your backend gives one client access to
 // one conversation as one actor, and hands it the token. The token is shown
 // only here; hfy keeps its hash.
-func (s *Server) createGrant(c *echo.Context) error {
+func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) error {
 	var req createGrantRequest
-	if err := bindJSON(c, &req); err != nil {
+	if err := bindJSON(r, &req); err != nil {
 		return err
 	}
 	req.Actor, req.Scope = strings.TrimSpace(types.Clean(req.Actor)), strings.TrimSpace(types.Clean(req.Scope))
 	switch {
 	case req.Conversation == uuid.UUID{}:
-		return echo.NewHTTPError(http.StatusBadRequest, "conversation is required")
+		return &httpError{http.StatusBadRequest, "conversation is required"}
 	case req.Actor == "" || len(req.Actor) > maxRefLen || len(req.Scope) > maxRefLen:
-		return echo.NewHTTPError(http.StatusBadRequest, "actor is required; actor and scope are at most 256 bytes")
+		return &httpError{http.StatusBadRequest, "actor is required; actor and scope are at most 256 bytes"}
 	}
 	if req.Scope == "" {
 		req.Scope = req.Actor
@@ -60,18 +58,18 @@ func (s *Server) createGrant(c *echo.Context) error {
 	if req.ExpiresIn != nil {
 		ttl = time.Duration(*req.ExpiresIn) * time.Second
 		if ttl < time.Second || ttl > maxGrantTTL {
-			return echo.NewHTTPError(http.StatusBadRequest, "expires_in must be 1..86400 seconds")
+			return &httpError{http.StatusBadRequest, "expires_in must be 1..86400 seconds"}
 		}
 	}
 	agent, ok := s.cfg.AgentNamed(req.Agent)
 	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "unknown agent")
+		return &httpError{http.StatusBadRequest, "unknown agent"}
 	}
 	if err := svc.CheckVars(agent.Vars, req.Vars); err != nil {
 		return err
 	}
 
-	ctx := c.Request().Context()
+	ctx := r.Context()
 	conv, err := s.store.ConversationByUUID(ctx, req.Conversation)
 	if err != nil {
 		return err // unknown: 404
@@ -88,19 +86,20 @@ func (s *Server) createGrant(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusCreated, createGrantResponse{ID: id, Token: token, ExpiresAt: expiresAt})
+	return writeJSON(w, http.StatusCreated, createGrantResponse{ID: id, Token: token, ExpiresAt: expiresAt})
 }
 
 // revokeGrant ends a grant now, open streams included.
-func (s *Server) revokeGrant(c *echo.Context) error {
-	id, err := uuid.Parse(c.Param("id"))
+func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) error {
+	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+		return &httpError{http.StatusNotFound, "not found"}
 	}
-	if err := s.store.RevokeGrant(c.Request().Context(), id); err != nil {
+	if err := s.store.RevokeGrant(r.Context(), id); err != nil {
 		return err // unknown: 404
 	}
-	return c.NoContent(http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // newToken returns a fresh token and the hash hfy stores. 256 random bits
