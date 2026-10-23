@@ -25,7 +25,7 @@ const compactAt = 0.8
 // answer: it is logged, the step goes on in the headroom compactAt leaves,
 // and the turn does not try again.
 func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) error {
-	if rt.Summ == nil {
+	if rt.summ == nil {
 		return nil
 	}
 	failed := false
@@ -42,7 +42,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 		if err != nil || !changed {
 			return err
 		}
-		system, msgs, err := rt.BuildContext(ctx, env.ConversationID, env.TurnID, l.spec)
+		system, msgs, err := rt.buildContext(ctx, env.ConversationID, env.TurnID, l.spec)
 		if err != nil {
 			return err
 		}
@@ -101,15 +101,15 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	// chunks, so the summary so far plus a chunk stay within context_window
 	// bytes, which fits even at 1.5 bytes a token (JSON, ids).
 	for rest := transcript; rest != ""; {
-		chunk := firstChunk(rest, max(rt.Summ.Settings.ContextWindow-len(text), 2000))
+		chunk := firstChunk(rest, max(rt.summ.Settings.ContextWindow-len(text), 2000))
 		rest = rest[len(chunk):]
 		input := "New conversation to fold in:\n" + chunk
 		if text != "" {
 			input = "Summary so far:\n" + text + "\n\n" + input
 		}
 		sink := &quietSink{rt: rt, env: env, actor: actor}
-		l := newLoop(rt, rt.Summ, sink, env)
-		l.load(ctx, rt.Summ.System, []provider.Message{{Role: "user", Content: input}})
+		l := newLoop(rt, rt.summ, sink, env)
+		l.load(ctx, rt.summ.System, []provider.Message{{Role: "user", Content: input}})
 		res, err := l.run(ctx)
 		if err != nil {
 			return false, err
@@ -153,7 +153,7 @@ func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (stri
 			if err != nil {
 				return "", err
 			}
-			b.WriteString(frame(e, "message", rt.userMessage(ctx, m, false, rt.Summ).Content) + "\n")
+			b.WriteString(frame(e, "message", rt.userMessage(ctx, m, false, rt.summ).Content) + "\n")
 		case types.EventToolCall:
 			c, err := e.Payload[types.ToolCall]()
 			if err != nil {

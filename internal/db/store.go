@@ -105,6 +105,8 @@ func Open(ctx context.Context, url string, maxConns int32, emb *Embeddings) (*St
 
 func (s *Store) Close() { s.Pool.Close() }
 
+func (s *Store) Ping(ctx context.Context) error { return s.Pool.Ping(ctx) }
+
 func loadQueries() (map[string]string, error) {
 	out := map[string]string{}
 	entries, err := fs.ReadDir(queriesFS, "queries")
@@ -282,7 +284,3 @@ func (s *Store) Boot(ctx context.Context) error {
 		return nil
 	})
 }
-
-// SQL returns an embedded query by name (rendered for the embeddings table).
-// Tests use it to EXPLAIN the hot queries.
-func (s *Store) SQL(name string) string { return s.q(name) }

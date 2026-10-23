@@ -15,7 +15,7 @@ import (
 // RegisterJobs wires every job type to its handler.
 func (rt *Runtime) RegisterJobs(w *jobs.Worker) {
 	w.Handle(types.JobRunTurn, rt.RunTurn)
-	w.OnExhausted(types.JobRunTurn, rt.OnTurnExhausted)
+	w.OnExhausted(types.JobRunTurn, rt.onTurnExhausted)
 
 	w.Handle(types.JobApprovalTimeout, func(ctx context.Context, p svc.ApprovalTimeoutPayload, _ db.JobRow) error {
 		return rt.Svc.ApprovalTimeout(ctx, p)
@@ -57,7 +57,7 @@ func (rt *Runtime) retention(ctx context.Context) error {
 // embedEvents embeds the given message.text events, or with none, backfills
 // every message.text event that has no vector for the configured model yet.
 func (rt *Runtime) embedEvents(ctx context.Context, ids []int64) error {
-	if rt.Embedder == nil {
+	if rt.embedder == nil {
 		return nil
 	}
 	if len(ids) > 0 {
@@ -90,7 +90,7 @@ func (rt *Runtime) embedBatch(ctx context.Context, batch []db.UnembeddedEvent) e
 	for i, b := range batch {
 		texts[i] = truncate(b.Text, maxEmbedChars)
 	}
-	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, texts, rec)
+	vecs, err := rt.embedder.Embed(ctx, rt.embModel, texts, rec)
 	if err != nil {
 		return err
 	}

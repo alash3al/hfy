@@ -319,7 +319,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	if b, ok := l.rt.findBuiltin(tool.FullName()); ok {
 		res, err = b.run(ctx, l, args)
 	} else {
-		res, err = l.rt.MCP.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
+		res, err = l.rt.mcp.Call(ctx, tool.FullName(), args, &mcp.TurnMeta{
 			Conversation: l.env.ConversationUUID, Turn: l.env.TurnUUID, CallID: callID, Agent: l.spec.Name,
 			Actor: l.env.Actor, Scope: l.env.Scope, Vars: l.env.Vars,
 		})
@@ -329,7 +329,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	}
 	metrics.ToolCalls.WithLabelValues(tool.Server, metrics.Outcome(res.IsError)).Inc()
 	metrics.Since(metrics.ToolDuration.WithLabelValues(tool.Server), start)
-	if src, ok := l.rt.MCP.Source(tool.Server); ok && src.Endpoint() != "" {
+	if src, ok := l.rt.mcp.Source(tool.Server); ok && src.Endpoint() != "" {
 		req, _ := json.Marshal(map[string]any{"tool": tool.Name, "arguments": json.RawMessage(args)})
 		rec := provider.Record{URL: src.Endpoint(), Request: req, Attempt: 1, LatencyMS: int(time.Since(start).Milliseconds())}
 		if err != nil {
@@ -361,7 +361,7 @@ func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.To
 		}
 	}
 	if l.spec.MCP == nil {
-		ext, _ := l.rt.MCP.Tools(ctx, nil)
+		ext, _ := l.rt.mcp.Tools(ctx, nil)
 		for _, t := range ext {
 			all = append(all, t) // callable if the model names it, shown once found
 			if l.activated[t.FullName()] {
@@ -369,7 +369,7 @@ func (l *loop) tools(ctx context.Context) ([]provider.ToolDef, map[string]mcp.To
 			}
 		}
 	} else {
-		ext, _ := l.rt.MCP.Tools(ctx, l.spec.MCP)
+		ext, _ := l.rt.mcp.Tools(ctx, l.spec.MCP)
 		shown = append(shown, ext...)
 		all = append(all, ext...)
 	}
@@ -407,7 +407,7 @@ func (l *loop) activate(ctx context.Context, content string) {
 	if json.Unmarshal([]byte(content), &hits) != nil {
 		return
 	}
-	ext, _ := l.rt.MCP.Tools(ctx, nil)
+	ext, _ := l.rt.mcp.Tools(ctx, nil)
 	byWire := map[string]string{}
 	for _, t := range ext {
 		byWire[mcp.WireName(t)] = t.FullName()

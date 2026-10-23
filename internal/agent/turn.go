@@ -64,7 +64,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	spec, ok := rt.Agents[t.AgentName()]
+	spec, ok := rt.agents[t.AgentName()]
 	if !ok { // removed from the config after the turn was posted
 		return rt.Svc.EndTurn(fresh, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
 			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", t.Agent)})
@@ -99,7 +99,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if runErr == nil {
 		var system string
 		var msgs []provider.Message
-		if system, msgs, runErr = rt.BuildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
+		if system, msgs, runErr = rt.buildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
 			l.load(tctx, system, msgs)
 			l.prepare = rt.summarizeHook(env)
 			res, runErr = l.run(tctx)
@@ -186,7 +186,7 @@ func (rt *Runtime) findTool(ctx context.Context, full string) (mcp.Tool, bool) {
 	if b, ok := rt.findBuiltin(full); ok {
 		return b.tool, true
 	}
-	all, _ := rt.MCP.Tools(ctx, nil)
+	all, _ := rt.mcp.Tools(ctx, nil)
 	for _, t := range all {
 		if t.FullName() == full {
 			return t, true
@@ -217,8 +217,8 @@ func (rt *Runtime) markInterrupted(ctx context.Context, sink *turnSink, turnID i
 	}
 }
 
-// OnTurnExhausted ends a turn whose job ran out of attempts.
-func (rt *Runtime) OnTurnExhausted(ctx context.Context, job db.JobRow, err error) {
+// onTurnExhausted ends a turn whose job ran out of attempts.
+func (rt *Runtime) onTurnExhausted(ctx context.Context, job db.JobRow, err error) {
 	var p svc.RunTurnPayload
 	if jerr := json.Unmarshal(job.Payload, &p); jerr != nil {
 		slog.Error("end exhausted turn: bad payload", "job", job.ID, "err", jerr)

@@ -65,13 +65,13 @@ type Runtime struct {
 	Cfg   *config.Config
 	Store *db.Store
 	Svc   *svc.Service
-	MCP   *mcp.Manager
+	mcp   *mcp.Manager
 
-	Agents   map[string]*Spec // the configured agents by name; "main" is the default
-	Subs     map[string]*Spec
-	Summ     *Spec // nil when no summarizer is configured
-	Embedder *provider.Client
-	EmbModel string
+	agents   map[string]*Spec // the configured agents by name; "main" is the default
+	subs     map[string]*Spec
+	summ     *Spec // nil when no summarizer is configured
+	embedder *provider.Client
+	embModel string
 
 	builtins []builtin // hfy.* tools, in the order they are offered
 	cancels  sync.Map  // turn event id -> context.CancelCauseFunc
@@ -80,8 +80,8 @@ type Runtime struct {
 
 func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime, error) {
 	rt := &Runtime{
-		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), MCP: mgr,
-		Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
+		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), mcp: mgr,
+		agents: map[string]*Spec{}, subs: map[string]*Spec{},
 	}
 	providers := map[string]*provider.Client{}
 	for name, p := range cfg.Providers {
@@ -94,7 +94,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	}
 	if cfg.Embeddings != nil {
 		prov, m := config.SplitModel(cfg.Embeddings.Model)
-		rt.Embedder, rt.EmbModel = providers[prov], m
+		rt.embedder, rt.embModel = providers[prov], m
 	}
 	for name, a := range cfg.AllAgents() {
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
@@ -105,7 +105,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		for sub := range cfg.Subagents {
 			s.Builtins[sub] = true // every agent may delegate to every sub-agent
 		}
-		rt.Agents[name] = s
+		rt.agents[name] = s
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Subagents)) {
 		sc := cfg.Subagents[name]
@@ -115,14 +115,14 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		if sc.MCP == nil {
 			s.Builtins[builtins.ToolSearch] = true
 		}
-		rt.Subs[name] = s
+		rt.subs[name] = s
 	}
 	if sm := cfg.Summarizer; sm != nil {
 		system := sm.System
 		if system == "" {
 			system = promptSummarizer
 		}
-		rt.Summ = spec(types.AgentSummarizer, sm.Model, sm.Settings, system, config.Limits{}, []string{})
+		rt.summ = spec(types.AgentSummarizer, sm.Model, sm.Settings, system, config.Limits{}, []string{})
 	}
 	rt.http = newAttachmentFetcher(cfg)
 	rt.registerBuiltins()

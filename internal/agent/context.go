@@ -15,9 +15,9 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// BuildContext = the latest summary + the durable events of the turns after
+// buildContext = the latest summary + the durable events of the turns after
 // the ones it covers, up to and including the current turn. One query.
-func (rt *Runtime) BuildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (system string, msgs []provider.Message, err error) {
+func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (system string, msgs []provider.Message, err error) {
 	summary, after, err := rt.summaryStart(ctx, conversationID)
 	if err != nil {
 		return "", nil, err

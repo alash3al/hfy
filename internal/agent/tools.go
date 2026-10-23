@@ -32,8 +32,8 @@ func (rt *Runtime) registerBuiltins() {
 	if rt.Cfg.Embeddings != nil {
 		rt.builtins = append(rt.builtins, builtin{builtins.ConversationSearchTool(), rt.conversationSearch})
 	}
-	for _, name := range slices.Sorted(maps.Keys(rt.Subs)) {
-		sub := rt.Subs[name]
+	for _, name := range slices.Sorted(maps.Keys(rt.subs)) {
+		sub := rt.subs[name]
 		rt.builtins = append(rt.builtins, builtin{builtins.SubagentTool(name, sub.Description),
 			func(ctx context.Context, l *loop, args json.RawMessage) (mcp.Result, error) {
 				var in struct {
@@ -70,7 +70,7 @@ func (rt *Runtime) toolSearch(ctx context.Context, l *loop, raw json.RawMessage)
 	if a.Limit <= 0 || a.Limit > 20 {
 		a.Limit = 8
 	}
-	all, errs := rt.MCP.Tools(ctx, l.spec.MCP)
+	all, errs := rt.mcp.Tools(ctx, l.spec.MCP)
 	words := strings.Fields(strings.ToLower(a.Query))
 	type scored struct {
 		t mcp.Tool
@@ -126,7 +126,7 @@ func (rt *Runtime) conversationSearch(ctx context.Context, l *loop, raw json.Raw
 		a.Limit = 5
 	}
 	// The harness injects the scope; the model never passes it.
-	vecs, err := rt.Embedder.Embed(ctx, rt.EmbModel, []string{truncate(a.Query, maxEmbedChars)},
+	vecs, err := rt.embedder.Embed(ctx, rt.embModel, []string{truncate(a.Query, maxEmbedChars)},
 		rt.recorder(&l.env.TurnID, types.OutboundEmbedding))
 	if err != nil {
 		return errResult("search is unavailable: " + err.Error()), nil

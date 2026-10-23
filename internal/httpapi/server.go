@@ -84,7 +84,7 @@ func Readyz(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := store.Pool.Ping(ctx); err != nil {
+		if err := store.Ping(ctx); err != nil {
 			writeStatus(w, http.StatusServiceUnavailable, "database unreachable")
 			return
 		}
