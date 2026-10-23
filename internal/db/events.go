@@ -28,7 +28,7 @@ func (s *Store) FindOrCreateActor(ctx context.Context, q DBTX, typ types.ActorTy
 	if err != nil {
 		return 0, err
 	}
-	if _, inTx := q.(pgx.Tx); !inTx {
+	if _, inTx := q.(pgx.Tx); !inTx && typ == types.ActorAgent {
 		s.actors.Store(key, id)
 	}
 	return id, nil

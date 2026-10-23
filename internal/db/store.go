@@ -55,7 +55,7 @@ type Store struct {
 	Pool *pgxpool.Pool
 
 	sql    map[string]string
-	actors sync.Map // "type/ref" -> int64
+	actors sync.Map // "type/ref" -> int64, agents only: a closed set from config
 	emb    *Embeddings
 }
 
