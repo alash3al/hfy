@@ -118,6 +118,20 @@ type Approval struct {
 	Timeout Duration `yaml:"timeout"`
 }
 
+// Requires reports whether a call of tool (<server>.<tool>) waits for
+// approval; a nil policy requires none.
+func (a *Approval) Requires(tool string) bool {
+	if a == nil {
+		return false
+	}
+	for _, p := range a.Tools {
+		if ok, _ := path.Match(p, tool); ok {
+			return true
+		}
+	}
+	return false
+}
+
 type Agent struct {
 	Model    string         `yaml:"model"`
 	Settings Settings       `yaml:"settings"`

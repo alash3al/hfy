@@ -181,3 +181,21 @@ func TestCORSOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalRequires(t *testing.T) {
+	a := &Approval{Tools: []string{"files.write", "cart.*"}}
+	for _, c := range []struct {
+		a    *Approval
+		tool string
+		want bool
+	}{
+		{nil, "files.write", false}, // no policy: nothing waits
+		{a, "files.write", true},
+		{a, "cart.checkout", true},
+		{a, "files.read", false},
+	} {
+		if got := c.a.Requires(c.tool); got != c.want {
+			t.Errorf("%v.Requires(%q) = %v, want %v", c.a, c.tool, got, c.want)
+		}
+	}
+}

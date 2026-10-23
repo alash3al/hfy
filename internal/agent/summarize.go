@@ -111,7 +111,7 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 		if text != "" {
 			input = "Summary so far:\n" + text + "\n\n" + input
 		}
-		sink := &quietSink{rt: rt, env: env, actor: actor, persisted: true}
+		sink := &quietSink{rt: rt, env: env, actor: actor}
 		l := newLoop(rt, rt.Summ, sink, env, rt.Summ.System)
 		l.msgs = []provider.Message{{Role: "user", Content: input}}
 		res, err := l.run(ctx)

@@ -90,7 +90,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		Total:            &usageAcc{u: used, calls: int(calls)},
 		ConversationUUID: conv.UUID.String(), TurnUUID: turn.UUID.String(),
 		Actor: mcp.ActorMeta{Type: turn.ActorType, Ref: turn.ActorRef}}
-	sink := newTurnSink(tctx, rt, env, spec, mainActor)
+	sink := newTurnSink(tctx, rt, env, mainActor)
 	l := newLoop(rt, spec, sink, env, "")
 	l.steps = int(calls)
 

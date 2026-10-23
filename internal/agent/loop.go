@@ -179,7 +179,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		resp, err := l.spec.Client.Chat(ctx, req, provider.Opts{
 			MaxAttempts: l.rt.Cfg.Queue.MaxAttempts,
 			OnText:      l.sink.TextDelta, OnReasoning: l.sink.ReasoningDelta, OnRetry: l.sink.Restart,
-			Record: l.sink.Record(kind),
+			Record: l.rt.recorder(&l.env.TurnID, kind),
 		})
 		if err != nil {
 			if ctx.Err() != nil {
@@ -262,8 +262,8 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
 		case n >= repeatWarn:
 			res = errResult(promptRepeated)
-		case l.sink.NeedsApproval(name):
-			if err := l.sink.RequestApproval(ctx, info); err != nil {
+		case l.spec.Approval.Requires(name):
+			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, l.spec.Approval.Timeout.D()); err != nil {
 				return callOutcome{}, err
 			}
 			return callOutcome{paused: true}, nil
@@ -328,7 +328,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		} else {
 			rec.Response, _ = json.Marshal(map[string]any{"is_error": res.IsError, "bytes": len(res.Content)})
 		}
-		l.sink.Record(types.OutboundMCPRemote)(rec)
+		l.rt.recorder(&l.env.TurnID, types.OutboundMCPRemote)(rec)
 	}
 	res.Content = types.Clean(res.Content)
 	if len(res.Content) > maxResult {

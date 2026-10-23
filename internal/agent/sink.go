@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"path"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
@@ -42,9 +40,6 @@ type Sink interface {
 	Step(ctx context.Context, s StepOut) error
 	CallStarted(ctx context.Context, c CallInfo) error
 	CallFinished(ctx context.Context, c CallInfo, r mcp.Result) error
-	NeedsApproval(full string) bool
-	RequestApproval(ctx context.Context, c CallInfo) error
-	Record(kind types.OutboundKind) func(provider.Record) int64
 }
 
 // recorder writes outbound_requests rows for a turn.
@@ -66,11 +61,10 @@ func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provide
 
 // turnSink persists the main agent's run as events under its turn.
 type turnSink struct {
-	rt       *Runtime
-	env      *TurnEnv
-	actor    int64
-	approval *config.Approval // the turn's agent's policy (nil = none)
-	ctx      context.Context  // the turn's context, for batched deltas
+	rt    *Runtime
+	env   *TurnEnv
+	actor int64
+	ctx   context.Context // the turn's context, for batched deltas
 
 	flushMu sync.Mutex // one flush at a time, so no delta lands after its step's message
 	mu      sync.Mutex
@@ -81,8 +75,8 @@ type turnSink struct {
 	lastReq int64
 }
 
-func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, spec *Spec, actor int64) *turnSink {
-	return &turnSink{rt: rt, env: env, actor: actor, approval: spec.Approval, ctx: ctx}
+func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, actor int64) *turnSink {
+	return &turnSink{rt: rt, env: env, actor: actor, ctx: ctx}
 }
 
 func (s *turnSink) append(ctx context.Context, p types.Payload, req *int64) error {
@@ -211,35 +205,12 @@ func (s *turnSink) CallFinished(ctx context.Context, c CallInfo, r mcp.Result) e
 	return s.append(ctx, types.ToolResult{CallID: c.ID, Content: r.Content, IsError: r.IsError, Structured: r.Structured}, nil)
 }
 
-func (s *turnSink) NeedsApproval(full string) bool {
-	a := s.approval
-	if a == nil {
-		return false
-	}
-	for _, p := range a.Tools {
-		if ok, _ := path.Match(p, full); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// RequestApproval pauses the turn; no worker waits.
-func (s *turnSink) RequestApproval(ctx context.Context, c CallInfo) error {
-	return s.rt.Svc.RequestApproval(ctx, s.env.ConversationID, s.env.TurnID, c.ID, s.approval.Timeout.D())
-}
-
-func (s *turnSink) Record(kind types.OutboundKind) func(provider.Record) int64 {
-	return s.rt.recorder(&s.env.TurnID, kind)
-}
-
-// quietSink is for sub-agents and the summarizer: nothing is persisted but
-// model.usage (sub-agents) and the outbound trace.
+// quietSink is for sub-agents and the summarizer: of their runs only
+// model.usage and the outbound trace are kept.
 type quietSink struct {
-	rt        *Runtime
-	env       *TurnEnv
-	actor     int64
-	persisted bool // write model.usage events
+	rt    *Runtime
+	env   *TurnEnv
+	actor int64
 }
 
 func (s *quietSink) TextDelta(string)      {}
@@ -247,9 +218,6 @@ func (s *quietSink) ReasoningDelta(string) {}
 func (s *quietSink) Restart()              {}
 
 func (s *quietSink) Step(ctx context.Context, o StepOut) error {
-	if !s.persisted {
-		return nil
-	}
 	var rid *int64
 	if o.RequestID != 0 {
 		rid = &o.RequestID
@@ -263,9 +231,3 @@ func (s *quietSink) Step(ctx context.Context, o StepOut) error {
 
 func (s *quietSink) CallStarted(context.Context, CallInfo) error              { return nil }
 func (s *quietSink) CallFinished(context.Context, CallInfo, mcp.Result) error { return nil }
-func (s *quietSink) NeedsApproval(string) bool                                { return false }
-func (s *quietSink) RequestApproval(context.Context, CallInfo) error          { return nil }
-
-func (s *quietSink) Record(kind types.OutboundKind) func(provider.Record) int64 {
-	return s.rt.recorder(&s.env.TurnID, kind)
-}
