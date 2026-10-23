@@ -23,6 +23,19 @@ func TestPromptSize(t *testing.T) {
 	}
 }
 
+// A summarizer chunk ends on a line boundary when a line fits; a longer line is cut.
+func TestFirstChunk(t *testing.T) {
+	for _, c := range []struct{ s, want string }{
+		{"ab\ncd\n", "ab\ncd\n"},
+		{"ab\ncd\nef\n", "ab\ncd\n"},
+		{"abcdefgh\nij\n", "abcdef"},
+	} {
+		if got := firstChunk(c.s, 6); got != c.want {
+			t.Errorf("firstChunk(%q, 6) = %q, want %q", c.s, got, c.want)
+		}
+	}
+}
+
 // Optional fields sent as null mean "not given"; required ones stay for the
 // tool server to refuse.
 func TestDropNullOptionals(t *testing.T) {

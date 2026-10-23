@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/alash3al/hfy/internal/db"
@@ -20,16 +21,24 @@ const compactAt = 0.8
 
 // summarizeHook triggers summarization before a model request once the
 // prompt reached compactAt of the agent's context_window, then rebuilds the
-// loop's context.
+// loop's context. A failed summary costs the turn its compaction, not its
+// answer: it is logged, the step goes on in the headroom compactAt leaves,
+// and the turn does not try again.
 func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) error {
 	if rt.Summ == nil {
 		return nil
 	}
+	failed := false
 	return func(ctx context.Context, l *loop) error {
-		if float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow) {
+		if failed || float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow) {
 			return nil
 		}
 		changed, err := rt.summarize(ctx, env)
+		if err != nil && ctx.Err() == nil {
+			slog.Warn("summarizing failed; the turn goes on uncompacted", "conversation", env.ConversationID, "turn", env.TurnID, "err", err)
+			failed = true
+			return nil
+		}
 		if err != nil || !changed {
 			return err
 		}
@@ -90,9 +99,12 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	if prev != nil {
 		text = prev.Text
 	}
-	// The summarizer's input must fit its own window: fold the transcript in chunks.
-	chunkChars := max(rt.Summ.Settings.ContextWindow*3, 2000)
-	for _, chunk := range splitChunks(transcript, chunkChars) {
+	// The summarizer's input must fit its own window: fold the transcript in
+	// chunks, so the summary so far plus a chunk stay within context_window
+	// bytes, which fits even at 1.5 bytes a token (JSON, ids).
+	for rest := transcript; rest != ""; {
+		chunk := firstChunk(rest, max(rt.Summ.Settings.ContextWindow-len(text), 2000))
+		rest = rest[len(chunk):]
 		input := "New conversation to fold in:\n" + chunk
 		if text != "" {
 			input = "Summary so far:\n" + text + "\n\n" + input
@@ -157,27 +169,14 @@ func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (stri
 	return b.String(), nil
 }
 
-// splitChunks cuts text on line boundaries into pieces of at most n bytes.
-func splitChunks(s string, n int) []string {
-	var out []string
-	var cur strings.Builder
-	for _, line := range strings.SplitAfter(s, "\n") {
-		for len(line) > n { // a single huge line
-			if cur.Len() > 0 {
-				out = append(out, cur.String())
-				cur.Reset()
-			}
-			out = append(out, line[:n])
-			line = line[n:]
-		}
-		if cur.Len()+len(line) > n && cur.Len() > 0 {
-			out = append(out, cur.String())
-			cur.Reset()
-		}
-		cur.WriteString(line)
+// firstChunk returns the longest prefix of s that ends on a line boundary and
+// has at most n bytes; a single longer line is cut at n.
+func firstChunk(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
+	if i := strings.LastIndexByte(s[:n], '\n'); i >= 0 {
+		return s[:i+1]
 	}
-	return out
+	return s[:n]
 }

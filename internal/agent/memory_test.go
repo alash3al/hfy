@@ -67,6 +67,39 @@ func TestSummarizerFoldsOldTurns(t *testing.T) {
 	}
 }
 
+// A summarizer that fails (a request it rejects, a retired model) costs the
+// turn its compaction, not its answer: the turn goes on uncompacted, without
+// a second try, and later turns still run.
+func TestFailingSummarizerDoesNotFailTheTurn(t *testing.T) {
+	long := strings.Repeat("word ", 80)
+	e := setup(t, func(c *config.Config) {
+		c.Agent.Settings.ContextWindow = 150
+		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 4000}, KeepRecent: 1}
+	},
+		fakeprov.Step{Content: "reply one"},
+		fakeprov.Step{Content: "reply two"},
+		fakeprov.Step{Status: 400}, // the summarizer at the start of turn 3
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c", Name: "files__echo", Args: `{"text":"x"}`}}, Prompt: 300},
+		fakeprov.Step{Content: "reply three"}, // still over 80%, but no second try in this turn
+		fakeprov.Step{Status: 400},            // turn 4 tries again
+		fakeprov.Step{Content: "reply four"},
+	)
+	var turns []int64
+	for _, text := range []string{"first ", "second ", "third ", "fourth "} {
+		turn := e.post(text + long)
+		e.waitState(turn, types.StateCompleted)
+		turns = append(turns, turn)
+	}
+	for _, turn := range turns {
+		if sm := e.find(turn, types.EventSummary); len(sm) != 0 {
+			t.Fatalf("summary events: %v", sm)
+		}
+	}
+	if n := len(e.fake.Reqs()); n != 7 {
+		t.Fatalf("model calls: %d", n)
+	}
+}
+
 func TestSubagentIsIsolatedAndCounted(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
 		c.Subagents = map[string]config.Subagent{"refunds": {
