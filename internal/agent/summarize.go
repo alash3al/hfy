@@ -169,7 +169,7 @@ func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (stri
 			}
 			c := toolText(mcp.Result{Content: r.Content, IsError: r.IsError})
 			if len(c) > 2000 {
-				c = c[:2000] + "..."
+				c = truncate(c, 2000) + "..."
 			}
 			b.WriteString("<tool_result>" + escText.Replace(c) + "</tool_result>\n")
 		}

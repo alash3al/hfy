@@ -341,7 +341,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	}
 	res.Content = types.Clean(res.Content)
 	if len(res.Content) > maxResult {
-		res.Content = strings.ToValidUTF8(res.Content[:maxResult], "") + "\n[truncated]" // never half a character
+		res.Content = truncate(res.Content, maxResult) + "\n[truncated]"
 	}
 	if len(res.Structured) > maxStructured {
 		slog.Warn("tool's structured result dropped: too large", "tool", tool.FullName(), "bytes", len(res.Structured))

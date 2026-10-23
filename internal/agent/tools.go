@@ -145,6 +145,7 @@ func (rt *Runtime) conversationSearch(ctx context.Context, l *loop, raw json.Raw
 // maxEmbedChars caps text sent to the embedding model (stored and queried alike).
 const maxEmbedChars = 8000
 
+// truncate cuts s to at most n bytes, never inside a character.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

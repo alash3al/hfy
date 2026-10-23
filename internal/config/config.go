@@ -271,6 +271,17 @@ var (
 	placeholRe = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
 )
 
+// Render substitutes {{var}} placeholders; unknown names are left as written.
+func Render(tmpl string, vars map[string]string) string {
+	return placeholRe.ReplaceAllStringFunc(tmpl, func(m string) string {
+		name := placeholRe.FindStringSubmatch(m)[1]
+		if v, ok := vars[name]; ok {
+			return v
+		}
+		return m
+	})
+}
+
 // SetDefaults fills in what the config leaves unset. Parse calls it; a Config
 // built by hand must too, as nothing else knows the defaults.
 func (c *Config) SetDefaults() {

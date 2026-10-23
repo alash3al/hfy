@@ -66,6 +66,17 @@ agent: { model: p/m, settings: { context_window: 10 } }
 	}
 }
 
+func TestRender(t *testing.T) {
+	got := Render("Hi {{ name }} at {{corp}}, {{unknown}}", map[string]string{"name": "Bob", "corp": "Acme"})
+	if got != "Hi Bob at Acme, {{unknown}}" {
+		t.Fatal(got)
+	}
+	// substituted values are never re-expanded
+	if got := Render("{{a}}", map[string]string{"a": "{{b}}", "b": "x"}); got != "{{b}}" {
+		t.Fatal(got)
+	}
+}
+
 func TestValidationErrors(t *testing.T) {
 	base := `
 server: { secret: s }

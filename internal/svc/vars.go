@@ -3,7 +3,6 @@ package svc
 import (
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -56,19 +55,6 @@ func ResolveVars(decl map[string]config.Var, granted map[string]string) (map[str
 		}
 	}
 	return out, nil
-}
-
-var placeholder = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
-
-// Render substitutes {{var}} placeholders; unknown names are left as written.
-func Render(tmpl string, vars map[string]string) string {
-	return placeholder.ReplaceAllStringFunc(tmpl, func(m string) string {
-		name := placeholder.FindStringSubmatch(m)[1]
-		if v, ok := vars[name]; ok {
-			return v
-		}
-		return m
-	})
 }
 
 // ValidateAttachments checks references at post time, so a bad attachment is a

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
-	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -52,7 +52,7 @@ func (rt *Runtime) BuildContext(ctx context.Context, conversationID, currentTurn
 		}
 	}
 	room := inRoom(events, spec.Name)
-	bc.System = svc.Render(spec.System, bc.Vars)
+	bc.System = config.Render(spec.System, bc.Vars)
 	if room {
 		bc.System += "\n\n" + strings.TrimSpace(promptRoom)
 	}

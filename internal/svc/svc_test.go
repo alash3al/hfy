@@ -50,17 +50,6 @@ func TestCheckVars(t *testing.T) {
 	}
 }
 
-func TestRender(t *testing.T) {
-	got := svc.Render("Hi {{ name }} at {{corp}}, {{unknown}}", map[string]string{"name": "Bob", "corp": "Acme"})
-	if got != "Hi Bob at Acme, {{unknown}}" {
-		t.Fatal(got)
-	}
-	// substituted values are never re-expanded
-	if got := svc.Render("{{a}}", map[string]string{"a": "{{b}}", "b": "x"}); got != "{{b}}" {
-		t.Fatal(got)
-	}
-}
-
 func TestValidateAttachments(t *testing.T) {
 	cfg := &config.Config{Agent: config.Agent{Settings: config.Settings{Vision: true}},
 		Attachments: &config.Attachments{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
