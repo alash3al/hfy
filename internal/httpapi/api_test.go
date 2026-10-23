@@ -17,6 +17,7 @@ import (
 
 	"github.com/alash3al/hfy/internal/agent"
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
 	"github.com/alash3al/hfy/internal/httpapi"
 	"github.com/alash3al/hfy/internal/jobs"
@@ -71,9 +72,17 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance})
 	rt.RegisterJobs(w)
 	go w.Run(ctx, 2)
-	go rt.ListenCancel(ctx)
 	hub := httpapi.NewHub(store)
-	go hub.Run(ctx)
+	go store.Listen(ctx, func(channel, payload string) { // as harness.go does
+		switch channel {
+		case db.ChanEvents:
+			hub.Notify(ctx, payload)
+		case db.ChanJobs:
+			w.Wake()
+		case db.ChanCancel:
+			rt.CancelTurn(payload)
+		}
+	}, w.Wake, db.ChanEvents, db.ChanJobs, db.ChanCancel)
 	srv := httptest.NewUnstartedServer(httpapi.New(cfg, store, rt.Svc, hub).Handler())
 	srv.Config.ReadTimeout = 300 * time.Millisecond // as in production (harness.go), only shorter: streams must outlive it
 	srv.Start()

@@ -66,13 +66,11 @@ func (w *Worker) Wake() {
 	}
 }
 
-// Run starts n workers, the lease reaper and the NOTIFY listener, and blocks
-// until ctx is cancelled and all workers have stopped.
+// Run starts n workers and the lease reaper, and blocks until ctx is
+// cancelled and all workers have stopped. The caller's listener calls Wake on
+// db.ChanJobs notifications.
 func (w *Worker) Run(ctx context.Context, n int) {
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		w.store.Listen(ctx, func(_, _ string) { w.Wake() }, w.Wake, db.ChanJobs)
-	})
 	wg.Go(func() { w.reaper(ctx) })
 	for range n {
 		wg.Go(func() { w.loop(ctx) })

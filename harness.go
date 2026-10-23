@@ -83,12 +83,12 @@ func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
 		BaseContext: func(net.Listener) context.Context { return ctx }, // shutdown ends SSE streams
 	}
 	var wg sync.WaitGroup
-	wg.Go(func() { hub.Run(ctx) })
+	var w *jobs.Worker
 	if withWorkers {
-		w := newWorker(cfg, inst, nil)
+		w = newWorker(cfg, inst, nil)
 		wg.Go(func() { w.Run(ctx, cfg.Queue.Workers) })
-		wg.Go(func() { inst.rt.ListenCancel(ctx) })
 	}
+	wg.Go(func() { listen(ctx, inst, hub, w) })
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("hfy listening", "addr", cfg.Server.Listen, "workers", withWorkers)
@@ -122,7 +122,7 @@ func work(ctx context.Context, cfg *config.Config, queues []string, workers int)
 	defer stopOps()
 	w := newWorker(cfg, inst, queues)
 	var wg sync.WaitGroup
-	wg.Go(func() { inst.rt.ListenCancel(ctx) })
+	wg.Go(func() { listen(ctx, inst, nil, w) })
 	slog.Info("hfy workers started", "workers", workers, "queues", queues)
 	w.Run(ctx, workers)
 	wg.Wait()
@@ -154,6 +154,31 @@ func serveOps(ctx context.Context, cfg *config.Config, inst *instance) (stop fun
 			slog.Warn("metrics listener shutdown", "err", err)
 		}
 	}
+}
+
+// listen holds the process's one LISTEN connection until ctx ends: events go
+// to the hub, jobs wake the workers and stop requests reach the turn running
+// here. A nil hub or w is a role the process does not have.
+func listen(ctx context.Context, inst *instance, hub *httpapi.Hub, w *jobs.Worker) {
+	var channels []string
+	var onReconnect func()
+	if hub != nil {
+		channels = append(channels, db.ChanEvents)
+	}
+	if w != nil {
+		channels = append(channels, db.ChanJobs, db.ChanCancel)
+		onReconnect = w.Wake
+	}
+	inst.store.Listen(ctx, func(channel, payload string) {
+		switch channel {
+		case db.ChanEvents:
+			hub.Notify(ctx, payload)
+		case db.ChanJobs:
+			w.Wake()
+		case db.ChanCancel:
+			inst.rt.CancelTurn(payload)
+		}
+	}, onReconnect, channels...)
 }
 
 func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker {

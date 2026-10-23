@@ -148,9 +148,11 @@ func (rt *Runtime) Boot(ctx context.Context) error {
 	return err
 }
 
-// CancelTurn asks the worker running a turn (in this process) to stop it.
-func (rt *Runtime) CancelTurn(turnID int64) {
-	if c, ok := rt.cancels.Load(turnID); ok {
+// CancelTurn asks the worker running a turn (in this process) to stop it;
+// payload is the turn event id, as db.ChanCancel carries it.
+func (rt *Runtime) CancelTurn(payload string) {
+	id, err := strconv.ParseInt(payload, 10, 64)
+	if c, ok := rt.cancels.Load(id); err == nil && ok {
 		c.(context.CancelCauseFunc)(errStopped)
 	}
 }
@@ -170,14 +172,4 @@ func inlineImages(c *provider.Client) bool {
 		return ip.IsLoopback() || ip.IsPrivate()
 	}
 	return !strings.Contains(h, ".") // docker/k8s service names
-}
-
-// ListenCancel relays stop requests (NOTIFY from any instance) to the turn
-// running in this process. It blocks until ctx ends.
-func (rt *Runtime) ListenCancel(ctx context.Context) {
-	rt.Store.Listen(ctx, func(_, payload string) {
-		if id, err := strconv.ParseInt(payload, 10, 64); err == nil {
-			rt.CancelTurn(id)
-		}
-	}, nil, db.ChanCancel)
 }

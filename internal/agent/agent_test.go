@@ -82,8 +82,15 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	if cfg.Queue.Workers > 0 { // tests that drive RunTurn by hand set Workers to 0
 		go w.Run(ctx, cfg.Queue.Workers)
 	}
-	go rt.ListenCancel(ctx)
-	time.Sleep(200 * time.Millisecond) // let the listeners attach
+	go store.Listen(ctx, func(channel, payload string) { // as harness.go does
+		switch channel {
+		case db.ChanJobs:
+			w.Wake()
+		case db.ChanCancel:
+			rt.CancelTurn(payload)
+		}
+	}, w.Wake, db.ChanJobs, db.ChanCancel)
+	time.Sleep(200 * time.Millisecond) // let the listener attach
 
 	conv, err := store.CreateConversation(ctx)
 	if err != nil {

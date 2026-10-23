@@ -60,35 +60,34 @@ func (h *Hub) wanted(conversation int64) bool {
 	return len(h.subs[conversation]) > 0
 }
 
-// Run listens for event notifications until ctx ends.
-func (h *Hub) Run(ctx context.Context) {
-	h.store.Listen(ctx, func(_, payload string) {
-		cid, eid, ok := strings.Cut(payload, ":")
-		if !ok {
-			return
+// Notify pushes the event a db.ChanEvents notification names to its
+// conversation's subscribers.
+func (h *Hub) Notify(ctx context.Context, payload string) {
+	cid, eid, ok := strings.Cut(payload, ":")
+	if !ok {
+		return
+	}
+	conversation, err1 := strconv.ParseInt(cid, 10, 64)
+	event, err2 := strconv.ParseInt(eid, 10, 64)
+	if err1 != nil || err2 != nil || !h.wanted(conversation) {
+		return
+	}
+	row, err := h.store.EventByID(ctx, h.store.Pool, event)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("hub: load event", "event", event, "err", err)
 		}
-		conversation, err1 := strconv.ParseInt(cid, 10, 64)
-		event, err2 := strconv.ParseInt(eid, 10, 64)
-		if err1 != nil || err2 != nil || !h.wanted(conversation) {
-			return
+		return
+	}
+	h.mu.Lock()
+	for s := range h.subs[conversation] {
+		select {
+		case s.C <- row:
+		default:
+			s.dropped = true
+			delete(h.subs[conversation], s)
+			close(s.C)
 		}
-		row, err := h.store.EventByID(ctx, h.store.Pool, event)
-		if err != nil {
-			if ctx.Err() == nil {
-				slog.Warn("hub: load event", "event", event, "err", err)
-			}
-			return
-		}
-		h.mu.Lock()
-		for s := range h.subs[conversation] {
-			select {
-			case s.C <- row:
-			default:
-				s.dropped = true
-				delete(h.subs[conversation], s)
-				close(s.C)
-			}
-		}
-		h.mu.Unlock()
-	}, nil, db.ChanEvents)
+	}
+	h.mu.Unlock()
 }
