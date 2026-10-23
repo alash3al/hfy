@@ -105,8 +105,8 @@ type loop struct {
 	prepare func(ctx context.Context, l *loop) error
 }
 
-func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv, system string) *loop {
-	l := &loop{rt: rt, spec: spec, sink: sink, env: env, system: system,
+func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv) *loop {
+	l := &loop{rt: rt, spec: spec, sink: sink, env: env,
 		activated: map[string]bool{}, counts: map[string]int{}}
 	if spec.Top {
 		l.total = env.Total
@@ -114,6 +114,15 @@ func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv, system string) *l
 		l.total = &usageAcc{}
 	}
 	return l
+}
+
+// load sets the system prompt and messages the loop sends. It measures them
+// at once (promptSize reads msgs from the last measurement on) and unlocks
+// the tools that earlier tool_search results found.
+func (l *loop) load(ctx context.Context, system string, msgs []provider.Message) {
+	l.system, l.msgs = system, msgs
+	l.measure(0)
+	l.deriveActivated(ctx)
 }
 
 func (l *loop) addUsage(u types.Usage) {

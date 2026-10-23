@@ -48,9 +48,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 		if err != nil {
 			return err
 		}
-		l.system, l.msgs = bc.System, bc.Msgs
-		l.measure(0)
-		l.deriveActivated(ctx)
+		l.load(ctx, bc.System, bc.Msgs)
 		return nil
 	}
 }
@@ -112,8 +110,8 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 			input = "Summary so far:\n" + text + "\n\n" + input
 		}
 		sink := &quietSink{rt: rt, env: env, actor: actor}
-		l := newLoop(rt, rt.Summ, sink, env, rt.Summ.System)
-		l.msgs = []provider.Message{{Role: "user", Content: input}}
+		l := newLoop(rt, rt.Summ, sink, env)
+		l.load(ctx, rt.Summ.System, []provider.Message{{Role: "user", Content: input}})
 		res, err := l.run(ctx)
 		if err != nil {
 			return false, err

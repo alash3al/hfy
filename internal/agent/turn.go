@@ -91,7 +91,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 		ConversationUUID: conv.UUID.String(), TurnUUID: turn.UUID.String(),
 		Actor: mcp.ActorMeta{Type: turn.ActorType, Ref: turn.ActorRef}}
 	sink := newTurnSink(tctx, rt, env, mainActor)
-	l := newLoop(rt, spec, sink, env, "")
+	l := newLoop(rt, spec, sink, env)
 	l.steps = int(calls)
 
 	runErr := rt.resolveDangling(tctx, l, sink, view, job.Attempts)
@@ -99,9 +99,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if runErr == nil {
 		var bc *BuiltContext
 		if bc, runErr = rt.BuildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
-			l.system, l.msgs = bc.System, bc.Msgs
-			l.measure(0)
-			l.deriveActivated(tctx)
+			l.load(tctx, bc.System, bc.Msgs)
 			l.prepare = rt.summarizeHook(env)
 			res, runErr = l.run(tctx)
 		}

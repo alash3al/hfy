@@ -160,8 +160,8 @@ func (rt *Runtime) runSubagent(ctx context.Context, parent *loop, sub *Spec, tas
 		return mcp.Result{}, err
 	}
 	sink := &quietSink{rt: rt, env: parent.env, actor: actor}
-	l := newLoop(rt, sub, sink, parent.env, sub.System)
-	l.msgs = []provider.Message{{Role: "user", Content: task}}
+	l := newLoop(rt, sub, sink, parent.env)
+	l.load(ctx, sub.System, []provider.Message{{Role: "user", Content: task}})
 	res, err := l.run(ctx)
 	if err != nil {
 		return mcp.Result{}, err
