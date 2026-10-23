@@ -19,7 +19,8 @@ func TestMain(m *testing.M) {
 }
 
 func fakeServer() config.MCPServer {
-	return config.MCPServer{Type: "local", Command: []string{os.Args[0]}, Environment: map[string]string{"HFY_FAKE_MCP": "1"}}
+	return config.MCPServer{Type: "local", Command: []string{os.Args[0]}, Environment: map[string]string{"HFY_FAKE_MCP": "1"},
+		Timeout: config.Duration(time.Minute)}
 }
 
 func TestLocalClientListsAndCalls(t *testing.T) {

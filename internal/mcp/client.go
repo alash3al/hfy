@@ -152,7 +152,7 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 		args = json.RawMessage(`{}`)
 	}
 	// Cancelling ctx makes the SDK send notifications/cancelled to the server.
-	callCtx, cancel := context.WithTimeout(ctx, c.timeout())
+	callCtx, cancel := context.WithTimeout(ctx, c.cfg.Timeout.D())
 	defer cancel()
 	params := &sdk.CallToolParams{Name: tool, Arguments: args}
 	if meta != nil {
@@ -163,7 +163,7 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 		switch {
 		case ctx.Err() != nil: // the turn was cancelled
 		case callCtx.Err() != nil:
-			err = fmt.Errorf("%s.%s did not answer within %s", c.name, tool, c.timeout())
+			err = fmt.Errorf("%s.%s did not answer within %s", c.name, tool, c.cfg.Timeout.D())
 		default: // a transport failure: reconnect on the next call
 			c.mu.Lock()
 			if c.session == sess {
@@ -178,13 +178,6 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 		out.Structured, _ = json.Marshal(res.StructuredContent)
 	}
 	return out, nil
-}
-
-func (c *Client) timeout() time.Duration {
-	if d := c.cfg.Timeout.D(); d > 0 {
-		return d
-	}
-	return 2 * time.Minute // a Client made without config defaults (tests)
 }
 
 // Close ends the connection (and the child process for local servers).

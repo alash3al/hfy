@@ -1,7 +1,6 @@
 package svc
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -82,8 +81,8 @@ func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.A
 	if a == nil {
 		return badf("attachments are not enabled")
 	}
-	if max := cmp.Or(a.MaxCount, 10); len(atts) > max { // 10: the default, for configs built without Parse
-		return badf("at most %d attachments per message", max)
+	if len(atts) > a.MaxCount {
+		return badf("at most %d attachments per message", a.MaxCount)
 	}
 	for _, at := range atts {
 		u, err := parseHTTPURL(at.URL)

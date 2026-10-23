@@ -64,6 +64,7 @@ func TestRender(t *testing.T) {
 func TestValidateAttachments(t *testing.T) {
 	cfg := &config.Config{Agent: config.Agent{Settings: config.Settings{Vision: true}},
 		Attachments: &config.Attachments{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
+	cfg.SetDefaults()
 	ok := []types.Attachment{{URL: "https://cdn.example.com/a.png", Mime: "image/png"}, {URL: "https://b.s3.amazonaws.com/x.pdf", Mime: "application/pdf"}}
 	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err != nil {
 		t.Fatal(err)

@@ -58,6 +58,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 			Settings: config.Settings{ContextWindow: 100000},
 			Vars:     map[string]config.Var{"who": {Default: new("everyone")}}},
 	}
+	cfg.SetDefaults() // before tweak, which may set Queue.Workers to 0
 	if tweak != nil {
 		tweak(cfg)
 	}

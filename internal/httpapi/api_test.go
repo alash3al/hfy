@@ -58,6 +58,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	if tweak != nil {
 		tweak(cfg)
 	}
+	cfg.SetDefaults()
 	store := dbtest.New(t, nil)
 	t.Cleanup(cancel)
 	rt, err := agent.NewRuntime(cfg, store, mcp.NewManager())

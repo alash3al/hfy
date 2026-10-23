@@ -186,7 +186,7 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 	if err := root.Decode(&c); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
-	c.applyDefaults()
+	c.SetDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -271,7 +271,9 @@ var (
 	placeholRe = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
 )
 
-func (c *Config) applyDefaults() {
+// SetDefaults fills in what the config leaves unset. Parse calls it; a Config
+// built by hand must too, as nothing else knows the defaults.
+func (c *Config) SetDefaults() {
 	if c.Server.Listen == "" {
 		c.Server.Listen = ":8080"
 	}
