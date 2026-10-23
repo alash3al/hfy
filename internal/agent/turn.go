@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,7 +63,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	if err != nil {
 		return err
 	}
-	spec, ok := rt.Agents[cmp.Or(t.Agent, types.AgentMain)]
+	spec, ok := rt.Agents[t.AgentName()]
 	if !ok { // removed from the config after the turn was posted
 		return rt.Svc.EndTurn(fresh, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateFailed,
 			Reason: "unknown agent", Error: fmt.Sprintf("agent %q is not configured", t.Agent)})

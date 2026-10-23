@@ -148,7 +148,7 @@ func (s *Service) agentOf(ctx context.Context, q db.DBTX, turn db.EventRow) (int
 	if err != nil {
 		return 0, err
 	}
-	return s.Store.FindOrCreateActor(ctx, q, types.ActorAgent, cmp.Or(t.Agent, types.AgentMain))
+	return s.Store.FindOrCreateActor(ctx, q, types.ActorAgent, t.AgentName())
 }
 
 // EndTurn appends the terminal state of a turn, books its usage on the

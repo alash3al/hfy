@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/alash3al/hfy/internal/types"
 )
 
 //go:embed example.yaml
@@ -418,9 +420,9 @@ func (c *Config) Validate() error {
 	for _, name := range slices.Sorted(maps.Keys(agents)) {
 		a := agents[name]
 		where := "agents." + name
-		if name == MainAgent {
+		if name == types.AgentMain {
 			where = "agent"
-		} else if name == summarizerName || !nameRe.MatchString(name) || strings.Contains(name, "__") {
+		} else if name == types.AgentSummarizer || !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("%s: name is reserved or invalid (use [a-zA-Z0-9_-], no double underscore)", where)
 		}
 		checkModel(where, a.Model)
@@ -452,7 +454,7 @@ func (c *Config) Validate() error {
 
 	for name, s := range c.Subagents {
 		where := "subagents." + name
-		if _, taken := agents[name]; taken || name == summarizerName {
+		if _, taken := agents[name]; taken || name == types.AgentSummarizer {
 			bad("%s: name is reserved or taken by an agent (agents and sub-agents share one namespace)", where)
 		}
 		if slices.Contains(BuiltinTools, name) {
@@ -505,17 +507,9 @@ const BuiltinServer = "hfy"
 // sub-agent may (a test in package builtins keeps the list complete).
 var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc"}
 
-// MainAgent is the default agent's name; sub-agents and the summarizer share
-// the agent namespace with it. (config imports nothing internal; a test keeps
-// these equal to types.AgentMain and types.AgentSummarizer.)
-const (
-	MainAgent      = "main"
-	summarizerName = "summarizer"
-)
-
 // AllAgents returns every agent by name; the default "agent" is "main".
 func (c *Config) AllAgents() map[string]*Agent {
-	all := map[string]*Agent{MainAgent: &c.Agent}
+	all := map[string]*Agent{types.AgentMain: &c.Agent}
 	for name, a := range c.Agents {
 		all[name] = &a
 	}
@@ -525,7 +519,7 @@ func (c *Config) AllAgents() map[string]*Agent {
 // AgentNamed returns the agent a grant picked ("" = main).
 func (c *Config) AgentNamed(name string) (*Agent, bool) {
 	if name == "" {
-		name = MainAgent
+		name = types.AgentMain
 	}
 	a, ok := c.AllAgents()[name]
 	return a, ok

@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/alash3al/hfy/internal/types"
 )
 
 func env(m map[string]string) func(string) (string, bool) {
@@ -133,12 +131,6 @@ func TestUnknownKeysAreRejected(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("want %q, got %v", c.want, err)
 		}
-	}
-}
-
-func TestAgentNamesMatchTypes(t *testing.T) {
-	if MainAgent != types.AgentMain || summarizerName != types.AgentSummarizer {
-		t.Fatal("config's agent names drifted from types")
 	}
 }
 

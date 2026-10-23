@@ -23,7 +23,7 @@ const module = "github.com/alash3al/hfy"
 var layers = map[string][]string{
 	"":                           {"agent", "config", "db", "httpapi", "jobs", "mcp", "metrics", "types"},
 	"internal/types":             {}, // shared vocabulary: depends on nothing
-	"internal/config":            {},
+	"internal/config":            {"types"},
 	"internal/metrics":           {},
 	"internal/db":                {"types"},
 	"internal/db/dbtest":         {"db"},

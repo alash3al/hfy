@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 )
@@ -14,6 +15,9 @@ type Turn struct {
 
 func (Turn) EventType() EventType { return EventTurn }
 func (Turn) Validate() error      { return nil }
+
+// AgentName is the agent that runs the turn.
+func (t Turn) AgentName() string { return cmp.Or(t.Agent, AgentMain) }
 
 type TurnStateEvent struct {
 	State  TurnState `json:"state"`
