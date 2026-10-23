@@ -15,58 +15,41 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// BuiltContext is everything a model call needs from the event log.
-type BuiltContext struct {
-	System string
-	Msgs   []provider.Message
-	Vars   map[string]string
-	// Turns lists the turn ids in the context (after the summary), oldest first.
-	Turns []int64
-}
-
 // BuildContext = the latest summary + the durable events of the turns after
 // the ones it covers, up to and including the current turn. One query.
-func (rt *Runtime) BuildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (*BuiltContext, error) {
+func (rt *Runtime) BuildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (system string, msgs []provider.Message, err error) {
 	summary, after, err := rt.summaryStart(ctx, conversationID)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	events, err := rt.Store.LoadContext(ctx, conversationID, after, currentTurn)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	bc := &BuiltContext{Vars: map[string]string{}}
+	var vars map[string]string
 	for _, e := range events {
-		if e.Type != types.EventTurn {
-			continue
-		}
-		bc.Turns = append(bc.Turns, e.ID)
-		if e.ID == currentTurn {
+		if e.Type == types.EventTurn && e.ID == currentTurn {
 			t, err := e.Payload[types.Turn]()
 			if err != nil {
-				return nil, err
+				return "", nil, err
 			}
-			if t.Vars != nil {
-				bc.Vars = t.Vars
-			}
+			vars = t.Vars
 		}
 	}
 	room := inRoom(events, spec.Name)
-	bc.System = config.Render(spec.System, bc.Vars)
+	system = config.Render(spec.System, vars)
 	if room {
-		bc.System += "\n\n" + strings.TrimSpace(promptRoom)
+		system += "\n\n" + strings.TrimSpace(promptRoom)
 	}
 	if summary != nil {
 		text := summary.Text
 		if room { // tag-like text in it must not read as a message
 			text = escText.Replace(text)
 		}
-		bc.System += "\n\nSummary of the earlier conversation:\n" + text
+		system += "\n\nSummary of the earlier conversation:\n" + text
 	}
-	if bc.Msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec, room); err != nil {
-		return nil, err
-	}
-	return bc, nil
+	msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec, room)
+	return system, msgs, err
 }
 
 // summaryStart returns the conversation's latest summary (nil if none) and the id

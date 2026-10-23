@@ -78,13 +78,7 @@ func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.A
 		if !HostAllowed(a.AllowedHosts, u.Hostname()) {
 			return badf("attachment host %q is not allowed", u.Hostname())
 		}
-		ok := false
-		for _, t := range a.Types {
-			if strings.EqualFold(t, at.Mime) {
-				ok = true
-			}
-		}
-		if !ok {
+		if !slices.ContainsFunc(a.Types, func(t string) bool { return strings.EqualFold(t, at.Mime) }) {
 			return badf("attachment type %q is not allowed", at.Mime)
 		}
 		if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {

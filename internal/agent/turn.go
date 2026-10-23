@@ -10,6 +10,7 @@ import (
 
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
+	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -96,9 +97,10 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	runErr := rt.resolveDangling(tctx, l, sink, view, job.Attempts)
 	var res Result
 	if runErr == nil {
-		var bc *BuiltContext
-		if bc, runErr = rt.BuildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
-			l.load(tctx, bc.System, bc.Msgs)
+		var system string
+		var msgs []provider.Message
+		if system, msgs, runErr = rt.BuildContext(tctx, turn.ConversationID, turn.ID, spec); runErr == nil {
+			l.load(tctx, system, msgs)
 			l.prepare = rt.summarizeHook(env)
 			res, runErr = l.run(tctx)
 		}
@@ -235,7 +237,7 @@ func (rt *Runtime) OnTurnExhausted(ctx context.Context, job db.JobRow, err error
 
 // estimateTokens is a rough 4-chars-per-token guess, used only until the
 // provider reports a real prompt size.
-func estimateTokens(system string, msgs []providerMessage) int64 {
+func estimateTokens(system string, msgs []provider.Message) int64 {
 	n := len(system)
 	for _, m := range msgs {
 		n += len(m.Content)

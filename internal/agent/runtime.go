@@ -67,12 +67,11 @@ type Runtime struct {
 	Svc   *svc.Service
 	MCP   *mcp.Manager
 
-	Providers map[string]*provider.Client
-	Agents    map[string]*Spec // the configured agents by name; "main" is the default
-	Subs      map[string]*Spec
-	Summ      *Spec // nil when no summarizer is configured
-	Embedder  *provider.Client
-	EmbModel  string
+	Agents   map[string]*Spec // the configured agents by name; "main" is the default
+	Subs     map[string]*Spec
+	Summ     *Spec // nil when no summarizer is configured
+	Embedder *provider.Client
+	EmbModel string
 
 	builtins []builtin // hfy.* tools, in the order they are offered
 	cancels  sync.Map  // turn event id -> context.CancelCauseFunc
@@ -82,19 +81,20 @@ type Runtime struct {
 func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime, error) {
 	rt := &Runtime{
 		Cfg: cfg, Store: store, Svc: svc.New(store, cfg), MCP: mgr,
-		Providers: map[string]*provider.Client{}, Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
+		Agents: map[string]*Spec{}, Subs: map[string]*Spec{},
 	}
+	providers := map[string]*provider.Client{}
 	for name, p := range cfg.Providers {
-		rt.Providers[name] = provider.New(name, p.URL, p.APIKey, p.Timeout.D())
+		providers[name] = provider.New(name, p.URL, p.APIKey, p.Timeout.D())
 	}
 	spec := func(name, model string, st config.Settings, system string, lim config.Limits, servers []string) *Spec {
 		prov, m := config.SplitModel(model)
-		return &Spec{Name: name, Client: rt.Providers[prov], Model: m, Settings: st, System: system,
+		return &Spec{Name: name, Client: providers[prov], Model: m, Settings: st, System: system,
 			Limits: lim, MCP: servers, Builtins: map[string]bool{}}
 	}
 	if cfg.Embeddings != nil {
 		prov, m := config.SplitModel(cfg.Embeddings.Model)
-		rt.Embedder, rt.EmbModel = rt.Providers[prov], m
+		rt.Embedder, rt.EmbModel = providers[prov], m
 	}
 	for name, a := range cfg.AllAgents() {
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)

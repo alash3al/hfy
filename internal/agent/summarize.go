@@ -14,8 +14,6 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-type providerMessage = provider.Message
-
 // compactAt is the share of context_window (the model's real window) at
 // which history is summarized: the rest is room for the reply and the tool
 // results of the step, so a request never overflows before compaction.
@@ -44,11 +42,11 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) erro
 		if err != nil || !changed {
 			return err
 		}
-		bc, err := rt.BuildContext(ctx, env.ConversationID, env.TurnID, l.spec)
+		system, msgs, err := rt.BuildContext(ctx, env.ConversationID, env.TurnID, l.spec)
 		if err != nil {
 			return err
 		}
-		l.load(ctx, bc.System, bc.Msgs)
+		l.load(ctx, system, msgs)
 		return nil
 	}
 }

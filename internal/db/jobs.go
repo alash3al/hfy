@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,9 +25,9 @@ type NewJob struct {
 }
 
 // ConversationKey is the concurrency key that serializes a conversation's jobs.
-func ConversationKey(conversation int64) string { return "conversation:" + itoa(conversation) }
-
-func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+func ConversationKey(conversation int64) string {
+	return "conversation:" + strconv.FormatInt(conversation, 10)
+}
 
 // Enqueue inserts a job and wakes workers. It returns false when deduped.
 func (s *Store) Enqueue(ctx context.Context, q DBTX, j NewJob) (bool, error) {
@@ -80,8 +81,6 @@ func (s *Store) CancelQueuedTurnJobs(ctx context.Context, q DBTX, conversation i
 	return err
 }
 
-func interval(d time.Duration) string { return d.String() }
-
 // ClaimJob takes the next runnable job of the given types from a queue, or nil
 // if none. A worker claims only the types it handles, so during a rolling
 // deploy an older worker leaves a newer job type to a newer worker. Losing
@@ -92,7 +91,7 @@ func (s *Store) ClaimJob(ctx context.Context, queue string, jobTypes []types.Job
 		names[i] = string(t)
 	}
 	j, err := one[JobRow](s.Pool.Query(ctx, s.q("ClaimJob"),
-		pgx.NamedArgs{"queue": queue, "types": names, "lease": interval(lease)}))
+		pgx.NamedArgs{"queue": queue, "types": names, "lease": lease.String()}))
 	if IsNotFound(err) || IsUniqueViolation(err) {
 		return nil, nil
 	}
@@ -109,7 +108,7 @@ func (s *Store) ClaimJob(ctx context.Context, queue string, jobTypes []types.Job
 // HeartbeatJob extends the lease. It returns false when the caller no longer
 // owns the job (its lease expired and the job was reaped or claimed again).
 func (s *Store) HeartbeatJob(ctx context.Context, id int64, attempt int, lease time.Duration) (bool, error) {
-	tag, err := s.Pool.Exec(ctx, s.q("HeartbeatJob"), pgx.NamedArgs{"id": id, "attempt": attempt, "lease": interval(lease)})
+	tag, err := s.Pool.Exec(ctx, s.q("HeartbeatJob"), pgx.NamedArgs{"id": id, "attempt": attempt, "lease": lease.String()})
 	return tag.RowsAffected() == 1, err
 }
 
@@ -124,7 +123,7 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, attempt int) error {
 func (s *Store) RetryJob(ctx context.Context, id int64, attempt int, delay time.Duration, errText string) (types.JobState, error) {
 	var st string
 	err := s.Pool.QueryRow(ctx, s.q("RetryJob"),
-		pgx.NamedArgs{"id": id, "attempt": attempt, "delay": interval(delay), "error": errText}).Scan(&st)
+		pgx.NamedArgs{"id": id, "attempt": attempt, "delay": delay.String(), "error": errText}).Scan(&st)
 	return types.JobState(st), err
 }
 
@@ -150,7 +149,7 @@ func (s *Store) DeleteExpired(ctx context.Context, age time.Duration) (int64, er
 	for _, name := range []string{"DeleteExpiredEvents", "DeleteExpiredOutbound", "DeleteExpiredGrants", "PruneJobs"} {
 		for {
 			tag, err := s.Pool.Exec(ctx, s.q(name),
-				pgx.NamedArgs{"age": interval(age), "limit": 5000})
+				pgx.NamedArgs{"age": age.String(), "limit": 5000})
 			if err != nil {
 				return total, err
 			}
