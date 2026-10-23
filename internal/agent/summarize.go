@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
@@ -126,13 +128,21 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	ev, err := rt.Store.AppendEvent(ctx, rt.Store.Pool, db.NewEvent{
-		ConversationID: env.ConversationID, ParentID: &env.TurnID, ActorID: actor, Scope: env.Scope,
-		Payload: types.Summary{Text: text, CoversUntilTurn: lastCovered.UUID.String()}})
-	if err != nil {
-		return false, err
-	}
-	return true, rt.Store.SetSummary(ctx, rt.Store.Pool, env.ConversationID, ev.ID)
+	// The event and the pointer commit together, under the conversation row
+	// lock taken first as svc does: AppendEvent's lock comes second in both.
+	err = rt.Store.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := rt.Store.LockConversation(ctx, tx, env.ConversationID); err != nil {
+			return err
+		}
+		ev, err := rt.Store.AppendEvent(ctx, tx, db.NewEvent{
+			ConversationID: env.ConversationID, ParentID: &env.TurnID, ActorID: actor, Scope: env.Scope,
+			Payload: types.Summary{Text: text, CoversUntilTurn: lastCovered.UUID.String()}})
+		if err != nil {
+			return err
+		}
+		return rt.Store.SetSummary(ctx, tx, env.ConversationID, ev.ID)
+	})
+	return err == nil, err
 }
 
 // transcriptOf renders events for the summarizer, one framed line per
