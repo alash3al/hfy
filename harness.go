@@ -88,6 +88,7 @@ func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
 		w = newWorker(cfg, inst, nil)
 		wg.Go(func() { w.Run(ctx, cfg.Queue.Workers) })
 	}
+	wg.Go(func() { hub.Run(ctx) })
 	wg.Go(func() { listen(ctx, inst, hub, w) })
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()

@@ -73,6 +73,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	rt.RegisterJobs(w)
 	go w.Run(ctx, 2)
 	hub := httpapi.NewHub(store)
+	go hub.Run(ctx)
 	go store.Listen(ctx, func(channel, payload string) { // as harness.go does
 		switch channel {
 		case db.ChanEvents:

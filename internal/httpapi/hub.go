@@ -16,6 +16,7 @@ import (
 // load the event for local subscribers and for replays.
 type Hub struct {
 	store *db.Store
+	queue chan [2]int64 // conversation, event
 	mu    sync.Mutex
 	subs  map[int64]map[*Subscription]struct{}
 }
@@ -28,7 +29,7 @@ type Subscription struct {
 }
 
 func NewHub(store *db.Store) *Hub {
-	return &Hub{store: store, subs: map[int64]map[*Subscription]struct{}{}}
+	return &Hub{store: store, queue: make(chan [2]int64, 1024), subs: map[int64]map[*Subscription]struct{}{}}
 }
 
 func (h *Hub) Subscribe(conversation int64) (*Subscription, func()) {
@@ -60,8 +61,9 @@ func (h *Hub) wanted(conversation int64) bool {
 	return len(h.subs[conversation]) > 0
 }
 
-// Notify pushes the event a db.ChanEvents notification names to its
-// conversation's subscribers.
+// Notify queues the event a db.ChanEvents notification names for Run. It
+// never reads the database: the listener calling it also carries stop
+// requests and job wake-ups. It blocks only while Run is a full queue behind.
 func (h *Hub) Notify(ctx context.Context, payload string) {
 	cid, eid, ok := strings.Cut(payload, ":")
 	if !ok {
@@ -72,6 +74,26 @@ func (h *Hub) Notify(ctx context.Context, payload string) {
 	if err1 != nil || err2 != nil || !h.wanted(conversation) {
 		return
 	}
+	select {
+	case h.queue <- [2]int64{conversation, event}:
+	case <-ctx.Done():
+	}
+}
+
+// Run loads the queued events and pushes each to its conversation's
+// subscribers until ctx ends. One consumer keeps every conversation in order.
+func (h *Hub) Run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case n := <-h.queue:
+			h.push(ctx, n[0], n[1])
+		}
+	}
+}
+
+func (h *Hub) push(ctx context.Context, conversation, event int64) {
 	row, err := h.store.EventByID(ctx, h.store.Pool, event)
 	if err != nil {
 		if ctx.Err() == nil {
