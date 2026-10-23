@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io/fs"
 	"path/filepath"
 	"slices"
@@ -91,9 +92,28 @@ func TestLayering(t *testing.T) {
 
 // Inside a transaction every read and write goes through it: a pool
 // connection taken while the transaction holds one deadlocks once the pool is
-// exhausted. Any function that receives a pgx.Tx must not touch .Pool.
+// exhausted. Any function that receives a pgx.Tx must not touch .Pool, nor
+// call a Store method that does.
 func TestTransactionsUseOnlyTheirConnection(t *testing.T) {
-	for _, f := range sources(t) {
+	files := sources(t)
+	// shortcut: a store is known by its name (Store, store) and a pool method by
+	// naming .Pool itself; one that reaches it through another (SearchEmbeddings
+	// via Tx) is missed. Follow calls between Store methods if that starts to matter.
+	poolMethods := map[string]bool{}
+	for _, f := range files {
+		for _, d := range f.ast.Decls {
+			if fn, ok := d.(*ast.FuncDecl); ok && f.pkg == "internal/db" && fn.Recv != nil && fn.Body != nil &&
+				types.ExprString(fn.Recv.List[0].Type) == "*Store" {
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Pool" {
+						poolMethods[fn.Name.Name] = true
+					}
+					return true
+				})
+			}
+		}
+	}
+	for _, f := range files {
 		ast.Inspect(f.ast, func(n ast.Node) bool {
 			var typ *ast.FuncType
 			var body *ast.BlockStmt
@@ -109,8 +129,18 @@ func TestTransactionsUseOnlyTheirConnection(t *testing.T) {
 				return true
 			}
 			ast.Inspect(body, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Pool" {
-					t.Errorf("%s: uses .Pool inside a function that holds a pgx.Tx (use the tx)", pos(sel))
+				switch n := n.(type) {
+				case *ast.SelectorExpr:
+					if n.Sel.Name == "Pool" {
+						t.Errorf("%s: uses .Pool inside a function that holds a pgx.Tx (use the tx)", pos(n))
+					}
+				case *ast.CallExpr:
+					if sel, ok := n.Fun.(*ast.SelectorExpr); ok && poolMethods[sel.Sel.Name] {
+						x := types.ExprString(sel.X)
+						if x = x[strings.LastIndex(x, ".")+1:]; x == "Store" || x == "store" {
+							t.Errorf("%s: calls Store.%s, which uses the pool, inside a function that holds a pgx.Tx", pos(n), sel.Sel.Name)
+						}
+					}
 				}
 				return true
 			})
