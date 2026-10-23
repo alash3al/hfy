@@ -28,8 +28,7 @@ var grantCheckEvery = 15 * time.Second
 // durable and ephemeral events alike. Resume with Last-Event-ID, or ?after=
 // on a first connection; with neither it starts from now. It ends when the
 // grant does: the client reconnects with a fresh token.
-func (s *Server) streamEvents(c *echo.Context) error {
-	g := grantOf(c)
+func (s *Server) streamEvents(c *echo.Context, g *db.GrantRow) error {
 	req := c.Request()
 	ctx := req.Context()
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -25,8 +26,7 @@ type historyResponse struct {
 
 // history returns durable events grouped by turn, newest page first, keyset
 // paginated by turn uuid.
-func (s *Server) history(c *echo.Context) error {
-	g := grantOf(c)
+func (s *Server) history(c *echo.Context, g *db.GrantRow) error {
 	ctx := c.Request().Context()
 	limit := 20
 	if v := c.QueryParam("limit"); v != "" {

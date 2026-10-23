@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -20,8 +21,7 @@ type postMessageResponse struct {
 	Turn uuid.UUID `json:"turn"`
 }
 
-func (s *Server) postMessage(c *echo.Context) error {
-	g := grantOf(c)
+func (s *Server) postMessage(c *echo.Context, g *db.GrantRow) error {
 	var req postMessageRequest
 	if err := bindJSON(c, &req); err != nil {
 		return err

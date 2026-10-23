@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -14,8 +15,7 @@ type approveRequest struct {
 	Result  string `json:"result"` // optional text the model sees when rejected
 }
 
-func (s *Server) approve(c *echo.Context) error {
-	g := grantOf(c)
+func (s *Server) approve(c *echo.Context, g *db.GrantRow) error {
 	var req approveRequest
 	if err := bindJSON(c, &req); err != nil {
 		return err

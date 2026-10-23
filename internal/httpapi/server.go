@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -62,12 +63,11 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 			MaxAge:       3600,
 		}))
 	}
-	header, headerOrQuery := srv.requireGrant(false), srv.requireGrant(true)
-	client.POST("/messages", srv.postMessage, header)
-	client.GET("/events", srv.streamEvents, headerOrQuery)
-	client.GET("/history", srv.history, header)
-	client.POST("/approvals", srv.approve, header)
-	client.POST("/stop", srv.stop, header)
+	client.POST("/messages", srv.withGrant(false, srv.postMessage))
+	client.GET("/events", srv.withGrant(true, srv.streamEvents))
+	client.GET("/history", srv.withGrant(false, srv.history))
+	client.POST("/approvals", srv.withGrant(false, srv.approve))
+	client.POST("/stop", srv.withGrant(false, srv.stop))
 	return srv
 }
 
@@ -166,17 +166,13 @@ func (s *Server) handleError(c *echo.Context, err error) {
 	case isBad:
 		code, msg = http.StatusBadRequest, bad.Msg
 	case errors.Is(err, svc.ErrNoPendingApproval):
-		code, msg = http.StatusConflict, err.Error()
+		code, msg = http.StatusConflict, svc.ErrNoPendingApproval.Error()
 	case errors.Is(err, svc.ErrNotTurnOwner):
-		code, msg = http.StatusForbidden, err.Error()
+		code, msg = http.StatusForbidden, svc.ErrNotTurnOwner.Error()
 	case db.IsNotFound(err):
 		code, msg = http.StatusNotFound, "not found"
 	default:
-		attrs := []any{"method", c.Request().Method, "path", c.Request().URL.Path, "err", err}
-		if g, ok := c.Get(grantKey).(*db.GrantRow); ok { // client URLs name no conversation
-			attrs = append(attrs, "conversation", g.ConversationUUID)
-		}
-		slog.Error("request failed", attrs...)
+		slog.Error("request failed", "method", c.Request().Method, "path", c.Request().URL.Path, "err", err)
 	}
 	_ = c.JSON(code, errorBody{Error: msg})
 }
@@ -201,36 +197,33 @@ func (s *Server) requireSecret(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-const grantKey = "hfy.grant"
-
-// requireGrant resolves the request's token to its grant: who acts, in which
-// conversation, as which agent, with which vars. A token that is unknown,
-// expired or revoked gets one answer, so a client learns nothing about which.
-func (s *Server) requireGrant(queryToken bool) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			token := bearer(c)
-			if token == "" && queryToken {
-				token = c.QueryParam("token")
-			}
-			if token == "" {
-				return echo.NewHTTPError(http.StatusUnauthorized, "missing token")
-			}
-			g, err := s.store.GrantByToken(c.Request().Context(), hashToken(token))
-			if db.IsNotFound(err) {
-				return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
-			}
-			if err != nil {
-				return err
-			}
-			if _, ok := s.cfg.AgentNamed(g.Agent); !ok {
-				slog.Error("a grant names an agent the config no longer has", "agent", g.Agent, "grant", g.ID)
-				return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
-			}
-			c.Set(grantKey, &g)
-			return next(c)
+// withGrant resolves the request's token to its grant (who acts, in which
+// conversation, as which agent, with which vars) and hands it to h. A token
+// that is unknown, expired or revoked gets one answer, so a client learns
+// nothing about which.
+func (s *Server) withGrant(queryToken bool, h func(c *echo.Context, g *db.GrantRow) error) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		token := bearer(c)
+		if token == "" && queryToken {
+			token = c.QueryParam("token")
 		}
+		if token == "" {
+			return echo.NewHTTPError(http.StatusUnauthorized, "missing token")
+		}
+		g, err := s.store.GrantByToken(c.Request().Context(), hashToken(token))
+		if db.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+		}
+		if err != nil {
+			return err
+		}
+		if _, ok := s.cfg.AgentNamed(g.Agent); !ok {
+			slog.Error("a grant names an agent the config no longer has", "agent", g.Agent, "grant", g.ID)
+			return echo.NewHTTPError(http.StatusForbidden, "forbidden") // fail closed
+		}
+		if err := h(c, &g); err != nil {
+			return fmt.Errorf("conversation %s: %w", g.ConversationUUID, err) // client URLs name no conversation; logs should
+		}
+		return nil
 	}
 }
-
-func grantOf(c *echo.Context) *db.GrantRow { return c.Get(grantKey).(*db.GrantRow) }
