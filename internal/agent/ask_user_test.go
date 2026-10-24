@@ -99,11 +99,35 @@ func TestAskUserTimeout(t *testing.T) {
 	}
 }
 
-// A malformed call is an error result: the turn never pauses on it.
+// A small model's sloppy call (a choice with no options, string options, a bad
+// id) is repaired, stored repaired, and pauses like any ask: the viewer gets
+// the wizard, and answers are checked against what was stored.
+func TestAskUserRepairsAndStoresTheQuestions(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.Agent.AskUser = true },
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "q", Name: "hfy__ask_user",
+			Args: `{"questions":[{"id":"Size","text":"Which size?","type":"single"},{"text":"Color?","options":["Black","White"]}]}`}}},
+		fakeprov.Step{Content: "thanks"})
+	turn := e.post("order a shirt")
+	e.waitState(turn, types.StateAwaitingApproval)
+	calls := e.find(turn, types.EventToolCall)
+	stored, _ := json.Marshal(calls[0]["arguments"])
+	want := `{"questions":[{"id":"size","required":true,"text":"Which size?","type":"text"},{"id":"q2","options":[{"label":"Black","value":"Black"},{"label":"White","value":"White"}],"required":true,"text":"Color?","type":"single"}]}`
+	if string(stored) != want {
+		t.Fatalf("stored questions\n got %s\nwant %s", stored, want)
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "q", Approve: true,
+		Answers: json.RawMessage(`{"size":"XL","q2":"Black"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateCompleted)
+}
+
+// A call that cannot be repaired is an error result with an example: the
+// turn never pauses on it.
 func TestAskUserInvalidArgsDoNotPause(t *testing.T) {
 	e := setup(t, func(c *config.Config) { c.Agent.AskUser = true },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "q", Name: "hfy__ask_user",
-			Args: `{"questions":[{"id":"Size","text":"Which?","type":"single","options":[{"value":"m"},{"value":"l"}]}]}`}}},
+			Args: `{"questions":[{"id":"size","text":"","type":"single","options":[{"value":"m"},{"value":"l"}]}]}`}}},
 		fakeprov.Step{Content: "fine, guessing then"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
@@ -111,7 +135,8 @@ func TestAskUserInvalidArgsDoNotPause(t *testing.T) {
 		t.Fatalf("paused on invalid questions\n%s", e.dump(turn))
 	}
 	r := e.find(turn, types.EventToolResult)
-	if len(r) != 1 || r[0]["is_error"] != true || !strings.Contains(r[0]["content"].(string), "questions[0].id") {
+	if len(r) != 1 || r[0]["is_error"] != true || !strings.Contains(r[0]["content"].(string), "questions[0].text") ||
+		!strings.Contains(r[0]["content"].(string), "example:") {
 		t.Fatalf("error result: %v", r)
 	}
 }

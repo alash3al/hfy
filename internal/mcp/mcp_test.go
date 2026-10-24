@@ -37,6 +37,12 @@ func TestLocalClientListsAndCalls(t *testing.T) {
 	if tools[0].FullName() != "files.boom" || mcp.WireName(tools[0]) != "files__boom" {
 		t.Fatalf("names: %+v", tools[0])
 	}
+	// Annotations map onto Destructive: read-only or unannotated never.
+	for _, tool := range tools {
+		if want := tool.Name == "write_file"; tool.Destructive != want {
+			t.Fatalf("%s: Destructive=%v, want %v", tool.FullName(), tool.Destructive, want)
+		}
+	}
 	res, err := m.Call(ctx, "files.echo", json.RawMessage(`{"text":"hi"}`), nil)
 	if err != nil || res.Content != "echo: hi" || res.IsError {
 		t.Fatalf("echo: %+v %v", res, err)

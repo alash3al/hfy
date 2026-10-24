@@ -276,6 +276,33 @@ func TestFilesystemDefaults(t *testing.T) {
 	}
 }
 
+// Server-owned approval policy: patterns are validated like agent ones, and
+// a pattern naming only a core tool can never work (core tools never wait).
+func TestMCPServerApproval(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	y := base + "mcp: {files: {type: remote, url: http://x, approval: [\"[bad\"], approve_destructive: true}}\n"
+	if _, err := Parse([]byte(y), env(nil)); err == nil || !strings.Contains(err.Error(), `mcp.files.approval: bad pattern "[bad"`) {
+		t.Errorf("bad pattern must fail naming mcp.<name>.approval, got %v", err)
+	}
+	c, err := Parse([]byte(base+`mcp: {files: {type: remote, url: http://x, approval: [refund, delete_*]}}`+"\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.MCP["files"].Approval; len(a) != 2 || a[0] != "refund" {
+		t.Fatalf("approval parsed: %v", a)
+	}
+	plain := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
+	for _, p := range []string{"hfy.now", "hfy.math_calc", "hfy.tool_search", "hfy.conversation_search"} {
+		y := plain + `agent: {model: p/m, settings: {context_window: 1}, approval: {tools: ["` + p + `"]}}` + "\n"
+		if _, err := Parse([]byte(y), env(nil)); err == nil || !strings.Contains(err.Error(), "core tool and never needs approval") {
+			t.Errorf("%q must be rejected, got %v", p, err)
+		}
+	}
+	if _, err := Parse([]byte(plain+"agent: {model: p/m, settings: {context_window: 1}, approval: {tools: [\"hfy.*\"]}}\n"), env(nil)); err != nil {
+		t.Errorf("a wide hfy.* pattern is fine (it guards sub-agents): %v", err)
+	}
+}
+
 func TestApprovalRequires(t *testing.T) {
 	a := &Approval{Tools: []string{"files.write", "cart.*"}}
 	for _, c := range []struct {

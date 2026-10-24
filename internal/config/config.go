@@ -113,6 +113,14 @@ type MCPServer struct {
 	URL         string            `yaml:"url"`
 	Headers     map[string]string `yaml:"headers"`
 	Timeout     Duration          `yaml:"timeout"` // longest a tool call may take
+	// Approval is server-owned policy: tool-name patterns WITHOUT the server
+	// prefix (path.Match syntax, e.g. "refund", "delete_*"); calls to matching
+	// tools of this server wait for approval, for EVERY agent.
+	Approval []string `yaml:"approval"`
+	// ApproveDestructive waits for approval on tools whose MCP annotations
+	// (readOnlyHint not true, destructiveHint explicitly true) say they may
+	// destroy things.
+	ApproveDestructive bool `yaml:"approve_destructive"`
 }
 
 type Embeddings struct {
@@ -519,6 +527,11 @@ func (c *Config) Validate() error {
 		if !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("mcp.%s: names use [a-zA-Z0-9_-] and no double underscore", name)
 		}
+		for _, p := range s.Approval {
+			if _, err := path.Match(p, ""); err != nil {
+				bad("mcp.%s.approval: bad pattern %q", name, p)
+			}
+		}
 		switch s.Type {
 		case "local":
 			if len(s.Command) == 0 {
@@ -615,6 +628,9 @@ func (c *Config) Validate() error {
 				if _, err := path.Match(p, ""); err != nil {
 					bad("%s.approval.tools: bad pattern %q", where, p)
 				}
+				if slices.Contains(coreNoApprovalTools, p) {
+					bad("%s.approval.tools: %q is a core tool and never needs approval", where, p)
+				}
 			}
 		}
 	}
@@ -680,6 +696,12 @@ const BuiltinServer = "hfy"
 // BuiltinTools are the names hfy's own tools take on that server, so no
 // sub-agent may (a test in package builtins keeps the list complete).
 var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc", "ask_user"}
+
+// coreNoApprovalTools are the full names of the built-ins that never wait for
+// approval (the agent decides the same at call time), so a pattern protecting
+// only one of them can never work and is rejected at startup. hfy.ask_user is
+// not one: it pauses on its own branch before approval ever applies.
+var coreNoApprovalTools = []string{"hfy.now", "hfy.math_calc", "hfy.tool_search", "hfy.conversation_search"}
 
 // AllAgents returns every agent by name; the default "agent" is "main".
 func (c *Config) AllAgents() map[string]*Agent {

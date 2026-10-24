@@ -130,7 +130,10 @@ func (c *Client) Tools(ctx context.Context) ([]Tool, error) {
 		}
 		for _, t := range res.Tools {
 			schema, _ := json.Marshal(t.InputSchema)
-			out = append(out, Tool{Server: c.name, Name: t.Name, Description: t.Description, Schema: schema})
+			a := t.Annotations
+			destructive := a != nil && !a.ReadOnlyHint && a.DestructiveHint != nil && *a.DestructiveHint
+			out = append(out, Tool{Server: c.name, Name: t.Name, Description: t.Description, Schema: schema,
+				Destructive: destructive})
 		}
 		if res.NextCursor == "" {
 			break

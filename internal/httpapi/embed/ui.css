@@ -7,6 +7,10 @@
   --r1:6px; --r2:10px; --r3:14px; --r4:18px;
   --hfy-fs:15px; --hfy-lh:1.5; --hfy-gap:12px; --hfy-gap-tight:2px;
   --hfy-pad-y:7px; --hfy-pad-x:10px; --hfy-avatar:30px; --hfy-max:820px;
+  /* the conversation column caps at --hfy-max; backgrounds and sheets span the whole widget */
+  --hfy-gutter:max(var(--s4),env(safe-area-inset-left),env(safe-area-inset-right),calc((100% - var(--hfy-max)) / 2));
+  --hfy-sheet-gutter:max(var(--s5),env(safe-area-inset-left),env(safe-area-inset-right),calc((100% - 860px) / 2));
+  --hfy-tick-read:#0b89d1; --hfy-scrim:rgb(11 20 26/.45);
   --hfy-foot-w:58px;
 
   --hfy-bg:#f6f7f9; --hfy-surface:#fff; --hfy-surface-2:#f1f3f6; --hfy-surface-3:#e7eaf0;
@@ -27,6 +31,7 @@
   --hfy-ok:#4ade80; --hfy-ok-soft:#14261b; --hfy-err:#f87171; --hfy-err-soft:#2c1717;
   --hfy-warn:#fbbf24; --hfy-warn-soft:#2a2210;
   --hfy-shadow-1:0 1px .5px rgb(0 0 0/.4);
+  --hfy-tick-read:#53bdeb; --hfy-scrim:rgb(0 0 0/.62);
   --hfy-shadow-2:0 8px 24px rgb(0 0 0/.35),0 2px 4px rgb(0 0 0/.25);
   color-scheme:dark;
 }
@@ -38,7 +43,7 @@
     --hfy-surface-3:color-mix(in srgb,var(--hfy-accent) 7%,#e7eaf0);
     --hfy-border:color-mix(in srgb,var(--hfy-accent) 7%,#e1e4ea);
     --hfy-accent-soft:color-mix(in srgb,var(--hfy-accent) 11%,#fff);
-    --hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 72%,#000);
+    --hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 58%,#000); /* AA on white even for bright accents */
     --hfy-ring:color-mix(in srgb,var(--hfy-accent) 40%,transparent);
     --hfy-own:color-mix(in srgb,var(--hfy-accent) 15%,#fff);
     --hfy-wall:color-mix(in srgb,var(--hfy-accent) 5%,#eceef1);
@@ -75,7 +80,7 @@ button:disabled{cursor:default}
 .hfy-offscreen{position:fixed;inset-inline-start:-9999px;top:0;opacity:0}
 
 /* ---- shell ---- */
-.hfy-shell{position:relative;display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:var(--hfy-max);margin-inline:auto;background:var(--hfy-bg)}
+.hfy-shell{position:relative;display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--hfy-bg)}
 /* thin connection bar, only while not live; overlays the top so nothing shifts */
 .hfy-status-host{position:absolute;inset-inline:0;top:0;z-index:4}
 .hfy-status{position:relative;display:flex;align-items:center;justify-content:center;gap:var(--s2);
@@ -92,7 +97,7 @@ button:disabled{cursor:default}
 .hfy-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
 .hfy-messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;overflow-anchor:none;display:flex;flex-direction:column;
   scrollbar-width:thin;scrollbar-color:var(--hfy-surface-3) transparent;
-  padding:max(var(--s3),env(safe-area-inset-top)) max(var(--s4),env(safe-area-inset-left),env(safe-area-inset-right)) var(--s3)}
+  padding:max(var(--s3),env(safe-area-inset-top)) var(--hfy-gutter) calc(var(--s3) + var(--hfy-sheet-pad,0px))}
 /* wallpaper: two offset dot grids, behind opaque bubbles only */
 [data-layout="bubbles"] .hfy-messages{background-color:var(--hfy-wall);
   background-image:radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px),radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px);
@@ -179,7 +184,7 @@ button:disabled{cursor:default}
 .hfy-ticks svg{display:none;height:11px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .hfy-tick1{width:16px}.hfy-tick2{width:20px}.hfy-tickx{width:13px;height:13px!important;stroke-width:2!important}
 .hfy-ticks.is-sent .hfy-tick1,.hfy-ticks.is-delivered .hfy-tick2,.hfy-ticks.is-read .hfy-tick2,.hfy-ticks.is-failed .hfy-tickx{display:block}
-.hfy-ticks.is-read{color:var(--hfy-accent-text)}
+.hfy-ticks.is-read{color:var(--hfy-tick-read)}
 .hfy-ticks.is-failed{color:var(--hfy-err)}
 
 /* copy sits beside agent bubbles, shown on hover/focus */
@@ -190,7 +195,8 @@ button:disabled{cursor:default}
 .hfy-copy[data-copied] .hfy-ico-check{display:block;color:var(--hfy-ok)}
 .hfy-msg:hover .hfy-copy,.hfy-copy:focus-visible,.hfy-copy[data-copied]{opacity:1}
 .hfy-copy:hover{color:var(--hfy-text)}
-@media (hover:none){ .hfy-copy{opacity:.75;width:36px;height:36px} }
+/* touch: no hover, so only the latest reply keeps a visible copy button */
+@media (hover:none){ .hfy-copy{display:none;opacity:.75;width:36px;height:36px} .is-last-agent .hfy-copy{display:inline-grid} }
 
 /* streaming caret after the last rendered text */
 .hfy-bubble.is-streaming .hfy-end::after{content:"";display:inline-block;width:.45em;height:1.05em;margin-inline-start:3px;vertical-align:-.17em;
@@ -299,13 +305,19 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 /* approval records in the timeline (the decision itself happens in the sheet) */
 .hfy-appr-rec{display:inline-flex;align-items:center;gap:8px;max-width:min(100%,520px);min-height:40px;padding:5px 6px;padding-inline:12px 6px;
   border-radius:var(--r3);background:var(--hfy-surface);box-shadow:var(--hfy-shadow-1);font-size:13px}
-.hfy-appr-rec.is-mine{border-inline-start:3px solid var(--hfy-warn)}
+.hfy-appr-rec.is-mine{border-inline-start:3px solid var(--hfy-accent)}
 .hfy-appr-rec.is-theirs{padding-inline-end:12px;color:var(--hfy-muted)}
-.hfy-appr-rec>.hfy-i{width:16px;height:16px;color:var(--hfy-warn)}
+.hfy-appr-rec>.hfy-i{width:16px;height:16px;color:var(--hfy-accent-text)}
 .hfy-appr-rec.is-theirs>.hfy-i{color:var(--hfy-muted)}
 .hfy-appr-text{display:flex;flex-direction:column;min-width:0;line-height:1.3}
 .hfy-appr-name{font-weight:600;color:var(--hfy-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hfy-appr-wait{font-size:12px;color:var(--hfy-muted)}
+.hfy-rec-time{flex:none;align-self:flex-end;margin-inline-start:4px;font-size:11px;line-height:16px;color:var(--hfy-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.hfy-ask-head .hfy-rec-time{align-self:center}
+/* while the sheet shows a pending item, its timeline record steps back */
+.is-sheet-open .hfy-appr-open{display:none}
+.is-sheet-open .hfy-appr-rec.is-mine,.is-sheet-open .hfy-ask-rec.is-pending{border-inline-start-color:var(--hfy-border);box-shadow:none;opacity:.75}
+.hfy-kicker-ico{display:inline-flex}
 .hfy-appr-open{flex:none;min-height:32px;margin-inline-start:6px;padding:4px 14px;border:0;border-radius:999px;background:var(--hfy-accent-soft);
   color:var(--hfy-accent-text);font-size:13px;font-weight:600}
 .hfy-appr-open:hover{filter:brightness(.97)}
@@ -332,9 +344,9 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 
 /* ---- approval bottom sheet ---- */
 .hfy-sheet-layer{position:absolute;inset:0;z-index:20;display:flex;align-items:flex-end;justify-content:center}
-.hfy-scrim{position:absolute;inset:0;background:rgb(10 12 18/.38);animation:hfy-fade .2s ease-out}
-.hfy-sheet{position:relative;display:grid;gap:var(--s3);width:100%;max-width:560px;max-height:85%;overflow-y:auto;overscroll-behavior:contain;
-  padding:6px var(--s5) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--hfy-surface);
+.hfy-scrim{position:absolute;inset:0;background:var(--hfy-scrim);animation:hfy-fade .2s ease-out}
+.hfy-sheet{position:relative;display:grid;gap:var(--s3);width:100%;max-height:85%;overflow-y:auto;overscroll-behavior:contain;
+  padding:6px var(--hfy-sheet-gutter) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--hfy-surface);
   box-shadow:0 -8px 30px rgb(0 0 0/.18);animation:hfy-sheet-up .26s cubic-bezier(.2,.8,.2,1);transition:transform .18s ease-out}
 .hfy-sheet:focus,.hfy-sheet:focus-visible{outline:none}
 .hfy-handle{display:flex;justify-content:center;padding:8px 0 4px;margin-bottom:-4px;cursor:grab;touch-action:none}
@@ -345,7 +357,8 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-dot-step.is-allowed{background:color-mix(in srgb,var(--hfy-accent) 55%,var(--hfy-surface-3))}
 .hfy-dot-step.is-denied{background:color-mix(in srgb,var(--hfy-err) 55%,var(--hfy-surface-3))}
 .hfy-dot-step.is-current{background:var(--hfy-accent)}
-.hfy-sheet-kicker{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;font-weight:600;color:var(--hfy-warn)}
+.hfy-sheet-kicker{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;font-weight:600;color:var(--hfy-accent-text)}
+.hfy-sheet-kicker .hfy-i{width:15px;height:15px}
 .hfy-sheet-title{margin:-8px 0 0;font-size:19px;font-weight:650;line-height:1.3;letter-spacing:-.01em}
 .hfy-sheet .hfy-args{font-size:14px;padding:10px 12px;gap:6px}
 .hfy-sheet-err{margin:0;padding:8px 12px;border-radius:var(--r2);font-size:13px;color:var(--hfy-err);background:var(--hfy-err-soft)}
@@ -434,7 +447,7 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-jump .hfy-i{width:15px;height:15px}
 
 /* ---- composer: pill input + round send ---- */
-.hfy-composer-wrap{padding:var(--s2) max(var(--s3),env(safe-area-inset-left),env(safe-area-inset-right)) max(var(--s2),env(safe-area-inset-bottom));background:var(--hfy-bg)}
+.hfy-composer-wrap{padding:var(--s2) var(--hfy-gutter) max(var(--s2),env(safe-area-inset-bottom));background:var(--hfy-bg)}
 [data-layout="bubbles"] .hfy-composer-wrap{background:var(--hfy-wall)}
 .hfy-composer{display:flex;align-items:flex-end;gap:var(--s2)}
 .hfy-pill{display:flex;align-items:flex-end;flex:1;min-width:0;padding:3px;border:1px solid var(--hfy-border);border-radius:24px;background:var(--hfy-surface);
@@ -481,7 +494,7 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-camera,.hfy-attach{color:var(--hfy-muted)}
 .hfy-icon-btn:disabled{opacity:.4}
 .hfy-menu-layer{position:absolute;inset:0;z-index:25;display:flex;align-items:flex-end;justify-content:center}
-.hfy-menu{position:relative;width:100%;max-width:560px;padding:6px var(--s5) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;
+.hfy-menu{position:relative;width:100%;padding:6px var(--hfy-sheet-gutter) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;
   background:var(--hfy-surface);box-shadow:0 -8px 30px rgb(0 0 0/.18);animation:hfy-sheet-up .24s cubic-bezier(.2,.8,.2,1)}
 .hfy-menu:focus{outline:none}
 .hfy-opts{display:flex;justify-content:space-around;gap:var(--s3);padding:var(--s3) 0 var(--s2)}
@@ -543,7 +556,7 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .is-photo .hfy-pv-pill .hfy-input::placeholder{color:#a3aab9}
 .is-photo .hfy-pv-err{background:rgb(248 113 113/.15);color:#fca5a5}
 
-.is-doc .hfy-preview{width:100%;max-width:560px;max-height:85%;padding:var(--s3) var(--s5) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;
+.is-doc .hfy-preview{width:100%;max-height:85%;padding:var(--s3) var(--hfy-sheet-gutter) max(var(--s5),env(safe-area-inset-bottom));border-radius:20px 20px 0 0;
   background:var(--hfy-surface);box-shadow:0 -8px 30px rgb(0 0 0/.18);animation:hfy-sheet-up .26s cubic-bezier(.2,.8,.2,1);overflow-y:auto}
 .hfy-pv-docs{display:grid;gap:6px;margin:0;padding:0;list-style:none}
 .hfy-pv-doc{display:flex;align-items:center;gap:10px;min-width:0;padding:8px 6px;padding-inline:8px 6px;border-radius:var(--r2);background:var(--hfy-surface-2)}

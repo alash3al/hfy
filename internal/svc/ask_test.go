@@ -25,20 +25,14 @@ func askQuestions(t *testing.T) []svc.Question {
 func TestParseQuestions(t *testing.T) {
 	for _, bad := range []string{
 		`{}`,
-		`{"questions":[{}]}`,
-		`{"questions":[{"id":"Size","text":"x","type":"single"}]}`,
-		`{"questions":[{"id":"a","text":"x","type":"single"},{"id":"a","text":"y","type":"text"}]}`,
+		`{"questions":[]}`,
+		`{"questions":[{}]}`, // no text: nothing to ask
 		`{"questions":[{"id":"a","text":"","type":"text"}]}`,
 		`{"questions":[{"id":"a","text":"` + strings.Repeat("x", 301) + `","type":"text"}]}`,
-		`{"questions":[{"id":"a","text":"x"}]}`,
-		`{"questions":[{"id":"a","text":"x","type":"nonsense"}]}`,
-		`{"questions":[{"id":"a","text":"x","type":"multi","options":[{"value":"m"}]}]}`,
-		`{"questions":[{"id":"a","text":"x","type":"single","options":[{"value":"m"},{"value":"m"}]}]}`,
-		`{"questions":[{"id":"a","text":"x","type":"text","options":[{"value":"m"},{"value":"l"}]}]}`,
 		`{"questions":[` + strings.Repeat(`{"id":"a","text":"x","type":"text"},`, 10) + `{"id":"b","text":"x","type":"text"}]}`,
 	} {
-		if _, err := svc.ParseQuestions(json.RawMessage(bad)); err == nil {
-			t.Errorf("%.64s: must be refused", bad)
+		if _, err := svc.ParseQuestions(json.RawMessage(bad)); err == nil || !strings.Contains(err.Error(), "example:") {
+			t.Errorf("%.64s: must be refused with an example, got %v", bad, err)
 		}
 	}
 
@@ -47,6 +41,35 @@ func TestParseQuestions(t *testing.T) {
 		questions[0].Options[0].Label != "Medium" || questions[1].Values()[1] != "wrap" ||
 		questions[2].Required || questions[3].Type != "confirm" {
 		t.Fatalf("questions: %+v", questions)
+	}
+}
+
+// Small models slip; the questions are repaired, not refused, so the viewer
+// still gets a wizard instead of plain text.
+func TestParseQuestionsRepairs(t *testing.T) {
+	for in, want := range map[string]string{
+		// a choice with nothing to choose from is asked as text
+		`{"questions":[{"id":"size","text":"Which size?","type":"single"}]}`: `{"questions":[{"id":"size","text":"Which size?","type":"text","required":true}]}`,
+		// plain-string options, a synonym type, an ill-formed id
+		`{"questions":[{"id":"Shirt Size","text":"Size?","type":"radio","options":["S","M","S",""]}]}`: `{"questions":[{"id":"shirt_size","text":"Size?","type":"single","options":[{"value":"S","label":"S"},{"value":"M","label":"M"}],"required":true}]}`,
+		// missing id and type, options make it a choice; a repeated id is suffixed
+		`{"questions":[{"text":"A?","options":[{"label":"x"},{"label":"y"}]},{"id":"q1","text":"B?","type":"boolean"}]}`: `{"questions":[{"id":"q1","text":"A?","type":"single","options":[{"value":"x","label":"x"},{"value":"y","label":"y"}],"required":true},{"id":"q1_2","text":"B?","type":"confirm","required":true}]}`,
+		// options on a text question make it a choice; a placeholder off text is dropped
+		`{"questions":[{"id":"a","text":"x","type":"text","options":[{"value":"m"},{"value":"l"}],"placeholder":"p"}]}`: `{"questions":[{"id":"a","text":"x","type":"single","options":[{"value":"m","label":"m"},{"value":"l","label":"l"}],"required":true}]}`,
+	} {
+		qs, err := svc.ParseQuestions(json.RawMessage(in))
+		if err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		got := string(svc.MarshalQuestions(qs))
+		if got != want {
+			t.Errorf("%s\n got %s\nwant %s", in, got, want)
+		}
+		// repairing is idempotent: the stored form parses to itself
+		again, err := svc.ParseQuestions(json.RawMessage(got))
+		if err != nil || string(svc.MarshalQuestions(again)) != got {
+			t.Errorf("not idempotent: %s → %s (%v)", got, svc.MarshalQuestions(again), err)
+		}
 	}
 }
 

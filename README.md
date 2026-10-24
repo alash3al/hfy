@@ -297,12 +297,19 @@ event as stored.
   `timeout` is the longest silence allowed (before the answer starts, then
   between streamed chunks), so long answers are never cut off. `limits`
   (`steps`, `total_tokens`, `timeout`) end the turn when hit.
-- **Approvals.** Calls matching `agent.approval.tools` (`<server>.<tool>`
-  patterns, `hfy.*` works) pause the turn; nothing waits in a worker. After
-  `approval.timeout` the call is rejected. Each agent has its own `approval`.
-  `hfy.ask_user` pauses the same way and never twice: it always asks the
-  viewer, even if a pattern matched its name; it runs after
-  `approval.timeout` (the agent's own if it has one, else a fixed 30m).
+- **Approvals.** Default is to never ask. Calls matching `agent.approval.tools`
+  (`<server>.<tool>` patterns, `hfy.*` works) pause the turn; nothing waits in
+  a worker. After approval.timeout the call is rejected. Each agent has its own
+  `approval`. A server's own `mcp.<name>.approval` (tool patterns without the
+  server prefix, e.g. `[refund, delete_*]`) applies to EVERY agent; an agent's
+  `approval.tools` only adds more. `mcp.<name>.approve_destructive: true`
+  waits on tools whose annotations say destructive (readOnlyHint not true AND
+  destructiveHint explicitly true); unannotated tools never count. The core
+  built-ins (hfy.now, hfy.math_calc, hfy.tool_search, hfy.conversation_search)
+  never ask, even when a pattern like `hfy.*` matches. hfy.ask_user pauses the
+  same way and never twice: it always asks the viewer, even if a pattern
+  matched its name; it runs after `approval.timeout` (the agent's own if it
+  has one, else a fixed 30m).
   Approval covers an agent's own calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
   can reach a guarded tool, guard the sub-agent itself (`hfy.<name>`).
 - **Core tools.** Every agent gets hfy.now {timezone?} (UTC, and local time,

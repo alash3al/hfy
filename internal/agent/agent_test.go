@@ -707,22 +707,96 @@ func TestCoreToolsAreOffered(t *testing.T) {
 	}
 }
 
-// Approval patterns cover built-ins too; an approved one runs when the turn resumes.
-func TestApprovedBuiltinRuns(t *testing.T) {
+// Server-owned policy pauses a call for an agent with NO approval config of
+// its own, and the approval flow runs exactly as for agent patterns.
+func TestServerApprovalPausesWithoutAgentPolicy(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
 		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"hfy.math_*"}, Timeout: config.Duration(time.Minute)}
+		srv := c.MCP["files"]
+		srv.Approval = []string{"write_*"}
+		c.MCP["files"] = srv
 	},
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "m", Name: "hfy__math_calc", Args: `{"expression":"3 * 19.99"}`}}},
-		fakeprov.Step{Content: "59.97 in total"},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a.txt"}`}}},
+		fakeprov.Step{Content: "written"},
 	)
-	turn := e.post("three at 19.99?")
+	turn := e.post("write it")
 	e.waitState(turn, types.StateAwaitingApproval)
-	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "m", Approve: true}); err != nil {
+	if n := len(e.find(turn, types.EventToolResult)); n != 0 {
+		t.Fatal("tool ran before approval")
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w", Approve: true}); err != nil {
 		t.Fatal(err)
 	}
 	e.waitState(turn, types.StateCompleted)
-	if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["content"] != "59.97" {
-		t.Fatalf("approved math_calc result: %v", r)
+	if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["content"] != "wrote a.txt" {
+		t.Fatalf("approved call result: %v", r)
 	}
+}
+
+// approve_destructive waits on annotated tools (readOnlyHint not true AND
+// destructiveHint explicitly true) and never on read-only ones.
+func TestApproveDestructiveServerPolicy(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		srv := c.MCP["files"]
+		srv.ApproveDestructive = true
+		c.MCP["files"] = srv
+	},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a"}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "r", Name: "files__echo", Args: `{"text":"x"}`}}},
+		fakeprov.Step{Content: "done"},
+	)
+	turn := e.post("go")
+	e.waitState(turn, types.StateAwaitingApproval)
+	asks := e.find(turn, types.EventApprovalRequested)
+	if len(asks) != 1 {
+		t.Fatalf("approval requests: %d\n%s", len(asks), e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventToolResult)); n != 0 {
+		t.Fatal("destructive tool ran before approval")
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "w", Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateCompleted)
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != 2 || r[0]["content"] != "wrote a" || r[1]["content"] != "echo: x" {
+		t.Fatalf("results: %v\n%s", r, e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 1 {
+		t.Fatalf("the read-only echo must never wait: %d asks\n%s", n, e.dump(turn))
+	}
+}
+
+// Core built-ins never pause, even under an agent pattern like "hfy.*", but
+// such a pattern still guards sub-agent calls.
+func TestAgentPatternsNeverPauseCoreTools(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Agent.Approval = &config.Approval{Tools: []string{"hfy.*", "files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Subagents = map[string]config.Subagent{"helper": {Description: "helps", Model: "fake/small",
+			Settings: config.Settings{ContextWindow: 100000}}}
+	},
+		// core first: it runs; then the pattern hits a sub-agent call and pauses
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "n", Name: "hfy__now", Args: `{}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "s", Name: "hfy__helper", Args: `{"task":"tidy up"}`}}},
+		fakeprov.Step{Content: "sub here"},
+		fakeprov.Step{Content: "done"},
+	)
+	turn := e.post("go")
+	e.waitState(turn, types.StateAwaitingApproval)
+	if r := e.find(turn, types.EventToolResult); len(r) != 1 || !strings.Contains(r[0]["content"].(string), `"utc"`) {
+		t.Fatalf("now must have run, got %v\n%s", r, e.dump(turn))
+	}
+	if asks := e.find(turn, types.EventApprovalRequested); len(asks) != 1 || asks[0]["call_id"] != "s" {
+		t.Fatalf("asks: %v\n%s", asks, e.dump(turn))
+	}
+	calls := e.find(turn, types.EventToolCall)
+	if len(calls) == 0 || calls[len(calls)-1]["name"] != "hfy.helper" {
+		t.Fatalf("the paused call must be the sub-agent: %v", calls)
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "s", Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateCompleted)
 }

@@ -2,9 +2,11 @@ package svc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/types"
@@ -47,73 +49,160 @@ const (
 	maxAText     = 2000 // a text answer, in characters
 )
 
-var askTypes = []string{"single", "multi", "text", "confirm"}
-
-var questionID = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
-
-// ParseQuestions validates a stored hfy.ask_user tool call's arguments
-// ({"questions": [...]}) and returns its questions. The same rules the agent
-// applies before pausing: an invalid call is refused instead of pausing.
+// ParseQuestions validates a hfy.ask_user call's arguments ({"questions":
+// [...]}) and returns its questions. It forgives the slips small models make
+// instead of refusing them (refusing leaves the viewer with plain text):
+// options given as plain strings, missing or ill-formed ids, type synonyms,
+// a choice with fewer than two options (asked as text), options on a text
+// question (asked as a choice). What it cannot repair is an error the agent
+// sees before anything pauses. Normalizing is idempotent, so the loop stores
+// MarshalQuestions(qs) and every later reader parses the same questions.
 func ParseQuestions(args json.RawMessage) ([]Question, error) {
 	var in struct {
 		Questions []struct {
-			ID      string `json:"id"`
-			Text    string `json:"text"`
-			Type    string `json:"type"`
-			Options []struct {
-				Value string `json:"value"`
-				Label string `json:"label"`
-			} `json:"options"`
-			Required    *bool  `json:"required"`
-			Placeholder string `json:"placeholder"`
+			ID          string            `json:"id"`
+			Text        string            `json:"text"`
+			Type        string            `json:"type"`
+			Options     []json.RawMessage `json:"options"`
+			Required    *bool             `json:"required"`
+			Placeholder string            `json:"placeholder"`
 		} `json:"questions"`
 	}
 	if json.Unmarshal(args, &in) != nil {
-		return nil, fmt.Errorf("arguments must be {\"questions\": [...]}")
+		return nil, errors.New(`arguments must be {"questions": [...]}; ` + askExample)
 	}
 	if len(in.Questions) == 0 || len(in.Questions) > maxQuestions {
-		return nil, fmt.Errorf("questions must have 1 to %d items", maxQuestions)
+		return nil, fmt.Errorf("questions must have 1 to %d items; %s", maxQuestions, askExample)
 	}
 	seen := map[string]bool{}
 	qs := make([]Question, len(in.Questions))
 	for i, raw := range in.Questions {
-		q := Question{ID: raw.ID, Text: raw.Text, Type: raw.Type, Placeholder: raw.Placeholder, Required: raw.Required == nil || *raw.Required}
-		if !questionID.MatchString(q.ID) || seen[q.ID] {
-			return nil, fmt.Errorf("questions[%d].id: must be 1-40 chars of [a-z0-9_], unique in the call (%q)", i, q.ID)
+		q := Question{Text: strings.TrimSpace(raw.Text), Placeholder: raw.Placeholder, Required: raw.Required == nil || *raw.Required}
+		if n := utf8.RuneCountInString(q.Text); n == 0 || n > maxQText {
+			return nil, fmt.Errorf("questions[%d].text: 1 to %d characters; %s", i, maxQText, askExample)
+		}
+		q.ID = askID(raw.ID, i)
+		for seen[q.ID] {
+			q.ID = askID(fmt.Sprintf("%s_%d", q.ID, i+1), i)
 		}
 		seen[q.ID] = true
-		if utf8.RuneCountInString(raw.Text) == 0 || utf8.RuneCountInString(raw.Text) > maxQText {
-			return nil, fmt.Errorf("questions[%d].text: 1 to %d characters", i, maxQText)
-		}
-		if !slices.Contains(askTypes, q.Type) {
-			return nil, fmt.Errorf("questions[%d].type %q: must be one of single, multi, text, confirm", i, raw.Type)
-		}
-		choice := q.Type == "single" || q.Type == "multi"
-		if len(raw.Options) > 0 && !choice {
-			return nil, fmt.Errorf("questions[%d].options: allowed only for single and multi", i)
-		}
-		if choice {
-			if len(raw.Options) < 2 || len(raw.Options) > maxOptions {
-				return nil, fmt.Errorf("questions[%d].options: 2 to %d options (got %d)", i, maxOptions, len(raw.Options))
+		vals := map[string]bool{}
+		for _, o := range raw.Options {
+			opt, ok := askOption(o)
+			if !ok || vals[opt.Value] {
+				continue // empty or repeated options are dropped, not fatal
 			}
-			vals := map[string]bool{}
-			for _, o := range raw.Options {
-				if o.Value == "" {
-					return nil, fmt.Errorf("questions[%d].options: every option needs a value", i)
-				}
-				if vals[o.Value] {
-					return nil, fmt.Errorf("questions[%d].options: value %q repeats", i, o.Value)
-				}
-				vals[o.Value] = true
-				q.Options = append(q.Options, Option{Value: o.Value, Label: o.Label})
-			}
+			vals[opt.Value] = true
+			q.Options = append(q.Options, opt)
 		}
-		if q.Placeholder != "" && q.Type != "text" {
-			return nil, fmt.Errorf("questions[%d].placeholder: allowed only for text questions", i)
+		if len(q.Options) > maxOptions {
+			return nil, fmt.Errorf("questions[%d].options: at most %d options", i, maxOptions)
+		}
+		q.Type = askType(raw.Type, len(q.Options))
+		if (q.Type == "single" || q.Type == "multi") && len(q.Options) < 2 {
+			q.Type = "text" // nothing to choose from: ask it as text
+		}
+		if q.Type != "single" && q.Type != "multi" {
+			q.Options = nil
+		}
+		if q.Type != "text" {
+			q.Placeholder = ""
 		}
 		qs[i] = q
 	}
 	return qs, nil
+}
+
+const askExample = `example: {"questions":[{"id":"size","text":"Which size?","type":"single","options":[{"value":"m","label":"Medium"},{"value":"l","label":"Large"}]},{"id":"note","text":"Any note?","type":"text","required":false}]}`
+
+var askIDJunk = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// askID turns whatever id the model sent into [a-z0-9_]{1,40}, or q<n>.
+func askID(raw string, i int) string {
+	id := strings.Trim(askIDJunk.ReplaceAllString(strings.ToLower(strings.TrimSpace(raw)), "_"), "_")
+	if len(id) > 40 {
+		id = id[:40]
+	}
+	if id == "" {
+		id = fmt.Sprintf("q%d", i+1)
+	}
+	return id
+}
+
+// askOption reads an option given as {"value","label"} or as a plain string.
+func askOption(raw json.RawMessage) (Option, bool) {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		s = strings.TrimSpace(s)
+		return Option{Value: s, Label: s}, s != ""
+	}
+	var o struct {
+		Value any    `json:"value"`
+		Label string `json:"label"`
+	}
+	if json.Unmarshal(raw, &o) != nil {
+		return Option{}, false
+	}
+	v := strings.TrimSpace(fmt.Sprint(o.Value))
+	if o.Value == nil {
+		v = strings.TrimSpace(o.Label)
+	}
+	label := strings.TrimSpace(o.Label)
+	if label == "" {
+		label = v
+	}
+	return Option{Value: v, Label: label}, v != ""
+}
+
+// askType maps the model's type, synonyms included, onto the four types;
+// an unknown or missing type is a choice when there are options, else text.
+func askType(raw string, options int) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "single", "choice", "radio", "select", "single_choice", "dropdown":
+		return "single"
+	case "multi", "multiple", "checkbox", "checkboxes", "multi_choice", "multiple_choice":
+		return "multi"
+	case "confirm", "boolean", "bool", "yes_no", "yesno":
+		return "confirm"
+	case "text", "string", "input", "textarea", "free_text":
+		if options >= 2 {
+			return "single"
+		}
+		return "text"
+	}
+	if options >= 2 {
+		return "single"
+	}
+	return "text"
+}
+
+// MarshalQuestions is the canonical {"questions": [...]} the loop stores, so
+// the UI renders and Approve validates exactly what ParseQuestions returned.
+func MarshalQuestions(qs []Question) json.RawMessage {
+	type opt struct {
+		Value string `json:"value"`
+		Label string `json:"label"`
+	}
+	type question struct {
+		ID          string `json:"id"`
+		Text        string `json:"text"`
+		Type        string `json:"type"`
+		Options     []opt  `json:"options,omitempty"`
+		Required    bool   `json:"required"`
+		Placeholder string `json:"placeholder,omitempty"`
+	}
+	out := struct {
+		Questions []question `json:"questions"`
+	}{}
+	for _, q := range qs {
+		qq := question{ID: q.ID, Text: q.Text, Type: q.Type, Required: q.Required, Placeholder: q.Placeholder}
+		for _, o := range q.Options {
+			qq.Options = append(qq.Options, opt(o))
+		}
+		out.Questions = append(out.Questions, qq)
+	}
+	b, _ := json.Marshal(out) // plain strings and bools: cannot fail
+	return b
 }
 
 // ParseAnswers validates a decision's answers against qs and returns the

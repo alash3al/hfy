@@ -18,6 +18,10 @@ type Tool struct {
 	Name        string
 	Description string
 	Schema      json.RawMessage // JSON Schema for the arguments
+	// Destructive is what the server's annotations say: readOnlyHint is not
+	// true AND destructiveHint is explicitly true (the spec's implicit
+	// default counts as false, so unannotated tools are never destructive).
+	Destructive bool
 }
 
 // FullName is the <server>.<tool> name used in config patterns and events.

@@ -65,7 +65,7 @@
     }
   },
   "ask_user": {
-    "description": "Ask the person you are talking to 1-10 structured questions, batched into ONE call, when the answers change what you do next (never for what you can decide or look up yourself). They pause the conversation as a form the person fills; your next tool result carries their answers. Keep every question self-contained.",
+    "description": "Ask the person you are talking to 1-10 structured questions, batched into ONE call, when the answers change what you do next (never for what you can decide or look up yourself). They pause the conversation as a form the person fills; your next tool result carries their answers. Keep every question self-contained. Prefer this tool over asking in plain text. A single or multi question MUST list its choices in options, shaped like {\"id\":\"<id>\",\"text\":\"<question>\",\"type\":\"single\",\"options\":[{\"value\":\"<a>\",\"label\":\"<Choice A>\"},{\"value\":\"<b>\",\"label\":\"<Choice B>\"}]} with the real choices filled in.",
     "schema": {
       "type": "object",
       "properties": {

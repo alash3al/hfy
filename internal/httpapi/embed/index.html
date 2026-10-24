@@ -13,7 +13,7 @@
 </head>
 <body>
 <div id="app" x-data="hfyEmbed" x-cloak>
-  <div class="hfy-shell" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+  <div class="hfy-shell" :class="shellCls" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
     <div class="hfy-status-host" role="status" :inert="modalOpen">
       <div class="hfy-status" :class="statusCls" x-show="statusShow">
         <span class="hfy-status-text" x-text="statusText"></span>
@@ -125,6 +125,7 @@
                             <div class="hfy-ask-head">
                               <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
                               <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="L.askTitle"></span><span class="hfy-appr-wait" x-text="block.askStateText"></span></span>
+                              <time class="hfy-rec-time" x-text="block.timeText" :datetime="block.iso" :title="block.fullTime"></time>
                               <button type="button" class="hfy-appr-open" x-show="block.askCanOpen" @click="openApproval" x-text="L.open"></button>
                             </div>
                             <dl class="hfy-ask-rows" x-show="block.askHasRows">
@@ -136,8 +137,9 @@
                         </template>
                         <template x-if="block.showPendingOwn">
                           <div class="hfy-appr-rec is-mine">
-                            <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                            <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                             <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="block.niceName"></span><span class="hfy-appr-wait" x-text="block.waitingText"></span></span>
+                            <time class="hfy-rec-time" x-text="block.timeText" :datetime="block.iso" :title="block.fullTime"></time>
                             <button type="button" class="hfy-appr-open" @click="openApproval" x-text="L.open"></button>
                           </div>
                         </template>
@@ -145,6 +147,7 @@
                           <div class="hfy-appr-rec is-theirs">
                             <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                             <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="block.niceName"></span><span class="hfy-appr-wait" x-text="block.waitingText"></span></span>
+                            <time class="hfy-rec-time" x-text="block.timeText" :datetime="block.iso" :title="block.fullTime"></time>
                           </div>
                         </template>
 
@@ -223,7 +226,7 @@
     <div class="hfy-composer-wrap" :inert="modalOpen">
       <div class="hfy-action-wrap" x-show="showActionPill">
         <button type="button" class="hfy-action-pill" @click="openSheet">
-          <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
           <span x-text="L.actionNeeded"></span><span class="hfy-badge" x-text="pendingCount"></span>
         </button>
       </div>
@@ -261,7 +264,7 @@
             <template x-for="dot in sheet.dots" :key="dot.k"><span class="hfy-dot-step" :class="dot.cls"></span></template>
           </span>
         </div>
-        <p class="hfy-sheet-kicker" id="hfy-sheet-kicker" x-show="sheet.kicker" x-text="sheet.kicker"></p>
+        <p class="hfy-sheet-kicker" x-show="sheet.kicker"><span class="hfy-kicker-ico" x-show="sheet.isApproval"><svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span id="hfy-sheet-kicker" x-text="sheet.kicker"></span></p>
         <h2 class="hfy-sheet-title" id="hfy-sheet-title" dir="auto" x-text="sheet.title"></h2>
         <dl class="hfy-args" x-show="sheet.hasArgList">
           <template x-for="arg in sheet.argList" :key="arg.k">

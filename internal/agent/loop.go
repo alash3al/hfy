@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -31,6 +32,18 @@ const toolSearchName = builtins.Server + "." + builtins.ToolSearch
 // askUserTimeout is how long hfy.ask_user waits for answers when the agent
 // has no approval policy; with one, the agent's approval.timeout applies.
 const askUserTimeout = 30 * time.Minute
+
+// approvalTimeout is how long an approval request waits when the agent has no
+// approval policy; with one, the agent's approval.timeout applies.
+const approvalTimeout = 10 * time.Minute
+
+// coreNoApproval are the built-in tool names that never wait for approval:
+// they are pure or harness internals, so patterns like "hfy.*" never pause
+// them. Sub-agent tools (hfy.<name>) stay guardable.
+var coreNoApproval = map[string]bool{
+	builtins.Now: true, builtins.MathCalc: true,
+	builtins.ToolSearch: true, builtins.ConversationSearch: true,
+}
 
 const (
 	repeatWarn  = 3       // the third identical call is refused with advice
@@ -255,6 +268,13 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 	if known && argsOK {
 		args = dropNullOptionals(tool.Schema, args)
 	}
+	if name == svc.AskUserTool && argsOK {
+		// Store the repaired questions: the UI renders and Approve checks
+		// answers against exactly what the viewer will be asked.
+		if qs, err := svc.ParseQuestions(args); err == nil {
+			args = svc.MarshalQuestions(qs)
+		}
+	}
 	info := CallInfo{ID: tc.ID, Name: name, Args: args}
 	if err := l.sink.CallStarted(ctx, info); err != nil {
 		return callOutcome{}, err
@@ -292,8 +312,12 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 				return callOutcome{}, err
 			}
 			return callOutcome{paused: true}, nil
-		case l.spec.Approval.Requires(name):
-			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, l.spec.Approval.Timeout.D()); err != nil {
+		case l.needsApproval(name, tool):
+			timeout := approvalTimeout
+			if l.spec.Approval != nil {
+				timeout = l.spec.Approval.Timeout.D()
+			}
+			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, timeout); err != nil {
 				return callOutcome{}, err
 			}
 			return callOutcome{paused: true}, nil
@@ -308,6 +332,28 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 		return callOutcome{}, err
 	}
 	return out, nil
+}
+
+// needsApproval is the one decision for "does this call wait for approval?".
+// The call's server owns policy: its approval patterns (WITHOUT the server
+// prefix) match the tool name, or it wants approve_destructive and the
+// tool's annotations say destructive. The agent's own patterns only add to
+// that. Core built-ins never wait, whatever a pattern like "hfy.*" says.
+func (l *loop) needsApproval(name string, tool mcp.Tool) bool {
+	if tool.Server == builtins.Server && coreNoApproval[tool.Name] {
+		return false
+	}
+	if srv, ok := l.rt.Cfg.MCP[tool.Server]; ok {
+		for _, p := range srv.Approval {
+			if ok, _ := path.Match(p, tool.Name); ok {
+				return true
+			}
+		}
+		if srv.ApproveDestructive && tool.Destructive {
+			return true
+		}
+	}
+	return l.spec.Approval.Requires(name)
 }
 
 // finishCall persists the result and adds it to the model's messages.

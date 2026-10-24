@@ -17,17 +17,22 @@ type echoIn struct {
 
 type noIn struct{}
 
+// destructive, readOnly are annotation values the tests assert on.
+var destructive, readOnly = true, true
+
 // MaybeRun serves the fake MCP server and exits if HFY_FAKE_MCP is set.
 func MaybeRun() {
 	if os.Getenv("HFY_FAKE_MCP") != "1" {
 		return
 	}
 	s := sdk.NewServer(&sdk.Implementation{Name: "fake", Version: "1"}, nil)
-	sdk.AddTool(s, &sdk.Tool{Name: "echo", Description: "Echo the text back"},
+	sdk.AddTool(s, &sdk.Tool{Name: "echo", Description: "Echo the text back",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: readOnly}},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "echo: " + in.Text}}}, nil, nil
 		})
-	sdk.AddTool(s, &sdk.Tool{Name: "write_file", Description: "Pretend to write a file"},
+	sdk.AddTool(s, &sdk.Tool{Name: "write_file", Description: "Pretend to write a file",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: &destructive}},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "wrote " + in.Text}}}, nil, nil
 		})

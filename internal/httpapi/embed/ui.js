@@ -12,7 +12,7 @@
 var HFY_STRINGS = {
   en: { title: 'Conversation', placeholder: 'Message…', send: 'Send', stop: 'Stop', attach: 'Attach files', thinking: 'Thinking', tool: 'Tool', interrupted: 'Interrupted', reconnecting: 'Reconnecting…', refreshing: 'Refreshing…', ended: 'Conversation ended', error: 'Something went wrong', retry: 'Retry', loadOlder: 'Load older messages', you: 'You', agent: 'Assistant', connecting: 'Connecting…',
     copy: 'Copy', copied: 'Copied', copyCode: 'Copy code', newMessages: 'New messages', welcomeTitle: 'How can I help?', welcomeSubtitle: 'Send a message to start the conversation.', remove: 'Remove', uploadFailed: 'Upload failed', dropFiles: 'Drop files to send', today: 'Today', yesterday: 'Yesterday', approvalNeeded: 'Approval needed', running: 'In progress', done: 'Done', failed: 'Failed', args: 'Arguments', result: 'Result', structured: 'Structured result', messages: 'Messages', typing: 'Assistant is typing…', file: 'File',
-    wantsTo: 'The assistant wants to:', allow: 'Allow', deny: 'Deny', allowed: 'Allowed', denied: 'Denied', tickQueued: 'Sent', tickRunning: 'Delivered', tickDone: 'Answered', tickFailed: 'Not completed',
+    confirmAction: 'Confirm action', allow: 'Allow', deny: 'Deny', allowed: 'Allowed', denied: 'Denied', tickQueued: 'Sent', tickRunning: 'Delivered', tickDone: 'Answered', tickFailed: 'Not completed',
     actionNeeded: 'Action needed', waitingFor: 'Waiting for {name}', waitingYou: 'Waiting for your decision', open: 'Open', next: 'Next', back: 'Back', submit: 'Submit', stepOf: '{n} of {total}',
     yes: 'yes', no: 'no', photos: 'Photos', camera: 'Camera', document: 'Document', caption: 'Add a caption…', addMore: 'Add more', close: 'Close',
     discardTitle: 'Discard these attachments?', discard: 'Discard', keep: 'Keep editing', errType: 'This file type can’t be sent: {name}', errSize: 'Files must be at most {size}',
@@ -21,7 +21,7 @@ var HFY_STRINGS = {
     confirmYes: 'Yes', confirmNo: 'No', edit: 'Edit', skipQuestions: 'Skip questions', skipConfirm: 'Skip these questions? The assistant will continue without your answers.', skip: 'Skip', cancel: 'Cancel' },
   ar: { title: 'المحادثة', placeholder: 'اكتب رسالة…', send: 'إرسال', stop: 'إيقاف', attach: 'إرفاق ملفات', thinking: 'التفكير', tool: 'أداة', interrupted: 'انقطعت', reconnecting: 'إعادة الاتصال…', refreshing: 'جارٍ التحديث…', ended: 'انتهت المحادثة', error: 'حدث خطأ ما', retry: 'إعادة المحاولة', loadOlder: 'تحميل الرسائل الأقدم', you: 'أنت', agent: 'المساعد', connecting: 'جارٍ الاتصال…',
     copy: 'نسخ', copied: 'تم النسخ', copyCode: 'نسخ الشيفرة', newMessages: 'رسائل جديدة', welcomeTitle: 'كيف يمكنني مساعدتك؟', welcomeSubtitle: 'أرسل رسالة لبدء المحادثة.', remove: 'إزالة', uploadFailed: 'فشل الرفع', dropFiles: 'أفلت الملفات لإرسالها', today: 'اليوم', yesterday: 'أمس', approvalNeeded: 'مطلوب موافقتك', running: 'قيد التنفيذ', done: 'اكتملت', failed: 'فشلت', args: 'المُدخلات', result: 'النتيجة', structured: 'نتيجة منظّمة', messages: 'الرسائل', typing: 'المساعد يكتب…', file: 'ملف',
-    wantsTo: 'يريد المساعد تنفيذ:', allow: 'سماح', deny: 'رفض', allowed: 'تم السماح', denied: 'تم الرفض', tickQueued: 'أُرسلت', tickRunning: 'وصلت', tickDone: 'تم الرد', tickFailed: 'لم تكتمل',
+    confirmAction: 'تأكيد إجراء', allow: 'سماح', deny: 'رفض', allowed: 'تم السماح', denied: 'تم الرفض', tickQueued: 'أُرسلت', tickRunning: 'وصلت', tickDone: 'تم الرد', tickFailed: 'لم تكتمل',
     actionNeeded: 'مطلوب إجراء', waitingFor: 'بانتظار {name}', waitingYou: 'بانتظار قرارك', open: 'فتح', next: 'التالي', back: 'السابق', submit: 'تأكيد', stepOf: '{n} من {total}',
     yes: 'نعم', no: 'لا', photos: 'الصور', camera: 'الكاميرا', document: 'مستند', caption: 'أضف تعليقًا…', addMore: 'إضافة المزيد', close: 'إغلاق',
     discardTitle: 'تجاهل هذه المرفقات؟', discard: 'تجاهل', keep: 'متابعة التعديل', errType: 'لا يمكن إرسال هذا النوع من الملفات: {name}', errSize: 'يجب ألا يتجاوز حجم الملف {size}',
@@ -649,7 +649,7 @@ window.hfyEmbed = function () {
     ownActive: false, roundCls: 'is-send', roundLabel: '', roundDisabled: true,
     // approval bottom sheet over the viewer's own pending approvals
     pendingOwn: [], sheetOpen: false, showActionPill: false, pendingCount: '', sheetStep: 0, sheetError: '', sheetBusy: false,
-    sheet: hfyBlankSheet(), sheetSteps: [], sheetSkipConfirm: false,
+    sheet: hfyBlankSheet(), sheetSteps: [], sheetSkipConfirm: false, shellCls: '',
     _seenPending: {}, _sheetMin: false, _awaitTurn: '', _errKey: '',
     _stick: true, _collecting: null, _loaded: false, _dragDepth: 0,
 
@@ -742,6 +742,8 @@ window.hfyEmbed = function () {
       }
       // the pane shrinks when chips, a taller draft or a mobile keyboard appear
       if (window.ResizeObserver && this.scroller()) new ResizeObserver(function () { self.keepBottom(); }).observe(this.scroller());
+      // the sheet's height changes from step to step
+      if (window.ResizeObserver && document.querySelector('.hfy-sheet')) new ResizeObserver(function () { if (self.sheetOpen) self.sheetPad(); }).observe(document.querySelector('.hfy-sheet'));
       hfySendToHost('ready', {});
       hfyClient = new HfyClient({ api: location.origin, onTokenNeeded: function (r) { return self.requestGrant(r); } });
       hfyClient.onEvent(function (env, isHistory) { self.fold(env, isHistory); });
@@ -794,7 +796,7 @@ window.hfyEmbed = function () {
         decidedText: '', decidedCls: '', busy: false, hasDetails: false,
         showPendingOwn: false, showPendingOther: false, waitingText: '', choice: '', submitted: false,
         isAsk: false, questions: [], draftAnswers: {}, finalAnswers: null, declineReason: '',
-        askCls: '', askStateText: '', askCanOpen: false, askRows: [], askHasRows: false };
+        askState: '', askCls: '', askStateText: '', askCanOpen: false, askRows: [], askHasRows: false };
     },
     setAtts: function (b, list) {
       var atts = this.mapAtts(list);
@@ -930,6 +932,7 @@ window.hfyEmbed = function () {
       else if (b.decision === 'denied') state = b.declineReason === 'timeout' ? 'timeout' : 'skipped';
       else state = 'asking';
       var answers = state === 'answered' && b.finalAnswers ? b.finalAnswers : null;
+      b.askState = state;
       b.askCls = 'is-' + state;
       b.askStateText = state === 'pending' ? this.t('askWaiting') : state === 'other' ? waitOther : state === 'answered' ? this.t('askAnswered')
         : state === 'timeout' ? this.t('askTimeout') : state === 'skipped' ? this.t('askSkipped') : '';
@@ -982,6 +985,8 @@ window.hfyEmbed = function () {
             b.showSummary = !b.isAsk && !b.showApproval && (mode === 'summary' || (mode === 'hidden' && !!b.decision));
             b.showDetails = !b.isAsk && !b.showApproval && mode === 'details';
             hidden = !b.isAsk && !b.showApproval && !b.showSummary && !b.showDetails;
+            // a question set the server refused (or one not yet paused) has nothing to show
+            if (b.isAsk && b.askState === 'asking') hidden = true;
           }
           if (b.isText && b.endsFor !== b.text) {
             var leaf = b.isAgent ? hfyMdLastLeaf(hfyMdParse(b.text)) : null;
@@ -1019,6 +1024,9 @@ window.hfyEmbed = function () {
         if (active || turn.state === 'awaiting_approval') firstActive = false;
       });
       this.pendingOwn = pendingOwn;
+      var lastAgent = null;
+      this.turns.forEach(function (t) { t.blocks.forEach(function (b) { if (b.isText && b.isAgent) lastAgent = b; }); });
+      if (lastAgent) lastAgent.rowCls += ' is-last-agent';
     },
 
     scroller: function () { return document.querySelector('.hfy-messages'); },
@@ -1121,7 +1129,10 @@ window.hfyEmbed = function () {
     },
 
     // ---- attach menu (bottom sheet on touch / narrow, popover above 📎 otherwise)
-    syncModal: function () { this.modalOpen = this.sheetOpen || this.attachMenuOpen || this.pvOpen; },
+    syncModal: function () {
+      this.modalOpen = this.sheetOpen || this.attachMenuOpen || this.pvOpen;
+      this.shellCls = this.sheetOpen ? 'is-sheet-open' : ''; // timeline records step back while the sheet shows them
+    },
     toggleAttachMenu: function () {
       if (this.attachMenuOpen) { this.closeAttachMenu(true); return; }
       if (this.attachDisabled) return;
@@ -1328,7 +1339,7 @@ window.hfyEmbed = function () {
         s.kind = step.kind; s.isApproval = step.kind === 'approval'; s.isQuestion = step.kind === 'question'; s.isReview = step.kind === 'review';
         s.error = (!this._errKey || this._errKey === step.key) ? this.sheetError : '';
         if (s.isApproval) {
-          s.kicker = this.t('wantsTo'); s.title = b.niceName; s.argList = b.argList; s.hasArgList = b.hasArgList;
+          s.kicker = this.t('confirmAction'); s.title = b.niceName; s.argList = b.argList; s.hasArgList = b.hasArgList;
           s.showRawArgs = this.config.tool_calls === 'details' && !!b.argsText; s.argsText = b.argsText; s.showDecide = true;
           s.allowPressed = multi ? b.choice === 'allowed' : null; s.denyPressed = multi ? b.choice === 'denied' : null;
         } else if (s.isQuestion) this.questionView(s, step, b);
@@ -1411,11 +1422,21 @@ window.hfyEmbed = function () {
       // after x-show (applied on Alpine's next tick) has revealed the target
       setTimeout(function () {
         var a = document.activeElement, sheet = document.querySelector('.hfy-sheet');
+        self.sheetPad();
         if (open) { if (sheet) sheet.focus(); return; }
         var pill = document.querySelector('.hfy-action-pill');
         if (pending && pill) { pill.focus(); return; }
         if (!a || a === document.body || (sheet && sheet.contains(a))) { var i = self.inputEl(); if (i) i.focus(); }
       }, 30);
+    },
+    // The sheet covers the newest messages: pad the list by the overlap and
+    // land at the bottom, so the latest context stays visible above it.
+    sheetPad: function () {
+      var m = this.scroller(), sheet = document.querySelector('.hfy-sheet'), comp = document.querySelector('.hfy-composer-wrap');
+      if (!m) return;
+      var over = this.sheetOpen && sheet && comp ? Math.max(0, sheet.offsetHeight - comp.offsetHeight) : 0;
+      if (over) { m.style.setProperty('--hfy-sheet-pad', over + 'px'); m.scrollTop = m.scrollHeight; }
+      else m.style.removeProperty('--hfy-sheet-pad');
     },
     minimizeSheet: function () { this.sheetSkipConfirm = false; this._sheetMin = true; this.syncSheet(); },
     openSheet: function () { this._sheetMin = false; this.syncSheet(); },

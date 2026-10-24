@@ -37,6 +37,13 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #     command: [mcp-filesystem, /data]
 #     environment: { LOG: "1" }      # its only variables besides PATH, HOME, locale
 #     timeout: 2m                    # longest a tool call may take (default 2m)
+#     approval: [refund, delete_*]   # server-owned policy: tool names WITHOUT
+#                                    # the server prefix; matching calls wait
+#                                    # for approval for EVERY agent (adding to
+#                                    # agent.approval; hfy core tools never wait)
+#     approve_destructive: true      # wait on tools the server's annotations say
+#                                    # are destructive (readOnlyHint not true AND
+#                                    # destructiveHint explicitly true)
 #   search:
 #     type: remote
 #     url: https://search.example.com/mcp
