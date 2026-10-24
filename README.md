@@ -57,10 +57,13 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 ## Config
 
-`hfy config:example` is the reference. In short: `server`, `storage`, `providers`,
+`hfy config:example` is the reference. In short: `server`, `database`, `providers`,
 `mcp`, `agent`, plus optional `agents`, `queue`, `retention`, `embeddings`,
-`attachments`, `subagents`, `summarizer`, `metrics`.
+`attachments`, `filesystem`, `subagents`, `summarizer`, `metrics`, `embed`.
 
+- Renamed in this release: the config node `storage:` is now `database:`
+  (startup fails on the old key). In a mixed-version rolling deploy,
+  restart workers first: old workers cannot resolve `{file}` attachments.
 - Unknown keys stop startup with their line (`line 12: unknown key "aproval"
   in config.agent`): a typo never silently disables a setting.
 
@@ -73,6 +76,20 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
   Set it somewhat below the model's real limit.
 - `agent.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
   (small prompt). Set it to restrict, and the tools are listed directly.
+- Providers have a `type`: `openai` (the default) is the current
+  OpenAI-compatible HTTP client; `mock` is an in-process adapter for dev
+  and testing. It never calls the network. It streams a deterministic
+  reply (or an echo), with optional reasoning, one optional configured
+  tool call, `error_status` and delay, and returns deterministic
+  embeddings. It runs the full stack, the embedded UI included, with no
+  model server:
+
+  ```yaml
+  providers:
+    mock:
+      type: mock
+      mock: { reply: "Hello from mock", embed_dimensions: 768 }
+  ```
 
 ## API
 
@@ -115,14 +132,32 @@ there is no credentials mode.
 
 - `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one.
+- `POST /v1/conversation/uploads` `{mime, size}` → `{"file": key,
+  "upload_url": url, "expires_at": time, "direct": bool}`. Creates an
+  upload slot (needs `filesystem:`); `size` in bytes is required, positive
+  and bounded by `filesystem.max_bytes`. A slot lives at
+  `uploads/<conversation>/…` and is temporary: retention deletes slots
+  after `filesystem.upload_ttl` + 1h. PUT the file bytes to `upload_url`
+  as the slot response directs (`direct` = a presigned S3 URL; otherwise
+  an hfy path, with the grant), then post the message with `{file, mime}`
+  attachments naming the slot. Posting verifies the stored slot (size,
+  type, conversation) and copies the file to
+  `conversations/<conversation>/…`; events name only that verified key.
+  An attachment may carry a `name` (the original filename; display text
+  only, stored cleaned, at most 255 bytes, no newlines). Every stored file
+  is also indexed in `conversation_files` — conversation, message event,
+  uploader, key, type, size — written in the message's own transaction.
+- `GET /v1/files/{key}` serves a stored file. It is the target of signed
+  URLs hfy hands out, not a client API to construct.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
   The stream ends when the grant does; reconnect with a fresh token.
 - `GET /v1/conversation/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
-  older turns) and `live_after` (open `/events?after=<live_after>` to continue
-  without a gap).
+  older turns), `live_after` (open `/events?after=<live_after>` to continue
+  without a gap) and `viewer` (the grant's own actor, in the same shape as
+  event actors, so a client can tell its own messages apart).
 - `POST /v1/conversation/approvals` `{call_id, approve, result?}`. Only the
   actor who started the turn decides its calls (`403` otherwise).
 - `POST /v1/conversation/stop` stops the caller's own turns: the active one
@@ -131,7 +166,63 @@ there is no credentials mode.
 Bodies are JSON (whatever the `Content-Type` says). Errors are
 `{"error": "..."}`: `400` bad input (an empty message, a bad attachment),
 `401` no valid secret or token, `403` not your turn, `404` unknown
-conversation or grant, `409` no pending approval, `413` a body over 2 MiB.
+conversation or grant, `409` no pending approval, `413` a body over 2 MiB
+(an upload PUT is instead bounded by `filesystem.max_bytes`).
+
+### Embedded UI and JS client
+
+hfy serves a ready-made conversation UI and the JS client it is built on,
+both embedded in the binary (no npm, no build step, no extra hosting):
+
+- `GET /embed` — the conversation page. Embed it in an `<iframe>` or a
+  WebView; those are the only two supported shells. There is no script-tag
+  mode and no URL-parameter configuration: `/embed` is a bare URL.
+- `GET /embed/client.js` — the foundational client: a DOM-free protocol
+  unit. Commands go down as promise methods (`connect`, `send`, `upload`,
+  `approve`, `stop`, `loadOlder`); notifications come up as fired events
+  (the raw event envelopes, plus connection state). It owns the grant in
+  memory, token refresh, resume and dedupe, and knows nothing about
+  rendering, locale or theme. `ui.js` (the UI) is built on it; custom
+  UIs may use it directly.
+- `GET /embed/ui.js`, `GET /embed/ui.css`, `GET /embed/alpine.min.js` — the
+  UI itself (Alpine.js, vendored into the binary, provides reactivity).
+
+The grant flow is the integration. Your backend (server secret) creates
+the conversation once and mints a short-lived grant per viewer; your page
+or app hands `{token, expires_at}` to the widget, which keeps it in JS
+memory only — never cookies, web storage, or a URL (the one exception is
+`?token=` on the SSE stream, where `EventSource` cannot set a header).
+On expiry or `401` the widget asks for a fresh grant and resumes the
+stream from its last event; your backend re-mints only after its own
+login checks. Grants are never self-extending and never travel in a URL
+query (a fragment bootstrap must be erased immediately after reading).
+
+Bridge protocol (envelope `{"v":1,"type":…}`): the widget sends `ready`
+on load and `token-needed` when it needs a grant; the host answers
+`grant` (`{token, expires_at}`) and may send `configure` (below).
+Outbound, the widget calls `window.HfyBridge.postMessage(json)` when
+present — Flutter's `webview_flutter` creates exactly that from a
+JavaScriptChannel named `HfyBridge`; React Native and other shells
+inject a one-line shim onto their native bridge — and otherwise sniffs
+the known bridges (`ReactNativeWebView`, `webkit.messageHandlers.hfy`,
+`chrome.webview`, `flutter_inappwebview`), falling back to
+`window.parent.postMessage` only when genuinely framed. Inbound, every
+shell calls `window.hfy.receive(json)`. `window.parent` is never
+redefined: it is a built-in that equals `window` in a top-level WebView.
+For iframes, parent origins are allow-listed by `server.cors_origins`,
+checked on every `postMessage`, and emitted as CSP `frame-ancestors`.
+
+Presentation is configured in the main YAML (`embed:`: `lang`, `dir`,
+`theme`, `accent`, `density`, `layout`, `tool_calls`), validated at startup and injected
+into the page. `tool_calls` is how much of the agent's tool use viewers see:
+`hidden`, `summary` (default: a friendly one-line row, never JSON) or
+`details` (arguments and results, for developers); approval requests always
+show, since the viewer must decide them. Per-viewer overrides arrive only via the `configure`
+bridge message from your glue (which can read your page's own
+`lang`/`dir`, or your app's selected locale). Timezone, language and
+direction otherwise auto-detect from the viewer (`Intl`), with built-in
+English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
+API base, actor, agent, vars) are never configurable from the client.
 
 ### Operations
 
@@ -175,7 +266,8 @@ Render text by appending `text.delta` under its turn; the durable
 `data.call_id`; a `tool_result` may carry `data.structured` (the tool's MCP
 `structuredContent`, e.g. a UI component to render). The agent behind a turn
 is `turn.data.agent`, and its events' `actor.ref`. Ignore event types you
-don't know.
+don't know. Served `message.text` attachments for stored files carry an
+ephemeral `url` (a fresh signed URL); stored events keep only `{file, mime}`.
 
 `v` is the version of `data`'s shape for that type. Additive changes (a new
 optional field) keep the version; a breaking change bumps it. Events are
@@ -243,7 +335,28 @@ event as stored.
   `environment`. Each tool call has `timeout` (default 2m) to answer.
 - **Attachments** are references your app hosts. Hosts, types and size are
   checked when the message is posted. Images go to the model only in the turn
-  they arrive in; local providers get the bytes inlined.
+  they arrive in, always as their URL: fetching it is the provider's job, so
+  the URL must be reachable from the provider (a presigned URL works well).
+  A local model server (Ollama, llama.cpp) only sees images it can fetch
+  itself: with `file://` storage, set `public_url` to an address it can
+  reach from its host. Non-image files reach the model only as their key,
+  never as data. The optional `filesystem:` section (`dsn: s3://…` with
+  `region=` required in the query, or `file://…`; `types`; `max_bytes`
+  default 10MB; `upload_ttl` default 5m, `download_ttl` default 15m;
+  `types` defaults to `attachments.types` if set; `file://` needs
+  `public_url` so providers can reach hfy-served files) lets clients
+  upload instead: `POST /v1/conversation/uploads` takes `{mime, size}` and
+  returns a slot under `uploads/<conversation>/…` (retention deletes slots
+  after `upload_ttl` + 1h; an S3 lifecycle rule on `uploads/` is a useful
+  backstop), the message carries `{file, mime, name?}` naming the slot,
+  and hfy verifies the stored slot and copies the file to
+  `conversations/<conversation>/…` — events name only that verified copy,
+  and every stored file is indexed in `conversation_files` (conversation,
+  message event, uploader, key, type, size) in the same transaction.
+  With S3, the bucket needs CORS for PUT from the embed origins.
+  Downloads are served via transient signed URLs (put/get signatures are
+  domain-separated): stored events keep only `{file, mime}`; served
+  payloads carry a fresh `url`.
 - **Retention.** Ephemeral events, `outbound_requests`, finished jobs and
   grants that ended expire after `retention.trace`; durable events and usage
   are permanent.
@@ -262,7 +375,9 @@ Tests need a Postgres with pgvector (`HFY_TEST_DB` overrides
 database. Locally they skip without one; CI sets `HFY_TEST_REQUIRE_DB=1` so a
 missing database fails instead. A scriptable fake OpenAI server
 (`internal/provider/fakeprov`) and a fake stdio MCP server
-(`internal/mcp/fakemcp`) stand in for real ones.
+(`internal/mcp/fakemcp`) stand in for real ones in tests. For live dev
+or a demo without a model server, run against a `mock` provider
+instead (see Config).
 
 **Toolchain.** `go.mod` pins Go 1.27.3 and the `go` command switches to it,
 but tools built with an older Go reject newer syntax (generic methods) with
@@ -274,7 +389,7 @@ GOTOOLCHAIN=go1.27.3 go install github.com/golangci/golangci-lint/v2/cmd/golangc
 GOTOOLCHAIN=go1.27.3 go install golang.org/x/tools/gopls@latest
 ```
 
-Layout: `internal/{config,types,db,jobs,agent,mcp,httpapi,svc,provider,metrics}`;
+Layout: `internal/{config,types,db,jobs,agent,mcp,files,httpapi,svc,provider,metrics}`;
 `main.go` (the CLI) and `harness.go` (the process wiring) at the root;
 migrations, SQL queries, prompts and the example config are embedded in the
 binary.
@@ -306,9 +421,16 @@ survive many contributors, so prefer adding a check to adding a sentence.
 - Decisions the handoff left open: `embeddings:` is optional; sub-agent steps
   are not stored as events (their `model.usage` and `outbound_requests` are);
   attachments on later turns are a placeholder; no secret rotation.
+- The provider package has one narrow `Adapter` interface (`Chat`, `Embed`)
+  with two implementations (`openai`, `mock`). This is the
+  deliberate exception to preferring concrete types: config selects the
+  implementation per provider name, so the agent runtime needs the seam.
+- Filesystem storage uses `gocloud.dev/blob` directly, with no homegrown
+  Files interface; drivers are `s3` and `file` (`mem` in tests).
 
 ### Not in v1
 
 Images returned by MCP tools (they become a text placeholder),
 semantic `tool_search` (keyword today), structured output, provider failover,
-other stream formats, a JS client, an OpenAI-compatible adapter.
+other stream formats, an OpenAI-compatible API (serving
+`/v1/chat/completions`) in front of hfy.

@@ -3,6 +3,9 @@ package provider
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +72,43 @@ func TestStreamMustFinish(t *testing.T) {
 		if _, err := readStream(strings.NewReader(failed), Opts{}); err == nil || !strings.Contains(err.Error(), "overloaded") {
 			t.Fatalf("error chunk %s: %v", e, err)
 		}
+	}
+}
+
+func TestRedactBodySignedURL(t *testing.T) {
+	body := []byte(`{"messages":[{"image_url":{"url":"https://bucket.s3.amazonaws.com/k.png?X-Amz-Signature=abc&X-Amz-Expires=900"},"other":"https://cdn.example.com/a.png?size=1","design":"https://cdn.example.com/b.png?design=1","inline":"data:image/png;base64,AAAA","text":"see https://hfy.example/v1/files/k.pdf?exp=1&sig=deadbeef (application/pdf)"}]}`)
+	out := string(redactBody(body))
+	for _, want := range []string{`"url":"https://bucket.s3.amazonaws.com/k.png"`, `"other":"https://cdn.example.com/a.png?size=1"`, `"design":"https://cdn.example.com/b.png?design=1"`, `"inline":"[inline attachment]"`, "see https://hfy.example/v1/files/k.pdf?exp=1 (application/pdf)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("redacted body lacks %s: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "X-Amz-Signature") || strings.Contains(out, "sig=deadbeef") {
+		t.Errorf("signed query must be stripped: %s", out)
+	}
+}
+
+// A provider that fails mid-request may echo what it received, signed URLs
+// included: neither the reported error nor the stored trace may keep them.
+func TestAPIErrorRedactsSignedURLs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.Copy(w, r.Body)
+	}))
+	defer srv.Close()
+	c := New("p", srv.URL, "", time.Second)
+	var recs []Record
+	_, err := c.Chat(t.Context(), Request{Model: "m", Messages: []Message{{Role: "user", Parts: []Part{{Type: "image_url",
+		ImageURL: &ImageURL{URL: "https://bucket.s3.amazonaws.com/k.png?X-Amz-Signature=abc&X-Amz-Expires=900"}}}}}},
+		Opts{MaxAttempts: 1, Record: func(r Record) int64 { recs = append(recs, r); return 0 }})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if strings.Contains(err.Error(), "X-Amz-Signature") || strings.Contains(err.Error(), "sig=") {
+		t.Errorf("APIError keeps the signature: %s", err)
+	}
+	if len(recs) != 1 || (recs[0].Error != "" && strings.Contains(recs[0].Error, "X-Amz-Signature")) {
+		t.Errorf("trace error keeps the signature: %+v", recs)
 	}
 }
 

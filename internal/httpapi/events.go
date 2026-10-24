@@ -49,7 +49,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, g *db.Gran
 	send := func(row db.EventRow) error {
 		// Long-lived stream: push the write deadline out instead of disabling timeouts.
 		_ = rc.SetWriteDeadline(time.Now().Add(writeWindow))
-		data, err := json.Marshal(row.Envelope())
+		data, err := json.Marshal(s.fillAttachmentURLs(row.Envelope()))
 		if err != nil {
 			return nil // skip an event we cannot encode
 		}
@@ -140,6 +140,9 @@ func (s *Server) resumePoint(r *http.Request, conversation int64) (int64, error)
 	u, err := uuid.Parse(raw)
 	if err != nil {
 		return 0, &httpError{http.StatusBadRequest, "bad event id"}
+	}
+	if u == (uuid.UUID{}) {
+		return 0, nil // the zero id means "from the beginning"
 	}
 	id, err := s.store.EventIDByUUID(r.Context(), conversation, u)
 	if db.IsNotFound(err) {

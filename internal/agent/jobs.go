@@ -2,9 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
+
+	"gocloud.dev/blob"
 
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/jobs"
@@ -44,14 +48,49 @@ func (rt *Runtime) scheduleRetention(ctx context.Context) {
 }
 
 // retention deletes expired ephemeral events, trace rows and finished jobs,
-// then re-enqueues itself. It re-enqueues first so a crash cannot end the cycle.
+// plus expired upload slots in the bucket, then re-enqueues itself. It
+// re-enqueues first so a crash cannot end the cycle.
 func (rt *Runtime) retention(ctx context.Context) error {
 	rt.scheduleRetention(ctx)
 	n, err := rt.Store.DeleteExpired(ctx, rt.Cfg.Retention.Trace.D())
 	if n > 0 {
 		slog.Info("retention cleanup", "deleted", n)
 	}
+	rt.cleanupUploads(ctx, time.Now())
 	return err
+}
+
+// cleanupUploads deletes bucket objects under uploads/ that are older than
+// upload_ttl + 1h: upload slots whose turn never stored them. An error is
+// logged, not fatal to the rest of the retention job.
+func (rt *Runtime) cleanupUploads(ctx context.Context, now time.Time) {
+	if rt.bucket == nil || rt.Cfg.Filesystem == nil {
+		return
+	}
+	before := now.Add(-rt.Cfg.Filesystem.UploadTTL.D() - time.Hour)
+	iter := rt.bucket.List(&blob.ListOptions{Prefix: "uploads/"})
+	var deleted int
+	for {
+		obj, err := iter.Next(ctx)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			slog.Error("cleanup uploads", "err", err)
+			return
+		}
+		if obj.ModTime.After(before) {
+			continue
+		}
+		if err := rt.bucket.Delete(ctx, obj.Key); err != nil {
+			slog.Error("cleanup uploads", "key", obj.Key, "err", err)
+			continue
+		}
+		deleted++
+	}
+	if deleted > 0 {
+		slog.Info("retention cleanup", "uploads", deleted)
+	}
 }
 
 // embedEvents embeds the given message.text events, or with none, backfills

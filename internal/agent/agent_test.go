@@ -495,17 +495,11 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 	}
 	t1 := post("look", types.Attachment{URL: files.URL + "/a.png", Mime: "image/png"})
 	e.waitState(t1, types.StateCompleted)
-	// A local provider cannot fetch URLs, so the harness inlines the bytes.
+	// The provider receives the attachment URL as-is; fetching it is its job.
 	user := e.fake.Reqs()[0]["messages"].([]any)[1].(map[string]any)["content"].([]any)
 	img := user[1].(map[string]any)["image_url"].(map[string]any)["url"].(string)
-	if !strings.HasPrefix(img, "data:image/png;base64,") || user[0].(map[string]any)["text"] != "look" {
+	if img != files.URL+"/a.png" || user[0].(map[string]any)["text"] != "look" {
 		t.Fatalf("first turn content: %v", user)
-	}
-	// The stored trace does not keep the inlined bytes.
-	var leaked int
-	e.store.Pool.QueryRow(e.ctx, `SELECT count(*) FROM outbound_requests WHERE request::text LIKE '%base64,%'`).Scan(&leaked)
-	if leaked != 0 {
-		t.Fatal("inline image bytes were stored in outbound_requests")
 	}
 
 	t2 := post("and now?")

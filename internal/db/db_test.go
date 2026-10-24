@@ -2,12 +2,14 @@ package db_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pressly/goose/v3"
 
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
@@ -260,12 +262,19 @@ func TestClaimOnlyHandledTypes(t *testing.T) {
 	}
 }
 
-// Down removes every table up made, and up runs again after it.
+// Down removes every table up made, reverting one migration at a time until
+// goose says there is nothing left, and up runs again after it.
 func TestMigrateDownAndUp(t *testing.T) {
 	s := dbtest.New(t, nil)
 	ctx := context.Background()
-	if _, err := s.Migrate(ctx, "down"); err != nil {
-		t.Fatal(err)
+	for {
+		_, err := s.Migrate(ctx, "down")
+		if errors.Is(err, goose.ErrNoNextVersion) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	rows, err := s.Pool.Query(ctx, `SELECT tablename FROM pg_tables
 		WHERE schemaname = current_schema() AND tablename NOT IN ('goose_db_version')`)

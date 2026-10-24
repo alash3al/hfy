@@ -54,7 +54,18 @@ type PostInput struct {
 	Vars           map[string]string
 	Text           string
 	Attachments    []types.Attachment
+	Files          []PostedFile
 	Agent          string // the configured agent that runs the turn ("" = main)
+}
+
+// PostedFile carries one verified file attachment's facts into Post: the
+// verified copy under conversations/ (never the upload slot), its type and
+// size as stored, and the client's filename.
+type PostedFile struct {
+	Key  string
+	Mime string
+	Size int64
+	Name string
 }
 
 // Post appends a turn with its user message and a queued state, and enqueues
@@ -80,6 +91,15 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 			Scope: in.Scope, Payload: types.MessageText{Text: in.Text, Attachments: in.Attachments}})
 		if err != nil {
 			return err
+		}
+		// The files index commits with the message it points at.
+		for _, f := range in.Files {
+			if err := s.store.InsertConversationFile(ctx, tx, db.NewConversationFile{
+				ConversationID: in.ConversationID, EventID: msg.ID, ActorID: in.Actor,
+				Key: f.Key, Mime: f.Mime, Size: f.Size, Name: f.Name,
+			}); err != nil {
+				return err
+			}
 		}
 		if _, err := s.store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: main,
 			Scope: in.Scope, Payload: types.TurnStateEvent{State: types.StateQueued}}); err != nil {

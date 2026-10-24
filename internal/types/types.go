@@ -135,8 +135,10 @@ func (u *Usage) Add(o Usage) {
 func (u Usage) Total() int64 { return u.Input + u.Output }
 
 type Attachment struct {
-	URL  string `json:"url"`
+	URL  string `json:"url,omitempty"`
+	File string `json:"file,omitempty"` // filesystem object key (mutually exclusive with URL)
 	Mime string `json:"mime"`
+	Name string `json:"name,omitempty"` // original filename, display text only (never a path)
 }
 
 // Clean makes model and tool output safe to store: invalid UTF-8 is replaced

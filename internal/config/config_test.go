@@ -50,7 +50,7 @@ func TestExampleParses(t *testing.T) {
 func TestEnvOnlyInValuesAndNumbers(t *testing.T) {
 	y := `
 server: { secret: s }
-storage: { url: "${U}" }
+database: { url: "${U}" }
 queue: { workers: "${W}" }
 providers: { p: { url: http://x } }
 agent: { model: p/m, settings: { context_window: 10 } }
@@ -59,7 +59,7 @@ agent: { model: p/m, settings: { context_window: 10 } }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Queue.Workers != 7 || c.Storage.URL != "pg://" {
+	if c.Queue.Workers != 7 || c.Database.URL != "pg://" {
 		t.Fatalf("got %+v", c)
 	}
 }
@@ -78,7 +78,7 @@ func TestRender(t *testing.T) {
 func TestValidationErrors(t *testing.T) {
 	base := `
 server: { secret: s }
-storage: { url: u }
+database: { url: u }
 providers: { p: { url: http://x } }
 `
 	cases := map[string]string{
@@ -98,7 +98,7 @@ providers: { p: { url: http://x } }
 			t.Errorf("want error containing %q, got %v", want, err)
 		}
 	}
-	if _, err := Parse([]byte("storage: {url: u}\nagent: {model: p/m}"), env(nil)); err == nil || !strings.Contains(err.Error(), "server.secret") {
+	if _, err := Parse([]byte("database: {url: u}\nagent: {model: p/m}"), env(nil)); err == nil || !strings.Contains(err.Error(), "server.secret") {
 		t.Errorf("missing secret must fail, got %v", err)
 	}
 }
@@ -120,7 +120,7 @@ func TestUnits(t *testing.T) {
 }
 
 func TestUnknownKeysAreRejected(t *testing.T) {
-	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\n"
+	base := "server: {secret: s}\ndatabase: {url: postgres://x}\nproviders: {p: {url: http://x}}\n"
 	for _, c := range []struct{ yaml, want string }{
 		{"agent:\n  model: p/m\n  settings: {context_window: 10}\n  aproval: {tools: [\"files.*\"]}\n", `line 7: unknown key "aproval" in config.agent`},
 		{"agent: {model: p/m, settings: {context_window: 10, temprature: 0.2}}\n", `unknown key "temprature" in config.agent.settings`},
@@ -135,7 +135,7 @@ func TestUnknownKeysAreRejected(t *testing.T) {
 }
 
 func TestNamedAgents(t *testing.T) {
-	base := "server: {secret: s}\nstorage: {url: postgres://x}\nproviders: {p: {url: http://x}}\n" +
+	base := "server: {secret: s}\ndatabase: {url: postgres://x}\nproviders: {p: {url: http://x}}\n" +
 		"agent: {model: p/m, settings: {context_window: 10}}\n"
 	cfg, err := Parse([]byte(base+"agents:\n  store: {model: p/small, system: 'Store {{name}}', vars: {name: {required: true}}, settings: {context_window: 5}, approval: {tools: [\"cart.*\"]}}\n"),
 		func(string) (string, bool) { return "", false })
@@ -163,7 +163,7 @@ func TestNamedAgents(t *testing.T) {
 
 // An origin is accepted only as a browser writes it, so it can ever match.
 func TestCORSOrigins(t *testing.T) {
-	base := "storage: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "database: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
 	for origins, ok := range map[string]bool{
 		`["https://shop.example.com"]`:                       true,
 		`["http://localhost:5173", "https://a.example.com"]`: true,
@@ -182,6 +182,97 @@ func TestCORSOrigins(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("%s: ok=%v, got %v", origins, ok, err)
 		}
+	}
+}
+
+func TestEmbedValidation(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	if _, err := Parse([]byte(base+"embed: {accent: red}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.accent") {
+		t.Errorf("bad accent must fail naming embed.accent, got %v", err)
+	}
+	c, err := Parse([]byte(base), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Embed.Dir != "auto" || c.Embed.Theme != "auto" || c.Embed.Accent != "#6366f1" || c.Embed.Density != "comfortable" || c.Embed.Layout != "bubbles" || c.Embed.ToolCalls != "summary" {
+		t.Errorf("embed defaults: %+v", c.Embed)
+	}
+}
+
+func TestMockProviderParses(t *testing.T) {
+	y := `
+server: { secret: s }
+database: { url: u }
+providers:
+  p: { url: http://x }
+  fake: { type: mock, mock: { reply: "Hello from mock", embed_dimensions: 768 } }
+agent: { model: p/m, settings: { context_window: 10 } }
+`
+	c, err := Parse([]byte(y), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Providers["p"].Type != "openai" {
+		t.Errorf("provider without type must default to openai, got %q", c.Providers["p"].Type)
+	}
+	if got := c.Providers["fake"]; got.Type != "mock" || got.Mock.Reply != "Hello from mock" || got.Mock.EmbedDimensions != 768 {
+		t.Errorf("mock provider: %+v", got)
+	}
+}
+
+func TestMockProviderBadErrorStatus(t *testing.T) {
+	y := `
+server: { secret: s }
+database: { url: u }
+providers:
+  fake: { type: mock, mock: { error_status: 200 } }
+agent: { model: fake/m, settings: { context_window: 10 } }
+`
+	_, err := Parse([]byte(y), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "providers.fake.mock.error_status") {
+		t.Errorf("bad error_status must fail naming providers.fake.mock.error_status, got %v", err)
+	}
+}
+
+func TestMockEmbeddingsDimensionDefaulting(t *testing.T) {
+	y := `
+server: { secret: s }
+database: { url: u }
+providers:
+  fake: { type: mock, mock: { reply: hi } }
+embeddings: { model: fake/embed, dimensions: 768 }
+agent: { model: fake/m, settings: { context_window: 10 } }
+`
+	c, err := Parse([]byte(y), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Providers["fake"].Mock.EmbedDimensions; got != 768 {
+		t.Errorf("EmbedDimensions = %d, want 768", got)
+	}
+}
+
+func TestFilesystemDefaults(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	c, err := Parse([]byte(base+"filesystem: {dsn: file:///tmp/hfy-files, types: [image/png]}\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := c.Filesystem; f.MaxBytes != 10<<20 || f.UploadTTL.D() != 5*time.Minute || f.DownloadTTL.D() != 15*time.Minute {
+		t.Errorf("filesystem defaults: %+v", f)
+	}
+	for yaml, want := range map[string]string{
+		"filesystem: {dsn: ftp://bucket, types: [image/png]}\n":                            "filesystem.dsn",
+		"filesystem: {dsn: file:///tmp/hfy-files}\n":                                       "filesystem.types", // no attachments to inherit from
+		"filesystem: {dsn: \"s3://bucket\", types: [image/png]}\n":                         "region=<region>",
+		"filesystem: {dsn: \"s3://bucket?endpoint=http://s3:9000\", types: [image/png]}\n": "region=<region>",
+	} {
+		if _, err := Parse([]byte(base+yaml), env(nil)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want %q, got %v", yaml, want, err)
+		}
+	}
+	if _, err := Parse([]byte(base+"filesystem: {dsn: \"s3://bucket?region=eu-west-1\", types: [image/png]}\n"), env(nil)); err != nil {
+		t.Errorf("s3 DSN with region: %v", err)
 	}
 }
 

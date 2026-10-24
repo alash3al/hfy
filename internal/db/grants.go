@@ -26,6 +26,9 @@ type GrantRow struct {
 	ConversationID   int64             `db:"conversation_id"`
 	ConversationUUID uuid.UUID         `db:"conversation_uuid"`
 	ActorID          int64             `db:"actor_id"`
+	ActorUUID        uuid.UUID         `db:"actor_uuid"`
+	ActorType        string            `db:"actor_type"`
+	ActorRef         string            `db:"actor_ref"`
 	Scope            string            `db:"scope"`
 	Agent            string            `db:"agent"`
 	Vars             map[string]string `db:"vars"`

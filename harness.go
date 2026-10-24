@@ -10,9 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"gocloud.dev/blob"
+
 	"github.com/alash3al/hfy/internal/agent"
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/files"
 	"github.com/alash3al/hfy/internal/httpapi"
 	"github.com/alash3al/hfy/internal/jobs"
 	"github.com/alash3al/hfy/internal/mcp"
@@ -24,11 +27,15 @@ type instance struct {
 	store   *db.Store
 	rt      *agent.Runtime
 	clients []*mcp.Client
+	bucket  *blob.Bucket
 }
 
 func (i *instance) close() {
 	for _, c := range i.clients {
 		c.Close()
+	}
+	if i.bucket != nil {
+		i.bucket.Close()
 	}
 	i.store.Close()
 }
@@ -40,7 +47,7 @@ func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, e
 		_, model := config.SplitModel(e.Model)
 		emb = &db.Embeddings{Model: model, Dims: e.Dimensions}
 	}
-	store, err := db.Open(ctx, cfg.Storage.URL, int32(extraConns+cfg.Queue.Workers+8), emb)
+	store, err := db.Open(ctx, cfg.Database.URL, int32(extraConns+cfg.Queue.Workers+8), emb)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +60,18 @@ func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, e
 	if inst.rt, err = agent.NewRuntime(cfg, store, mgr); err != nil {
 		inst.close()
 		return nil, err
+	}
+	if cfg.Filesystem != nil {
+		bucket, err := files.Open(ctx, cfg.Filesystem.DSN)
+		if err != nil {
+			inst.close()
+			return nil, fmt.Errorf("filesystem: %w", err)
+		}
+		inst.bucket = bucket
+		inst.rt.EnableFilesystem(bucket)
+		if !files.Direct(files.Scheme(cfg.Filesystem.DSN)) && cfg.Filesystem.PublicURL == "" {
+			slog.Warn("filesystem.public_url is unset: providers cannot fetch stored images (they arrive as placeholders)")
+		}
 	}
 	if err := inst.rt.Boot(ctx); err != nil {
 		inst.close()
@@ -75,6 +94,9 @@ func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
 	defer stopOps()
 	hub := httpapi.NewHub(inst.store)
 	api := httpapi.New(cfg, inst.store, inst.rt.Svc, hub)
+	if inst.bucket != nil {
+		api.EnableFilesystem(inst.bucket)
+	}
 	srv := &http.Server{
 		Addr: cfg.Server.Listen, Handler: api.Handler(),
 		// Bound how long a request may take to arrive (no trickled bodies) and
@@ -193,7 +215,7 @@ func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker
 
 // migrate runs "up", "down" or "status" and returns the report.
 func migrate(ctx context.Context, cfg *config.Config, cmd string) (string, error) {
-	store, err := db.Open(ctx, cfg.Storage.URL, 4, nil)
+	store, err := db.Open(ctx, cfg.Database.URL, 4, nil)
 	if err != nil {
 		return "", err
 	}

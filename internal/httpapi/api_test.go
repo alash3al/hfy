@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -538,6 +539,11 @@ func TestGrantIdentityVarsAndScope(t *testing.T) {
 	}
 	if actor == nil || actor["ref"] != "alice" {
 		t.Fatalf("actor: %v", actor)
+	}
+	// history names the viewer exactly as events name their actor, so a
+	// client can tell its own messages apart
+	if _, hist := a.do("GET", client+"/history", token, nil); fmt.Sprint(hist["viewer"]) != fmt.Sprint(actor) {
+		t.Fatalf("viewer %v, want the message's actor %v", hist["viewer"], actor)
 	}
 	// the scope is stored on the turn and copied to its events
 	var scopes []string

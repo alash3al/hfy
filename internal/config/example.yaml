@@ -6,7 +6,7 @@ server:
   secret: ${HFY_SERVER_SECRET}       # required: your backend's key (conversations, grants)
   # cors_origins: ["https://shop.example.com"]  # web pages that may call the client routes; ["*"] = any
 
-storage:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
+database:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
   url: ${DATABASE_URL}
 
 # metrics:                           # optional; omit = off. Every process (serve and
@@ -27,6 +27,9 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
   # openrouter:
   #   url: https://openrouter.ai/api/v1
   #   api_key: ${OPENROUTER_API_KEY}
+  # mock:                            # in-process fake for dev/testing: no server needed
+  #   type: mock
+  #   mock: { reply: "Hello from mock", embed_dimensions: 768 }
 
 # mcp:                               # ALL external tools come from here
 #   files:
@@ -48,6 +51,15 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #   types: [image/png, image/jpeg, image/webp]
 #   max_bytes: 5MB
 #   max_count: 10                    # per message
+
+# filesystem:                        # optional; omit = file uploads are disabled
+#   dsn: s3://hfy-uploads?region=eu-central-1  # region= is required for s3 dsn
+#   # dsn: file:///var/lib/hfy/files # alternative; requires public_url below
+#   public_url: https://hfy.example.com        # http(s) base of hfy-served file URLs; required for file://
+#   types: [image/png, image/jpeg, application/pdf]
+#   max_bytes: 10MB                   # also bounds upload slot sizes
+#   upload_ttl: 5m                    # default; slots are deleted after this + 1h
+#   download_ttl: 15m                 # default; download signature lifetime
 
 agent:                               # the default agent ("main")
   model: local/gemma3:1b             # <provider>/<model>
@@ -80,6 +92,15 @@ agent:                               # the default agent ("main")
 #     system: You are a refunds specialist. Answer concisely.
 #     mcp: [search]
 #     limits: { steps: 10 }
+
+# embed:                             # optional; embedded chat UI at /embed, defaults shown
+#   lang: en                           # language tag; omit = browser default
+#   dir: auto                          # auto | ltr | rtl
+#   theme: auto                        # light | dark | auto
+#   accent: "#6366f1"                  # hex color
+#   density: comfortable               # comfortable | compact
+#   layout: bubbles                    # bubbles | transcript
+#   tool_calls: summary                # hidden | summary (friendly row, no JSON) | details (args and results)
 
 # summarizer:                        # harness-triggered, never callable by the model
 #   model: local/gemma3:1b

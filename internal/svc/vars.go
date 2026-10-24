@@ -63,14 +63,48 @@ func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.A
 	if len(atts) == 0 {
 		return nil
 	}
+	for i, at := range atts {
+		if at.File != "" && at.URL != "" {
+			return badf("attachment %q: file and url are mutually exclusive", at.File)
+		}
+		// The name is display text only, never a path: cleaned here (written
+		// back so the message stores the same text), bounded and single-line.
+		atts[i].Name = strings.TrimSpace(types.Clean(at.Name))
+		if len(atts[i].Name) > 255 {
+			return badf("attachment name is too long (at most 255 bytes)")
+		}
+		if strings.ContainsAny(atts[i].Name, "\n\r") {
+			return badf("attachment name contains a newline")
+		}
+	}
 	a := cfg.Attachments
 	if a == nil {
-		return badf("attachments are not enabled")
+		// No attachments config: only file attachments (checked in httpapi
+		// against the filesystem config) and their vision rule can still be
+		// meaningful here.
+		for _, at := range atts {
+			if at.File == "" {
+				return badf("attachments are not enabled")
+			}
+			if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
+				return badf("the agent cannot see images (settings.vision is false)")
+			}
+		}
+		return nil
 	}
 	if len(atts) > a.MaxCount {
 		return badf("at most %d attachments per message", a.MaxCount)
 	}
 	for _, at := range atts {
+		if at.File != "" {
+			// File attachments are checked against the filesystem config in
+			// httpapi; here only the vision rule stays (and url/file
+			// exclusivity, above).
+			if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
+				return badf("the agent cannot see images (settings.vision is false)")
+			}
+			continue
+		}
 		u, err := parseHTTPURL(at.URL)
 		if err != nil {
 			return badf("attachment %q: %v", at.URL, err)

@@ -4,6 +4,7 @@ package config
 
 import (
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -26,18 +27,33 @@ var ExampleYAML string
 
 type Config struct {
 	Server      Server               `yaml:"server"`
-	Storage     Storage              `yaml:"storage"`
+	Database    Database             `yaml:"database"`
 	Queue       Queue                `yaml:"queue"`
 	Retention   Retention            `yaml:"retention"`
 	Providers   map[string]Provider  `yaml:"providers"`
 	MCP         map[string]MCPServer `yaml:"mcp"`
 	Embeddings  *Embeddings          `yaml:"embeddings"`
 	Attachments *Attachments         `yaml:"attachments"`
+	Filesystem  *Filesystem          `yaml:"filesystem"`
 	Agent       Agent                `yaml:"agent"`  // the default agent, named "main"
 	Agents      map[string]Agent     `yaml:"agents"` // more agents; a grant picks one by name
 	Subagents   map[string]Subagent  `yaml:"subagents"`
 	Summarizer  *Summarizer          `yaml:"summarizer"`
 	Metrics     *Metrics             `yaml:"metrics"`
+	Embed       Embed                `yaml:"embed"`
+}
+
+type Embed struct {
+	Lang    string `yaml:"lang"`
+	Dir     string `yaml:"dir"`
+	Theme   string `yaml:"theme"`
+	Accent  string `yaml:"accent"`
+	Density string `yaml:"density"`
+	Layout  string `yaml:"layout"`
+	// ToolCalls is how much of the agent's tool use viewers see: hidden,
+	// summary (a friendly row, no JSON) or details (arguments and results).
+	// Approval requests are always shown: the viewer must decide them.
+	ToolCalls string `yaml:"tool_calls"`
 }
 
 // Metrics is the operational listener every process (serve and queue:work)
@@ -54,7 +70,7 @@ type Server struct {
 	CORSOrigins []string `yaml:"cors_origins"`
 }
 
-type Storage struct {
+type Database struct {
 	URL string `yaml:"url"`
 }
 
@@ -69,9 +85,25 @@ type Retention struct {
 }
 
 type Provider struct {
-	URL     string   `yaml:"url"`
-	APIKey  string   `yaml:"api_key"`
-	Timeout Duration `yaml:"timeout"`
+	Type    string       `yaml:"type"` // openai | mock; empty means openai
+	URL     string       `yaml:"url"`
+	APIKey  string       `yaml:"api_key"`
+	Timeout Duration     `yaml:"timeout"`
+	Mock    MockProvider `yaml:"mock"`
+}
+
+type MockProvider struct {
+	Reply           string        `yaml:"reply"`
+	Reasoning       string        `yaml:"reasoning"`
+	Delay           Duration      `yaml:"delay"`
+	ErrorStatus     int           `yaml:"error_status"`
+	EmbedDimensions int           `yaml:"embed_dimensions"`
+	ToolCall        *MockToolCall `yaml:"tool_call"`
+}
+
+type MockToolCall struct {
+	Name      string `yaml:"name"`
+	Arguments string `yaml:"arguments"` // JSON object text
 }
 
 type MCPServer struct {
@@ -93,6 +125,15 @@ type Attachments struct {
 	Types        []string `yaml:"types"`
 	MaxBytes     ByteSize `yaml:"max_bytes"`
 	MaxCount     int      `yaml:"max_count"` // per message
+}
+
+type Filesystem struct {
+	DSN         string   `yaml:"dsn"`
+	PublicURL   string   `yaml:"public_url"`
+	MaxBytes    ByteSize `yaml:"max_bytes"`
+	Types       []string `yaml:"types"`
+	UploadTTL   Duration `yaml:"upload_ttl"`
+	DownloadTTL Duration `yaml:"download_ttl"`
 }
 
 type Settings struct {
@@ -271,6 +312,8 @@ var (
 	nameRe     = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	varNameRe  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	placeholRe = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
+	accentRe   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	langRe     = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 )
 
 // Render substitutes {{var}} placeholders; unknown names are left as written.
@@ -303,10 +346,20 @@ func (c *Config) SetDefaults() {
 		c.Retention.Trace = Duration(30 * 24 * time.Hour)
 	}
 	for k, p := range c.Providers {
+		if p.Type == "" {
+			p.Type = "openai"
+		}
 		if p.Timeout == 0 {
 			p.Timeout = Duration(60 * time.Second)
 		}
 		c.Providers[k] = p
+	}
+	if c.Embeddings != nil {
+		prov, _ := SplitModel(c.Embeddings.Model)
+		if p, ok := c.Providers[prov]; ok && p.Type == "mock" && p.Mock.EmbedDimensions == 0 {
+			p.Mock.EmbedDimensions = c.Embeddings.Dimensions
+			c.Providers[prov] = p
+		}
 	}
 	for k, s := range c.MCP {
 		if s.Timeout == 0 {
@@ -331,6 +384,42 @@ func (c *Config) SetDefaults() {
 	if c.Attachments != nil && c.Attachments.MaxCount == 0 {
 		c.Attachments.MaxCount = 10
 	}
+	if f := c.Filesystem; f != nil {
+		if f.MaxBytes == 0 {
+			if c.Attachments != nil && c.Attachments.MaxBytes != 0 {
+				f.MaxBytes = c.Attachments.MaxBytes
+			} else {
+				f.MaxBytes = 10 << 20
+			}
+		}
+		if len(f.Types) == 0 && c.Attachments != nil {
+			f.Types = slices.Clone(c.Attachments.Types)
+		}
+		if f.UploadTTL == 0 {
+			f.UploadTTL = Duration(5 * time.Minute)
+		}
+		if f.DownloadTTL == 0 {
+			f.DownloadTTL = Duration(15 * time.Minute)
+		}
+	}
+	if c.Embed.Dir == "" {
+		c.Embed.Dir = "auto"
+	}
+	if c.Embed.Theme == "" {
+		c.Embed.Theme = "auto"
+	}
+	if c.Embed.Accent == "" {
+		c.Embed.Accent = "#6366f1"
+	}
+	if c.Embed.Density == "" {
+		c.Embed.Density = "comfortable"
+	}
+	if c.Embed.Layout == "" {
+		c.Embed.Layout = "bubbles"
+	}
+	if c.Embed.ToolCalls == "" {
+		c.Embed.ToolCalls = "summary"
+	}
 }
 
 // Validate runs the startup rules; every error names what to fix.
@@ -346,8 +435,8 @@ func (c *Config) Validate() error {
 			bad("server.cors_origins: %q must be scheme://host[:port] with no path or trailing slash, or \"*\" alone", o)
 		}
 	}
-	if c.Storage.URL == "" {
-		bad("storage.url is required")
+	if c.Database.URL == "" {
+		bad("database.url is required")
 	}
 	if c.Metrics != nil && c.Metrics.Listen == "" {
 		bad("metrics.listen is required when metrics is set")
@@ -355,13 +444,57 @@ func (c *Config) Validate() error {
 	if c.Queue.Workers < 1 || c.Queue.MaxAttempts < 1 {
 		bad("queue.workers and queue.max_attempts must be at least 1")
 	}
+	if !slices.Contains([]string{"auto", "ltr", "rtl"}, c.Embed.Dir) {
+		bad("embed.dir must be one of auto, ltr, rtl")
+	}
+	if !slices.Contains([]string{"light", "dark", "auto"}, c.Embed.Theme) {
+		bad("embed.theme must be one of light, dark, auto")
+	}
+	if !accentRe.MatchString(c.Embed.Accent) {
+		bad("embed.accent must be a hex color like #6366f1")
+	}
+	if !slices.Contains([]string{"comfortable", "compact"}, c.Embed.Density) {
+		bad("embed.density must be one of comfortable, compact")
+	}
+	if !slices.Contains([]string{"bubbles", "transcript"}, c.Embed.Layout) {
+		bad("embed.layout must be one of bubbles, transcript")
+	}
+	if !slices.Contains([]string{"hidden", "summary", "details"}, c.Embed.ToolCalls) {
+		bad("embed.tool_calls must be one of hidden, summary, details")
+	}
+	if c.Embed.Lang != "" && !langRe.MatchString(c.Embed.Lang) {
+		bad("embed.lang must be a language tag like en or en-US")
+	}
 
 	for name, p := range c.Providers {
 		if !nameRe.MatchString(name) {
 			bad("providers.%s: invalid name", name)
 		}
-		if p.URL == "" {
-			bad("providers.%s.url is required", name)
+		switch p.Type {
+		case "openai":
+			if p.URL == "" {
+				bad("providers.%s.url is required", name)
+			}
+		case "mock":
+			if p.Mock.ErrorStatus != 0 && (p.Mock.ErrorStatus < 400 || p.Mock.ErrorStatus > 599) {
+				bad("providers.%s.mock.error_status must be 0 or between 400 and 599", name)
+			}
+			if p.Mock.EmbedDimensions < 0 || p.Mock.EmbedDimensions > 4000 {
+				bad("providers.%s.mock.embed_dimensions must be 0 or between 1 and 4000", name)
+			}
+			if p.Mock.Delay < 0 {
+				bad("providers.%s.mock.delay must not be negative", name)
+			}
+			if tc := p.Mock.ToolCall; tc != nil {
+				if tc.Name == "" {
+					bad("providers.%s.mock.tool_call.name is required", name)
+				}
+				if tc.Arguments != "" && !json.Valid([]byte(tc.Arguments)) {
+					bad("providers.%s.mock.tool_call.arguments must be valid JSON", name)
+				}
+			}
+		default:
+			bad("providers.%s.type must be openai or mock", name)
 		}
 	}
 	checkModel := func(where, model string) {
@@ -408,10 +541,40 @@ func (c *Config) Validate() error {
 		if c.Embeddings.Dimensions < 1 || c.Embeddings.Dimensions > 4000 {
 			bad("embeddings.dimensions must be between 1 and 4000")
 		}
+		if prov, _ := SplitModel(c.Embeddings.Model); c.Providers[prov].Type == "mock" &&
+			c.Providers[prov].Mock.EmbedDimensions != 0 && c.Providers[prov].Mock.EmbedDimensions != c.Embeddings.Dimensions {
+			bad("embeddings.dimensions does not match providers.%s.mock.embed_dimensions", prov)
+		}
 	}
 	if a := c.Attachments; a != nil {
 		if len(a.AllowedHosts) == 0 || len(a.Types) == 0 {
 			bad("attachments needs allowed_hosts and types")
+		}
+	}
+	if f := c.Filesystem; f != nil {
+		if f.DSN == "" {
+			bad("filesystem.dsn is required")
+		} else if scheme, _, _ := strings.Cut(f.DSN, "://"); !slices.Contains([]string{"s3", "file"}, scheme) {
+			bad("filesystem.dsn must use s3:// or file:// (mem:// is for tests, injected directly)")
+		} else if scheme == "s3" && !dsnHasRegion(f.DSN) {
+			bad("filesystem.dsn: an s3:// DSN must carry region=<region> in its query, e.g. s3://bucket?region=eu-west-1")
+		}
+		if len(f.Types) == 0 {
+			bad("filesystem.types is required")
+		}
+		if f.MaxBytes <= 0 {
+			bad("filesystem.max_bytes must be greater than 0")
+		}
+		if f.UploadTTL <= 0 || f.UploadTTL > Duration(time.Hour) {
+			bad("filesystem.upload_ttl must be greater than 0 and at most 1h")
+		}
+		if f.DownloadTTL <= 0 || f.DownloadTTL > Duration(24*time.Hour) {
+			bad("filesystem.download_ttl must be greater than 0 and at most 24h")
+		}
+		if f.PublicURL != "" {
+			if u, err := url.Parse(f.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				bad("filesystem.public_url must be an http(s) URL with a host")
+			}
 		}
 	}
 
@@ -497,6 +660,13 @@ func validOrigin(o string) bool {
 	defaultPort := u != nil && (u.Scheme == "https" && u.Port() == "443" || u.Scheme == "http" && u.Port() == "80")
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && !defaultPort &&
 		u.String() == u.Scheme+"://"+u.Host && strings.ToLower(o) == o
+}
+
+// dsnHasRegion reports whether an s3:// DSN names a region in its query; the
+// S3 driver cannot sign requests without one.
+func dsnHasRegion(dsn string) bool {
+	u, err := url.Parse(dsn)
+	return err == nil && u.Query().Get("region") != ""
 }
 
 // BuiltinServer is the server part of hfy's own tools' names (hfy.now,

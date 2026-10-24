@@ -228,6 +228,9 @@ func appendUser(out []provider.Message, m provider.Message) []provider.Message {
 
 // userMessage expands image attachments only in the turn they arrive in; later
 // turns get a short placeholder (small context, and presigned URLs expire).
+// Only an image that is actually sent gets a signed URL: a stored file is
+// otherwise named by its key, and signatures must not land in prompts,
+// traces or summaries.
 func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec) provider.Message {
 	text := m.Text
 	if len(m.Attachments) == 0 {
@@ -236,22 +239,26 @@ func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current
 	var images []provider.Part
 	for _, a := range m.Attachments {
 		isImage := strings.HasPrefix(a.Mime, "image/")
+		var url string
+		if isImage && current && spec.Settings.Vision { // sign only what will be sent
+			url = a.URL
+			if a.File != "" {
+				url = rt.downloadURL(ctx, a.File)
+			}
+		}
 		switch {
 		case !isImage:
-			text += "\n[attachment: " + a.URL + " (" + a.Mime + ")]"
-		case !current || !spec.Settings.Vision:
+			// A stored file is named by its key, never by a signed URL:
+			// signed URLs must not land in prompts, traces or summaries.
+			ref := a.URL
+			if a.File != "" {
+				ref = a.File
+			}
+			text += "\n[attachment: " + ref + " (" + a.Mime + ")]"
+		case !current || !spec.Settings.Vision || url == "":
 			text += "\n[image: " + a.Mime + "]"
 		default:
-			ref := a.URL
-			if inlineImages(spec.Client) {
-				uri, err := rt.http.dataURI(ctx, a.URL, a.Mime)
-				if err != nil {
-					text += "\n[image unavailable: " + a.Mime + "]"
-					continue
-				}
-				ref = uri
-			}
-			images = append(images, provider.Part{Type: "image_url", ImageURL: &provider.ImageURL{URL: ref}})
+			images = append(images, provider.Part{Type: "image_url", ImageURL: &provider.ImageURL{URL: url}})
 		}
 	}
 	if len(images) == 0 {

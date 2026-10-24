@@ -87,4 +87,26 @@ func TestValidateAttachments(t *testing.T) {
 	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err == nil {
 		t.Error("no attachments config means rejected")
 	}
+	// File attachments: no host/type/count checks here (httpapi checks the
+	// filesystem config), but vision and url/file exclusivity still apply.
+	fileOK := []types.Attachment{{File: "conversations/c/a.png", Mime: "image/png"}}
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err != nil {
+		t.Errorf("file-only with nil attachments config: %v", err)
+	}
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{{File: "conversations/c/a.png", URL: "https://cdn.example.com/a.png", Mime: "image/png"}}); err == nil {
+		t.Error("file+url must be rejected")
+	}
+	cfg.Agent.Settings.Vision = false
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err == nil || !strings.Contains(err.Error(), "vision") {
+		t.Errorf("file images need vision: %v", err)
+	}
+	cfg.Agent.Settings.Vision = true
+	cfg.Attachments = &config.Attachments{AllowedHosts: []string{"cdn.example.com"}, Types: []string{"image/png", "application/pdf"}, MaxCount: 10}
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err != nil {
+		t.Errorf("file attachment with attachments config: %v", err)
+	}
+	// types is a filesystem concern, not an attachments one
+	if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{{File: "conversations/c/a.gif", Mime: "image/gif"}}); err != nil {
+		t.Errorf("file type outside attachments.types is httpapi's call, not svc's: %v", err)
+	}
 }

@@ -21,8 +21,9 @@ const module = "github.com/alash3al/hfy"
 // layers is the architecture: the internal packages each package may import.
 // Changing it is a design decision, made here on purpose, never by accident.
 var layers = map[string][]string{
-	"":                           {"agent", "config", "db", "httpapi", "jobs", "mcp", "metrics", "types"},
+	"":                           {"agent", "config", "db", "files", "httpapi", "jobs", "mcp", "metrics", "types"},
 	"internal/types":             {}, // shared vocabulary: depends on nothing
+	"internal/files":             {}, // gocloud bucket + signing helpers: depends only on stdlib and external drivers
 	"internal/config":            {"types"},
 	"internal/metrics":           {},
 	"internal/db":                {"types"},
@@ -34,8 +35,8 @@ var layers = map[string][]string{
 	"internal/mcp/builtins":      {"config", "mcp"},
 	"internal/mcp/fakemcp":       {},
 	"internal/svc":               {"config", "db", "metrics", "types"}, // owns turn state; never the agent
-	"internal/agent":             {"config", "db", "jobs", "mcp", "mcp/builtins", "metrics", "provider", "svc", "types"},
-	"internal/httpapi":           {"config", "db", "metrics", "svc", "types"}, // never the agent: API and workers scale apart
+	"internal/agent":             {"config", "db", "files", "jobs", "mcp", "mcp/builtins", "metrics", "provider", "svc", "types"},
+	"internal/httpapi":           {"config", "db", "files", "metrics", "svc", "types"}, // never the agent: API and workers scale apart
 }
 
 type goFile struct {

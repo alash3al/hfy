@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
+<title>Conversation</title>
+<link rel="stylesheet" href="/embed/ui.css">
+<script>window.__HFY_EMBED__=__HFY_CONFIG_JSON__;</script>
+<script defer src="/embed/client.js"></script>
+<script defer src="/embed/ui.js"></script>
+<script defer src="/embed/alpine.min.js"></script>
+</head>
+<body>
+<div id="app" x-data="hfyEmbed" x-cloak>
+  <div class="hfy-shell" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+    <div class="hfy-status-host" role="status" :inert="modalOpen">
+      <div class="hfy-status" :class="statusCls" x-show="statusShow">
+        <span class="hfy-status-text" x-text="statusText"></span>
+        <button type="button" class="hfy-link-btn" x-show="showRetry" @click="retry" x-text="L.retry"></button>
+      </div>
+    </div>
+
+    <div class="hfy-body" :inert="modalOpen">
+      <main class="hfy-messages" @scroll="onScroll" role="log" aria-live="polite" aria-relevant="additions" :aria-label="L.messages">
+        <template x-if="hasOlder">
+          <div class="hfy-older">
+            <button type="button" class="hfy-chip-btn" :disabled="loadingOlder" :aria-busy="loadingOlder" @click="loadOlder">
+              <span class="hfy-spin" x-show="loadingOlder"></span><span x-text="L.loadOlder"></span>
+            </button>
+          </div>
+        </template>
+
+        <div class="hfy-welcome" x-show="showWelcome">
+          <div class="hfy-welcome-icon" aria-hidden="true">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/></svg>
+          </div>
+          <h2 class="hfy-welcome-title" x-text="L.welcomeTitle"></h2>
+          <p class="hfy-welcome-sub" x-text="L.welcomeSubtitle"></p>
+        </div>
+
+        <template x-for="turn in turns" :key="turn.id">
+          <section class="hfy-turn" :data-state="turn.state">
+            <template x-for="block in turn.blocks" :key="block.id">
+              <div class="hfy-block" :class="block.rowCls">
+                <template x-if="block.showDay">
+                  <div class="hfy-day" role="separator"><span x-text="block.dayText"></span></div>
+                </template>
+                <div class="hfy-row">
+                  <div class="hfy-avatar-slot" aria-hidden="true">
+                    <span class="hfy-avatar" :class="block.avatarCls">
+                      <svg class="hfy-i hfy-ico-bot" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/></svg>
+                      <svg class="hfy-i hfy-ico-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      <span class="hfy-initials" x-text="block.avatarText"></span>
+                    </span>
+                  </div>
+                  <div class="hfy-col">
+                    <div class="hfy-name" x-show="block.showHead" x-text="block.actorLabel"></div>
+
+                    <template x-if="block.isText">
+                      <div class="hfy-msg">
+                        <div class="hfy-bubble" :class="block.bubbleCls" :aria-busy="block.streaming">
+                          <div class="hfy-bname" :class="block.nameCls" x-show="block.showBubbleName" x-text="block.actorLabel"></div>
+                          <div class="hfy-imgs" x-show="block.hasImages">
+                            <template x-for="att in block.images" :key="att.k">
+                              <a class="hfy-thumb" :href="att.url" target="_blank" rel="noopener noreferrer" :title="att.label">
+                                <img :src="att.url" :alt="att.label" loading="lazy">
+                              </a>
+                            </template>
+                          </div>
+                          <template x-if="block.isAgent">
+                            <div class="hfy-md" x-markdown="block.text"></div>
+                          </template>
+                          <p class="hfy-plain" dir="auto" x-show="block.isUser" x-text="block.text"></p>
+                          <div class="hfy-atts" x-show="block.hasFiles">
+                            <template x-for="att in block.files" :key="att.k">
+                              <div class="hfy-att">
+                                <template x-if="att.isLink">
+                                  <a class="hfy-file-chip" :href="att.url" target="_blank" rel="noopener noreferrer" download :title="att.label">
+                                    <svg class="hfy-i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                                    <span class="hfy-file-name" dir="auto" x-text="att.label"></span>
+                                    <svg class="hfy-i hfy-file-dl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+                                  </a>
+                                </template>
+                                <template x-if="att.isPlain">
+                                  <span class="hfy-file-chip" :title="att.label">
+                                    <svg class="hfy-i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                                    <span class="hfy-file-name" dir="auto" x-text="att.label"></span>
+                                  </span>
+                                </template>
+                              </div>
+                            </template>
+                          </div>
+                          <div class="hfy-foot">
+                            <time x-text="block.timeText" :datetime="block.iso" :title="block.fullTime"></time>
+                            <span class="hfy-ticks" :class="block.tickCls" x-show="block.isOwn" role="img" :aria-label="block.tickLabel" :title="block.tickLabel">
+                              <svg class="hfy-tick1" viewBox="0 0 16 11"><path d="M1.5 6 5 9.5 12.5 1.5"/></svg>
+                              <svg class="hfy-tick2" viewBox="0 0 20 11"><path d="M1.5 6 5 9.5 12.5 1.5"/><path d="M8.6 8.9 9.2 9.5 16.7 1.5"/></svg>
+                              <svg class="hfy-tickx" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                            </span>
+                          </div>
+                        </div>
+                        <button type="button" class="hfy-copy" x-show="block.isAgent" :data-copied="block.copied" @click="copyBlock" :aria-label="L.copy" :title="L.copy">
+                          <svg class="hfy-i hfy-ico-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+                          <svg class="hfy-i hfy-ico-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        </button>
+                      </div>
+                    </template>
+
+                    <template x-if="block.isReasoning">
+                      <details class="hfy-reasoning" :class="block.bubbleCls">
+                        <summary>
+                          <svg class="hfy-i" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                          <span x-text="L.thinking"></span>
+                          <svg class="hfy-i hfy-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+                        </summary>
+                        <p class="hfy-plain" dir="auto" x-text="block.text"></p>
+                      </details>
+                    </template>
+
+                    <template x-if="block.isTool">
+                      <div class="hfy-tool-wrap">
+                        <template x-if="block.showPendingOwn">
+                          <div class="hfy-appr-rec is-mine">
+                            <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                            <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="block.niceName"></span><span class="hfy-appr-wait" x-text="block.waitingText"></span></span>
+                            <button type="button" class="hfy-appr-open" @click="openApproval" x-text="L.open"></button>
+                          </div>
+                        </template>
+                        <template x-if="block.showPendingOther">
+                          <div class="hfy-appr-rec is-theirs">
+                            <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                            <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="block.niceName"></span><span class="hfy-appr-wait" x-text="block.waitingText"></span></span>
+                          </div>
+                        </template>
+
+                        <template x-if="block.showSummary">
+                          <div class="hfy-tool-sum" :class="block.statusCls">
+                            <span class="hfy-sum-ico" aria-hidden="true">
+                              <span class="hfy-spin"></span>
+                              <svg class="hfy-i hfy-sum-done" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+                              <svg class="hfy-i hfy-sum-fail" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                              <svg class="hfy-i hfy-sum-int" viewBox="0 0 24 24"><path d="M10 15V9"/><path d="M14 15V9"/><circle cx="12" cy="12" r="10"/></svg>
+                            </span>
+                            <span class="hfy-sum-label" x-text="block.niceName"></span>
+                            <span class="hfy-sum-status" x-text="block.statusText"></span>
+                            <span class="hfy-status-pill" :class="block.decidedCls" x-show="block.showBadge" x-text="block.decidedText"></span>
+                          </div>
+                        </template>
+
+                        <template x-if="block.showDetails">
+                          <details class="hfy-tool">
+                            <summary class="hfy-tool-row">
+                              <svg class="hfy-i hfy-tool-ico" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                              <code class="hfy-tool-name" x-text="block.toolLabel"></code>
+                              <span class="hfy-status-pill" :class="block.statusCls">
+                                <span class="hfy-spin" x-show="block.isRunning"></span><span x-text="block.statusText"></span>
+                              </span>
+                              <span class="hfy-status-pill" :class="block.decidedCls" x-show="block.showBadge" x-text="block.decidedText"></span>
+                              <svg class="hfy-i hfy-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+                            </summary>
+                            <div class="hfy-tool-body" x-show="block.hasDetails">
+                              <div class="hfy-sec" x-show="block.argsText">
+                                <div class="hfy-sec-title" x-text="L.args"></div>
+                                <pre class="hfy-pre" x-text="block.argsText"></pre>
+                              </div>
+                              <div class="hfy-sec" x-show="block.content">
+                                <div class="hfy-sec-title" x-text="L.result"></div>
+                                <pre class="hfy-pre" x-text="block.content"></pre>
+                              </div>
+                              <div class="hfy-sec" x-show="block.structuredText">
+                                <div class="hfy-sec-title" x-text="L.structured"></div>
+                                <pre class="hfy-pre" x-text="block.structuredText"></pre>
+                              </div>
+                            </div>
+                          </details>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <div class="hfy-block is-agent is-other hfy-typing-row" :class="turn.typingCls" x-show="turn.showTyping">
+              <div class="hfy-row">
+                <div class="hfy-avatar-slot" aria-hidden="true">
+                  <span class="hfy-avatar is-bot">
+                    <svg class="hfy-i hfy-ico-bot" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/></svg>
+                  </span>
+                </div>
+                <div class="hfy-col">
+                  <div class="hfy-typing" role="img" :aria-label="L.typing"><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            </div>
+            <p class="hfy-turn-error" role="alert" x-show="turn.error" x-text="turn.error"></p>
+          </section>
+        </template>
+      </main>
+
+      <div class="hfy-jump-wrap" x-show="showNewPill">
+        <button type="button" class="hfy-jump" @click="jumpToBottom">
+          <svg class="hfy-i" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span x-text="L.newMessages"></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="hfy-composer-wrap" :inert="modalOpen">
+      <div class="hfy-action-wrap" x-show="showActionPill">
+        <button type="button" class="hfy-action-pill" @click="openSheet">
+          <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          <span x-text="L.actionNeeded"></span><span class="hfy-badge" x-text="pendingCount"></span>
+        </button>
+      </div>
+      <form class="hfy-composer" @submit.prevent="sendMsg">
+        <input type="file" class="hfy-file hfy-in-photos" name="photos" multiple tabindex="-1" aria-hidden="true" :accept="photoAccept" @change="onPicked">
+        <input type="file" class="hfy-file hfy-in-camera" name="camera" tabindex="-1" aria-hidden="true" accept="image/*" capture="environment" @change="onPicked">
+        <input type="file" class="hfy-file hfy-in-docs" name="documents" multiple tabindex="-1" aria-hidden="true" :accept="docAccept" @change="onPicked">
+        <div class="hfy-pill">
+          <button type="button" class="hfy-icon-btn hfy-attach" x-show="showAttach" :disabled="attachDisabled" @click="toggleAttachMenu"
+                  aria-haspopup="dialog" :aria-expanded="attachMenuOpen" :aria-label="L.attach" :title="L.attach">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <textarea class="hfy-input" rows="1" name="message" :enterkeyhint="enterHint" :value="draft" :placeholder="L.placeholder" :aria-label="L.placeholder"
+                    @input="draftChanged" @keydown.enter="onEnter" @paste="onPaste"></textarea>
+          <button type="button" class="hfy-icon-btn hfy-camera" x-show="showCamera" :disabled="attachDisabled" @click="pickCamera" :aria-label="L.camera" :title="L.camera">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          </button>
+        </div>
+        <!-- one round button: Send (dimmed when empty), or Stop while the viewer's own turn is active -->
+        <button type="button" class="hfy-send" :class="roundCls" :disabled="roundDisabled" :aria-label="roundLabel" :title="roundLabel" @click="onRound">
+          <svg class="hfy-i hfy-ico-send" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+          <svg class="hfy-i hfy-ico-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+      </form>
+      <p class="hfy-composer-error" role="alert" x-show="composerError" x-text="composerError"></p>
+    </div>
+
+    <div class="hfy-sheet-layer" x-show="sheetOpen">
+      <div class="hfy-scrim" @click="minimizeSheet"></div>
+      <div class="hfy-sheet" role="dialog" aria-modal="true" aria-labelledby="hfy-sheet-kicker hfy-sheet-title" tabindex="-1" @keydown="onSheetKey">
+        <div class="hfy-handle" aria-hidden="true" @pointerdown="onHandleDown" @pointermove="onHandleMove" @pointerup="onHandleUp" @pointercancel="onHandleUp"><span></span></div>
+        <div class="hfy-steps" x-show="sheet.isMulti">
+          <span class="hfy-step-text" x-text="sheet.stepText"></span>
+          <span class="hfy-dots" aria-hidden="true">
+            <template x-for="dot in sheet.dots" :key="dot.k"><span class="hfy-dot-step" :class="dot.cls"></span></template>
+          </span>
+        </div>
+        <p class="hfy-sheet-kicker" id="hfy-sheet-kicker" x-text="L.wantsTo"></p>
+        <h2 class="hfy-sheet-title" id="hfy-sheet-title" x-text="sheet.title"></h2>
+        <dl class="hfy-args" x-show="sheet.hasArgList">
+          <template x-for="arg in sheet.argList" :key="arg.k">
+            <div class="hfy-arg">
+              <dt x-show="arg.hasKey" x-text="arg.key"></dt>
+              <dd dir="auto" x-text="arg.value"></dd>
+            </div>
+          </template>
+        </dl>
+        <details class="hfy-raw" x-show="sheet.showRawArgs">
+          <summary x-text="L.args"></summary>
+          <pre class="hfy-pre" x-text="sheet.argsText"></pre>
+        </details>
+        <p class="hfy-sheet-err" role="alert" x-show="sheetError" x-text="sheetError"></p>
+        <div class="hfy-sheet-choice" x-show="sheet.showDecide">
+          <button type="button" class="hfy-btn hfy-btn-reject" :disabled="sheetBusy" :aria-pressed="sheet.denyPressed" @click="sheetDeny">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg><span x-text="L.deny"></span>
+          </button>
+          <button type="button" class="hfy-btn hfy-btn-approve" :disabled="sheetBusy" :aria-pressed="sheet.allowPressed" @click="sheetAllow">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span x-text="L.allow"></span>
+          </button>
+        </div>
+        <div class="hfy-sheet-nav" x-show="sheet.isMulti">
+          <button type="button" class="hfy-btn hfy-btn-ghost" x-show="sheet.showBack" @click="sheetBack" x-text="L.back"></button>
+          <span class="hfy-nav-gap"></span>
+          <button type="button" class="hfy-btn hfy-btn-ghost" x-show="sheet.showNext" @click="sheetNext" x-text="L.next"></button>
+          <button type="button" class="hfy-btn hfy-btn-submit" x-show="sheet.showSubmit" :disabled="sheet.submitDisabled" @click="sheetSubmit" x-text="L.submit"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hfy-menu-layer" x-show="attachMenuOpen">
+      <div class="hfy-scrim hfy-menu-scrim" @click="dismissAttachMenu"></div>
+      <div class="hfy-menu" role="dialog" aria-modal="true" :aria-label="L.attach" tabindex="-1" @keydown="onMenuKey">
+        <div class="hfy-handle" aria-hidden="true"><span></span></div>
+        <div class="hfy-opts">
+          <button type="button" class="hfy-opt is-doc" x-show="attachOpts.document" @click="pickDocs">
+            <span class="hfy-opt-ico" aria-hidden="true"><svg class="hfy-i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h5"/></svg></span>
+            <span class="hfy-opt-label" x-text="L.document"></span>
+          </button>
+          <button type="button" class="hfy-opt is-camera" x-show="attachOpts.camera" @click="pickCamera">
+            <span class="hfy-opt-ico" aria-hidden="true"><svg class="hfy-i" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></span>
+            <span class="hfy-opt-label" x-text="L.camera"></span>
+          </button>
+          <button type="button" class="hfy-opt is-photos" x-show="attachOpts.photos" @click="pickPhotos">
+            <span class="hfy-opt-ico" aria-hidden="true"><svg class="hfy-i" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></span>
+            <span class="hfy-opt-label" x-text="L.photos"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hfy-pv-layer" :class="preview.cls" x-show="pvOpen">
+      <div class="hfy-scrim hfy-pv-scrim" @click="closePreview"></div>
+      <div class="hfy-preview" role="dialog" aria-modal="true" :aria-label="preview.title" tabindex="-1" @keydown="onPreviewKey">
+        <div class="hfy-pv-top">
+          <button type="button" class="hfy-icon-btn hfy-pv-close" @click="closePreview" :aria-label="L.close" :title="L.close">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+          <span class="hfy-pv-title" x-text="preview.title"></span>
+        </div>
+        <div class="hfy-pv-stage" x-show="preview.isPhoto">
+          <img class="hfy-pv-main" :src="preview.mainUrl" :alt="preview.mainName" x-show="preview.mainUrl">
+        </div>
+        <div class="hfy-pv-strip" x-show="preview.isPhoto">
+          <template x-for="it in preview.images" :key="it.k">
+            <div class="hfy-pv-thumb" :class="it.cls">
+              <button type="button" class="hfy-pv-pick" @click="selectItem" :aria-label="it.name" :aria-pressed="it.selected" :title="it.error">
+                <img :src="it.url" alt="" x-show="it.url">
+              </button>
+              <span class="hfy-pv-state" aria-hidden="true"><span class="hfy-spin"></span><svg class="hfy-i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg></span>
+              <button type="button" class="hfy-pv-x" @click="removeItem" :aria-label="it.removeLabel" :title="it.removeLabel">
+                <svg class="hfy-i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+          </template>
+          <button type="button" class="hfy-pv-add" @click="pickMore" :aria-label="L.addMore" :title="L.addMore">
+            <svg class="hfy-i" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          </button>
+        </div>
+        <ul class="hfy-pv-docs" x-show="preview.hasDocs">
+          <template x-for="it in preview.docs" :key="it.k">
+            <li class="hfy-pv-doc" :class="it.cls">
+              <span class="hfy-doc-ico" :class="it.docCls" aria-hidden="true"><span x-text="it.ext"></span></span>
+              <span class="hfy-pv-doc-text"><span class="hfy-pv-doc-name" dir="auto" x-text="it.name"></span><span class="hfy-pv-doc-size" dir="auto" x-text="it.sizeText"></span></span>
+              <span class="hfy-pv-state" aria-hidden="true" :title="it.error"><span class="hfy-spin"></span><svg class="hfy-i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg></span>
+              <button type="button" class="hfy-pv-x" @click="removeItem" :aria-label="it.removeLabel" :title="it.removeLabel">
+                <svg class="hfy-i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </li>
+          </template>
+        </ul>
+        <button type="button" class="hfy-pv-more" x-show="preview.isDoc" @click="pickMore">
+          <svg class="hfy-i" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span x-text="L.addMore"></span>
+        </button>
+        <p class="hfy-pv-err" role="alert" x-show="pvError" x-text="pvError"></p>
+        <div class="hfy-pv-bar">
+          <div class="hfy-pill hfy-pv-pill">
+            <textarea class="hfy-input hfy-pv-caption" name="caption" rows="1" :enterkeyhint="enterHint" :value="pvCaption" :placeholder="L.caption" :aria-label="L.caption"
+                      @input="captionChanged" @keydown.enter="onCaptionEnter" @paste="onPaste"></textarea>
+          </div>
+          <button type="button" class="hfy-send is-send" :class="preview.sendCls" :disabled="preview.sendDisabled" :aria-busy="pvSending"
+                  :aria-label="L.send" :title="L.send" @click="sendPreview" x-progress="preview.progress">
+            <svg class="hfy-ring" viewBox="0 0 64 64" aria-hidden="true"><circle class="hfy-ring-track" cx="32" cy="32" r="29.5"/><circle class="hfy-ring-bar" cx="32" cy="32" r="29.5" pathLength="100"/></svg>
+            <svg class="hfy-i hfy-ico-send" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+          </button>
+        </div>
+        <div class="hfy-pv-confirm" x-show="pvConfirm" role="alertdialog" aria-modal="true" aria-labelledby="hfy-pv-confirm-t">
+          <div class="hfy-pv-confirm-card">
+            <p id="hfy-pv-confirm-t" x-text="L.discardTitle"></p>
+            <div class="hfy-pv-confirm-actions">
+              <button type="button" class="hfy-btn hfy-btn-ghost hfy-pv-keep" @click="keepPreview" x-text="L.keep"></button>
+              <button type="button" class="hfy-btn hfy-btn-reject" @click="discardPreview" x-text="L.discard"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hfy-drop" x-show="dragOver" aria-hidden="true">
+      <div class="hfy-drop-inner">
+        <svg class="hfy-i" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        <span x-text="L.dropFiles"></span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

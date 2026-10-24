@@ -20,6 +20,9 @@ type historyResponse struct {
 	Next *uuid.UUID `json:"next"`
 	// LiveAfter is where to continue: open /events?after=<live_after>.
 	LiveAfter *uuid.UUID `json:"live_after"`
+	// Viewer is the grant's own actor, so a client can tell its messages
+	// apart from everyone else's (event actors use the same shape).
+	Viewer types.Actor `json:"viewer"`
 }
 
 // history returns durable events grouped by turn, newest page first, keyset
@@ -55,7 +58,8 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, g *db.GrantRow)
 	if err != nil {
 		return err
 	}
-	resp := historyResponse{Turns: []historyTurn{}}
+	resp := historyResponse{Turns: []historyTurn{},
+		Viewer: types.Actor{ID: g.ActorUUID, Type: types.ActorType(g.ActorType), Ref: g.ActorRef}}
 	if latest > 0 {
 		ev, err := s.store.EventByID(ctx, s.store.Pool, latest)
 		if err != nil {
@@ -80,7 +84,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, g *db.GrantRow)
 			if r.ParentID == nil {
 				t.ID = r.UUID
 			}
-			t.Events = append(t.Events, r.Envelope())
+			t.Events = append(t.Events, s.fillAttachmentURLs(r.Envelope()))
 		}
 		for _, id := range order {
 			resp.Turns = append(resp.Turns, *byTurn[id])

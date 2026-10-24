@@ -23,7 +23,7 @@ func TestServeReturnsWhenTheAddressIsTaken(t *testing.T) {
 	defer taken.Close()
 	cfg := &config.Config{
 		Server:    config.Server{Listen: taken.Addr().String(), Secret: "s"},
-		Storage:   config.Storage{URL: store.Pool.Config().ConnString()},
+		Database:  config.Database{URL: store.Pool.Config().ConnString()},
 		Queue:     config.Queue{Workers: 1, Lease: config.Duration(5 * time.Second), MaxAttempts: 1},
 		Retention: config.Retention{Trace: config.Duration(time.Hour)},
 		Providers: map[string]config.Provider{"p": {URL: "http://127.0.0.1:1/v1"}},
@@ -67,7 +67,7 @@ func TestOperationalEndpoints(t *testing.T) {
 	api, ops := freeAddr(t), freeAddr(t)
 	cfg := &config.Config{
 		Server:    config.Server{Listen: api, Secret: "s"},
-		Storage:   config.Storage{URL: store.Pool.Config().ConnString()},
+		Database:  config.Database{URL: store.Pool.Config().ConnString()},
 		Queue:     config.Queue{Workers: 1, Lease: config.Duration(5 * time.Second), MaxAttempts: 1},
 		Retention: config.Retention{Trace: config.Duration(time.Hour)},
 		Providers: map[string]config.Provider{"p": {URL: "http://127.0.0.1:1/v1"}},

@@ -22,6 +22,8 @@ import (
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/svc"
+
+	"gocloud.dev/blob"
 )
 
 type Server struct {
@@ -29,8 +31,12 @@ type Server struct {
 	store   *db.Store
 	svc     *svc.Service
 	hub     *Hub
+	bucket  *blob.Bucket // filesystem storage; nil = uploads disabled
 	handler http.Handler
 }
+
+// EnableFilesystem turns on filesystem uploads backed by b.
+func (s *Server) EnableFilesystem(b *blob.Bucket) { s.bucket = b }
 
 func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server {
 	srv := &Server{cfg: cfg, store: store, svc: s, hub: hub}
@@ -54,6 +60,12 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	route("GET /healthz", http.HandlerFunc(Healthz))
 	route("GET /readyz", Readyz(store))
 
+	route("GET /embed", http.HandlerFunc(srv.serveEmbed))
+	route("GET /embed/client.js", serveEmbedAsset("client.js", "text/javascript"))
+	route("GET /embed/ui.js", serveEmbedAsset("ui.js", "text/javascript"))
+	route("GET /embed/ui.css", serveEmbedAsset("ui.css", "text/css"))
+	route("GET /embed/alpine.min.js", serveEmbedAsset("alpine.min.js", "text/javascript"))
+
 	route("POST /v1/conversations", srv.requireSecret(srv.createConversation))
 	route("POST /v1/grants", srv.requireSecret(srv.createGrant))
 	route("DELETE /v1/grants/{id}", srv.requireSecret(srv.revokeGrant))
@@ -65,13 +77,26 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	route("GET /v1/conversation/history", srv.withGrant(false, srv.history))
 	route("POST /v1/conversation/approvals", srv.withGrant(false, srv.approve))
 	route("POST /v1/conversation/stop", srv.withGrant(false, srv.stop))
+	route("POST /v1/conversation/uploads", srv.withGrant(false, srv.requestUpload))
+	route("PUT /v1/conversation/uploads/{key...}", srv.withGrant(false, srv.putUpload))
+	// No grant: a transient signed URL (see uploads.go) is the credential.
+	route("GET /v1/files/{key...}", handler(srv.serveFile))
 
 	mux.Handle("/", handler(func(http.ResponseWriter, *http.Request) error { // the mux's own 404 is plain text
 		return &httpError{http.StatusNotFound, "not found"}
 	}))
 	// MaxBytesHandler copies the request, so it stays outside observe, which
-	// reads the pattern the mux sets on the request it was handed.
-	srv.handler = http.MaxBytesHandler(observe(srv.cors(mux)), maxBody)
+	// reads the pattern the mux sets on the request it was handed. Proxied
+	// uploads bound themselves by the filesystem limit instead.
+	inner := observe(srv.cors(mux))
+	limited := http.MaxBytesHandler(inner, maxBody)
+	srv.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v1/conversation/uploads/") {
+			inner.ServeHTTP(w, r)
+			return
+		}
+		limited.ServeHTTP(w, r)
+	})
 	return srv
 }
 
@@ -174,7 +199,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			if origin != "" && slices.Contains(origins, origin) {
 				h.Set("Access-Control-Allow-Origin", origin)
 				if r.Method == http.MethodOptions {
-					h.Set("Access-Control-Allow-Methods", "GET,POST")
+					h.Set("Access-Control-Allow-Methods", "GET,POST,PUT")
 					h.Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Last-Event-ID")
 					h.Set("Access-Control-Max-Age", "3600")
 				}

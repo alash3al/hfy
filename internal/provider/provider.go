@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,6 +34,15 @@ type Client struct {
 func New(name, baseURL, apiKey string, timeout time.Duration) *Client {
 	return &Client{Name: name, BaseURL: strings.TrimRight(baseURL, "/"), APIKey: apiKey, Timeout: timeout, HTTP: &http.Client{}}
 }
+
+// Adapter is a model backend: the OpenAI-compatible Client, or the
+// in-process Mock. The agent picks one per configured provider.
+type Adapter interface {
+	Chat(ctx context.Context, req Request, o Opts) (*Response, error)
+	Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error)
+}
+
+var _ Adapter = (*Client)(nil)
 
 type Part struct {
 	Type     string    `json:"type"`
@@ -198,7 +208,7 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 			err = fmt.Errorf("no data from the provider for %s: %w", c.Timeout, err)
 		}
 		if err != nil {
-			rec.Error = err.Error()
+			rec.Error = redactSigned(err.Error()) // provider errors may echo signed URLs
 		}
 		rec.LatencyMS = int(time.Since(start).Milliseconds())
 		metrics.ProviderRequests.WithLabelValues(c.Name, kind, metrics.Outcome(err != nil)).Inc()
@@ -228,7 +238,7 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(r, 8<<10))
-		return 0, &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(b)),
+		return 0, &APIError{Status: resp.StatusCode, Body: redactSigned(strings.TrimSpace(string(b))),
 			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	rec.Response, err = read(resp.Header, r)
@@ -346,8 +356,30 @@ func buildBody(r Request) wireRequest {
 	return b
 }
 
-// redactBody replaces inline base64 images with a placeholder before the
-// request is stored in outbound_requests. Headers are never part of it.
+// signedURLRe finds a signature query parameter wherever it appears in a
+// string: from it to the end of its token is the credential, and redactSigned
+// drops it. Only real query params match, so ?design=1 stays.
+var signedURLRe = regexp.MustCompile(`[?&](X-Amz-[A-Za-z-]+|X-Goog-[A-Za-z-]+|Signature|sig)=`)
+
+// redactSigned removes the credentials of any signed URL in s: everything
+// from a signature query parameter to the end of its token.
+func redactSigned(s string) string {
+	for {
+		loc := signedURLRe.FindStringIndex(s)
+		if loc == nil {
+			return s
+		}
+		rest := s[loc[0]:]
+		s = s[:loc[0]]
+		if e := strings.IndexAny(rest, " \t\n\"'"); e > 0 {
+			s += rest[e:] // the token ends at the next space or quote
+		}
+	}
+}
+
+// redactBody replaces inline base64 images and the credentials of signed
+// URLs with placeholders before the request is stored in outbound_requests.
+// Headers are never part of it.
 func redactBody(body []byte) json.RawMessage {
 	var v any
 	if json.Unmarshal(body, &v) != nil {
@@ -368,6 +400,7 @@ func redactBody(body []byte) json.RawMessage {
 			if strings.HasPrefix(t, "data:") && strings.Contains(t, ";base64,") {
 				return "[inline attachment]"
 			}
+			return redactSigned(t)
 		}
 		return x
 	}
