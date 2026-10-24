@@ -148,12 +148,31 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 		info := CallInfo{ID: c.CallID, Name: c.Name, Args: c.Arguments}
 		d, decided := v.Decided[c.CallID]
 		switch {
+		case decided && d.Approve && c.Name == svc.AskUserTool:
+			// Never re-run an answered ask: the decision's answers ARE the
+			// tool result, exactly this JSON (strictly; an old decision without
+			// answers falls back to the declined text).
+			text := answersText(d.Answers)
+			if text == "" {
+				text = strings.TrimSpace(promptDeclined)
+			}
+			if err := sink.CallFinished(ctx, info, mcp.Result{Content: text}); err != nil {
+				return err
+			}
 		case decided && !d.Approve:
 			text := d.Result
 			if text == "" {
-				text = strings.TrimSpace(promptRejected)
-				if d.Reason != "" {
-					text += " Reason: " + d.Reason
+				if c.Name == svc.AskUserTool { // declined or timed out: the model continues gracefully
+					if d.Reason == "timeout" {
+						text = strings.TrimSpace(promptTimeout)
+					} else {
+						text = strings.TrimSpace(promptDeclined)
+					}
+				} else {
+					text = strings.TrimSpace(promptRejected)
+					if d.Reason != "" {
+						text += " Reason: " + d.Reason
+					}
 				}
 			}
 			if err := sink.CallFinished(ctx, info, mcp.Result{Content: text}); err != nil {
@@ -180,6 +199,22 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 		}
 	}
 	return nil
+}
+
+// answersText renders a decision's answers as the tool_result text, an object
+// re-marshaled from what the stored event decoded to (Postgres re-orders jsonb
+// object keys, so only decoding yields a stable order). Empty when the
+// decision's answers are unusable.
+func answersText(raw json.RawMessage) string {
+	var answ map[string]any
+	if json.Unmarshal(raw, &answ) != nil || answ == nil {
+		return ""
+	}
+	b, err := json.Marshal(map[string]any{"answers": answ})
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func (rt *Runtime) findTool(ctx context.Context, full string) (mcp.Tool, bool) {

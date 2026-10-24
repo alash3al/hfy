@@ -133,6 +133,9 @@ type ApprovalDecided struct {
 	Approve bool   `json:"approve"`
 	Result  string `json:"result,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// Answers holds hfy.ask_user's validated answers ({"<id>": value}) when
+	// this decision approved one: additive and optional, so v stays 1.
+	Answers json.RawMessage `json:"answers,omitempty"`
 }
 
 func (ApprovalDecided) EventType() EventType { return EventApprovalDecided }

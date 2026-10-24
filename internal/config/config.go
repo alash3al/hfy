@@ -183,6 +183,10 @@ type Agent struct {
 	Limits   Limits         `yaml:"limits"`
 	Approval *Approval      `yaml:"approval"`
 	MCP      []string       `yaml:"mcp"` // nil = all servers, via tool search
+	// AskUser opts the agent into hfy.ask_user: it may pause a turn asking
+	// the viewer structured questions. Off by default: an API-only app
+	// without a UI would stall on questions it cannot render.
+	AskUser bool `yaml:"ask_user"`
 }
 
 type Subagent struct {
@@ -675,7 +679,7 @@ const BuiltinServer = "hfy"
 
 // BuiltinTools are the names hfy's own tools take on that server, so no
 // sub-agent may (a test in package builtins keeps the list complete).
-var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc"}
+var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc", "ask_user"}
 
 // AllAgents returns every agent by name; the default "agent" is "main".
 func (c *Config) AllAgents() map[string]*Agent {

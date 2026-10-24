@@ -33,6 +33,12 @@ var promptInterrupted string
 //go:embed prompts/rejected.txt
 var promptRejected string
 
+//go:embed prompts/declined.txt
+var promptDeclined string
+
+//go:embed prompts/timeout.txt
+var promptTimeout string
+
 //go:embed prompts/repeated.txt
 var promptRepeated string
 
@@ -117,6 +123,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		s.core()
 		s.Builtins[builtins.ToolSearch] = a.MCP == nil
 		s.Builtins[builtins.ConversationSearch] = cfg.Embeddings != nil
+		s.Builtins[builtins.AskUser] = a.AskUser // opt-in, top agents only
 		for sub := range cfg.Subagents {
 			s.Builtins[sub] = true // every agent may delegate to every sub-agent
 		}

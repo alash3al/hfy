@@ -15,13 +15,19 @@ var HFY_STRINGS = {
     wantsTo: 'The assistant wants to:', allow: 'Allow', deny: 'Deny', allowed: 'Allowed', denied: 'Denied', tickQueued: 'Sent', tickRunning: 'Delivered', tickDone: 'Answered', tickFailed: 'Not completed',
     actionNeeded: 'Action needed', waitingFor: 'Waiting for {name}', waitingYou: 'Waiting for your decision', open: 'Open', next: 'Next', back: 'Back', submit: 'Submit', stepOf: '{n} of {total}',
     yes: 'yes', no: 'no', photos: 'Photos', camera: 'Camera', document: 'Document', caption: 'Add a caption…', addMore: 'Add more', close: 'Close',
-    discardTitle: 'Discard these attachments?', discard: 'Discard', keep: 'Keep editing', errType: 'This file type can’t be sent: {name}', errSize: 'Files must be at most {size}' },
+    discardTitle: 'Discard these attachments?', discard: 'Discard', keep: 'Keep editing', errType: 'This file type can’t be sent: {name}', errSize: 'Files must be at most {size}',
+    askTitle: 'Questions from the assistant', askWaiting: 'Waiting for your answers', askAnswered: 'Answered', askSkipped: 'Skipped', askTimeout: 'Not answered in time',
+    questionOf: 'Question {n} of {total}', review: 'Review your answers', optional: 'Optional', chooseMany: 'Choose all that apply', noAnswer: 'No answer',
+    confirmYes: 'Yes', confirmNo: 'No', edit: 'Edit', skipQuestions: 'Skip questions', skipConfirm: 'Skip these questions? The assistant will continue without your answers.', skip: 'Skip', cancel: 'Cancel' },
   ar: { title: 'المحادثة', placeholder: 'اكتب رسالة…', send: 'إرسال', stop: 'إيقاف', attach: 'إرفاق ملفات', thinking: 'التفكير', tool: 'أداة', interrupted: 'انقطعت', reconnecting: 'إعادة الاتصال…', refreshing: 'جارٍ التحديث…', ended: 'انتهت المحادثة', error: 'حدث خطأ ما', retry: 'إعادة المحاولة', loadOlder: 'تحميل الرسائل الأقدم', you: 'أنت', agent: 'المساعد', connecting: 'جارٍ الاتصال…',
     copy: 'نسخ', copied: 'تم النسخ', copyCode: 'نسخ الشيفرة', newMessages: 'رسائل جديدة', welcomeTitle: 'كيف يمكنني مساعدتك؟', welcomeSubtitle: 'أرسل رسالة لبدء المحادثة.', remove: 'إزالة', uploadFailed: 'فشل الرفع', dropFiles: 'أفلت الملفات لإرسالها', today: 'اليوم', yesterday: 'أمس', approvalNeeded: 'مطلوب موافقتك', running: 'قيد التنفيذ', done: 'اكتملت', failed: 'فشلت', args: 'المُدخلات', result: 'النتيجة', structured: 'نتيجة منظّمة', messages: 'الرسائل', typing: 'المساعد يكتب…', file: 'ملف',
     wantsTo: 'يريد المساعد تنفيذ:', allow: 'سماح', deny: 'رفض', allowed: 'تم السماح', denied: 'تم الرفض', tickQueued: 'أُرسلت', tickRunning: 'وصلت', tickDone: 'تم الرد', tickFailed: 'لم تكتمل',
     actionNeeded: 'مطلوب إجراء', waitingFor: 'بانتظار {name}', waitingYou: 'بانتظار قرارك', open: 'فتح', next: 'التالي', back: 'السابق', submit: 'تأكيد', stepOf: '{n} من {total}',
     yes: 'نعم', no: 'لا', photos: 'الصور', camera: 'الكاميرا', document: 'مستند', caption: 'أضف تعليقًا…', addMore: 'إضافة المزيد', close: 'إغلاق',
-    discardTitle: 'تجاهل هذه المرفقات؟', discard: 'تجاهل', keep: 'متابعة التعديل', errType: 'لا يمكن إرسال هذا النوع من الملفات: {name}', errSize: 'يجب ألا يتجاوز حجم الملف {size}' }
+    discardTitle: 'تجاهل هذه المرفقات؟', discard: 'تجاهل', keep: 'متابعة التعديل', errType: 'لا يمكن إرسال هذا النوع من الملفات: {name}', errSize: 'يجب ألا يتجاوز حجم الملف {size}',
+    askTitle: 'أسئلة من المساعد', askWaiting: 'بانتظار إجاباتك', askAnswered: 'تمت الإجابة', askSkipped: 'تم التخطي', askTimeout: 'لم تتم الإجابة في الوقت المحدد',
+    questionOf: 'السؤال {n} من {total}', review: 'راجع إجاباتك', optional: 'اختياري', chooseMany: 'اختر كل ما ينطبق', noAnswer: 'بدون إجابة',
+    confirmYes: 'نعم', confirmNo: 'لا', edit: 'تعديل', skipQuestions: 'تخطي الأسئلة', skipConfirm: 'تخطي هذه الأسئلة؟ سيتابع المساعد دون إجاباتك.', skip: 'تخطي', cancel: 'إلغاء' }
 };
 var HFY_RTL = ['ar', 'he', 'fa', 'ur', 'dv', 'ps', 'sd', 'yi'];
 var HFY_DEFAULTS = { lang: '', dir: 'auto', theme: 'auto', accent: '#6366f1', density: 'comfortable', layout: 'bubbles', tool_calls: 'summary', uploads: null, parents: [] };
@@ -186,6 +192,74 @@ function hfyArgList(raw, L) {
   return out;
 }
 function hfyIsImageType(t) { return /^image\//i.test(String(t || '')); }
+
+// Every field the sheet template reads, for every step kind.
+function hfyBlankSheet() {
+  return { kind: '', isApproval: false, isQuestion: false, isReview: false, kicker: '', title: '',
+    argList: [], hasArgList: false, showRawArgs: false, argsText: '', allowPressed: null, denyPressed: null, showDecide: false,
+    isChoice: false, isText: false, groupRole: 'group', options: [], groupName: '', text: '', counter: '', placeholder: '',
+    hint: '', showHint: false, review: [], error: '',
+    isMulti: false, stepText: '', dots: [], showBack: false, showNext: false, nextDisabled: false,
+    showSubmit: false, submitDisabled: true, showSkip: false };
+}
+/* ---- hfy.ask_user: structured questions answered through the approval flow ---- */
+var HFY_ASK_TOOL = 'hfy.ask_user', HFY_ASK_TYPES = ['single', 'multi', 'text', 'confirm'], HFY_TEXT_MAX = 2000;
+// The call's questions, normalized; malformed entries are dropped.
+function hfyAskQuestions(raw) {
+  var v = raw;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return []; } }
+  var qs = v && Array.isArray(v.questions) ? v.questions : [];
+  return qs.filter(function (q) { return q && typeof q.id === 'string' && q.id && HFY_ASK_TYPES.indexOf(q.type) !== -1; })
+    .map(function (q) {
+      var choice = q.type === 'single' || q.type === 'multi';
+      return { id: q.id, text: String(q.text || q.id), type: q.type, required: q.required !== false,
+        placeholder: q.type === 'text' && q.placeholder ? String(q.placeholder) : '',
+        options: choice && Array.isArray(q.options) ? q.options.filter(function (o) { return o && o.value != null; })
+          .map(function (o) { return { value: String(o.value), label: String(o.label != null ? o.label : o.value) }; }) : [] };
+    });
+}
+function hfyAnswerEmpty(v) { return v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length); }
+// Enough to move on: optional may be empty; otherwise the value must fit the type.
+function hfyAnswerOk(q, v) {
+  if (hfyAnswerEmpty(v)) return !q.required;
+  var vals = q.options.map(function (o) { return o.value; });
+  if (q.type === 'single') return typeof v === 'string' && vals.indexOf(v) !== -1;
+  if (q.type === 'multi') return Array.isArray(v) && v.every(function (x, i) { return vals.indexOf(x) !== -1 && v.indexOf(x) === i; });
+  if (q.type === 'text') return typeof v === 'string' && Array.from(v).length <= HFY_TEXT_MAX;
+  if (q.type === 'confirm') return typeof v === 'boolean';
+  return false;
+}
+function hfyAskComplete(qs, answers) { return qs.every(function (q) { return hfyAnswerOk(q, answers[q.id]); }); }
+// The `answers` body for client.approve: empty optional answers are left out.
+function hfyAskPayload(qs, answers) {
+  var out = {};
+  qs.forEach(function (q) {
+    var v = answers[q.id];
+    if (hfyAnswerEmpty(v)) return;
+    out[q.id] = Array.isArray(v) ? v.slice() : (typeof v === 'string' ? v.trim() : v);
+  });
+  return out;
+}
+// An answer as words: option labels, Yes/No, or the text. L: {yes, no, none}.
+function hfyAnswerText(q, v, L) {
+  if (hfyAnswerEmpty(v)) return L.none;
+  var label = function (x) { var o = q.options.find(function (o) { return o.value === String(x); }); return o ? o.label : String(x); };
+  if (typeof v === 'boolean') return v ? L.yes : L.no;
+  if (Array.isArray(v)) return v.map(label).join(', ');
+  return q.type === 'single' ? label(v) : String(v);
+}
+// Pending calls in call order -> wizard steps: one per approval, one per
+// question; a review step closes any set that has questions.
+function hfyBuildSteps(items) {
+  var steps = [], total = 0, n = 0;
+  items.forEach(function (it) { if (it.kind === 'ask') total += it.questions.length; });
+  items.forEach(function (it) {
+    if (it.kind !== 'ask') { steps.push({ kind: 'approval', callId: it.callId, qi: -1, qn: 0, qTotal: total, key: it.callId }); return; }
+    it.questions.forEach(function (q, qi) { steps.push({ kind: 'question', callId: it.callId, qi: qi, qn: ++n, qTotal: total, key: it.callId + ':' + q.id }); });
+  });
+  if (total) steps.push({ kind: 'review', callId: '', qi: -1, qn: 0, qTotal: total, key: 'review' });
+  return steps;
+}
 // Document icon tint in the document preview.
 function hfyDocCls(mime) {
   var m = String(mime || '').toLowerCase();
@@ -575,9 +649,8 @@ window.hfyEmbed = function () {
     ownActive: false, roundCls: 'is-send', roundLabel: '', roundDisabled: true,
     // approval bottom sheet over the viewer's own pending approvals
     pendingOwn: [], sheetOpen: false, showActionPill: false, pendingCount: '', sheetStep: 0, sheetError: '', sheetBusy: false,
-    sheet: { title: '', argList: [], hasArgList: false, showRawArgs: false, argsText: '', isMulti: false, stepText: '', dots: [],
-      allowPressed: null, denyPressed: null, showBack: false, showNext: false, showSubmit: false, submitDisabled: true, showDecide: true },
-    _seenPending: {}, _sheetMin: false, _awaitTurn: '',
+    sheet: hfyBlankSheet(), sheetSteps: [], sheetSkipConfirm: false,
+    _seenPending: {}, _sheetMin: false, _awaitTurn: '', _errKey: '',
     _stick: true, _collecting: null, _loaded: false, _dragDepth: 0,
 
     t: function (k) {
@@ -719,7 +792,9 @@ window.hfyEmbed = function () {
         status: '', statusCls: '', statusText: '', isRunning: false,
         content: '', structuredText: '', showApproval: false, showSummary: false, showDetails: false, showDecided: false, showBadge: false, decision: '',
         decidedText: '', decidedCls: '', busy: false, hasDetails: false,
-        showPendingOwn: false, showPendingOther: false, waitingText: '', choice: '', submitted: false };
+        showPendingOwn: false, showPendingOther: false, waitingText: '', choice: '', submitted: false,
+        isAsk: false, questions: [], draftAnswers: {}, finalAnswers: null, declineReason: '',
+        askCls: '', askStateText: '', askCanOpen: false, askRows: [], askHasRows: false };
     },
     setAtts: function (b, list) {
       var atts = this.mapAtts(list);
@@ -736,6 +811,8 @@ window.hfyEmbed = function () {
       var b = this.baseBlock(env, 'tool', true);
       b.callId = d.call_id || ''; b.name = d.name || ''; b.argsText = hfyPretty(d.arguments);
       b.argsRaw = d.arguments === undefined ? null : d.arguments; // argList is built (localized) in relayout
+      b.isAsk = b.name === HFY_ASK_TOOL;
+      if (b.isAsk) b.questions = hfyAskQuestions(d.arguments);
       this.setToolStatus(b, 'running');
       return b;
     },
@@ -803,6 +880,8 @@ window.hfyEmbed = function () {
           if (!b) { b = this.newToolBlock(env, { call_id: d.call_id }); turn.blocks.push(b); }
           this.setToolStatus(b, d.is_error ? 'error' : 'done');
           b.content = d.content || '';
+          // an ask's result is {"answers": {...}}: the fallback when the decision event carried none
+          if (b.isAsk && !b.finalAnswers) { var res = hfyData(b.content); if (res && res.answers && typeof res.answers === 'object') b.finalAnswers = res.answers; }
           if (d.structured != null) b.structuredText = hfyPretty(d.structured); break;
         case 'tool_call.interrupted':
           turn = this.ensureTurn(list, turnId);
@@ -815,7 +894,11 @@ window.hfyEmbed = function () {
         case 'approval.decided':
           turn = this.ensureTurn(list, turnId);
           b = this.findTool(turn, d.call_id);
-          if (b) { b.showApproval = false; b.showDecided = true; b.busy = false; b.decision = d.approve ? 'allowed' : 'denied'; }
+          if (b) {
+            b.showApproval = false; b.showDecided = true; b.busy = false; b.decision = d.approve ? 'allowed' : 'denied';
+            if (d.answers && typeof d.answers === 'object') b.finalAnswers = d.answers;
+            b.declineReason = d.reason || '';
+          }
           break;
         default: return;
       }
@@ -839,6 +922,21 @@ window.hfyEmbed = function () {
       if (new Date(ts).getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
       try { return hfyFmt(this.resolvedLang(), opts).format(new Date(ts)); } catch (e) { return ''; }
     },
+    // The timeline's note for a question set: waiting / the Q→A list / skipped.
+    askRecord: function (b, own, waitOther) {
+      var L = { yes: this.t('confirmYes'), no: this.t('confirmNo'), none: this.t('noAnswer') }, state;
+      if (b.showApproval) state = own ? 'pending' : 'other';
+      else if (b.decision === 'allowed') state = 'answered';
+      else if (b.decision === 'denied') state = b.declineReason === 'timeout' ? 'timeout' : 'skipped';
+      else state = 'asking';
+      var answers = state === 'answered' && b.finalAnswers ? b.finalAnswers : null;
+      b.askCls = 'is-' + state;
+      b.askStateText = state === 'pending' ? this.t('askWaiting') : state === 'other' ? waitOther : state === 'answered' ? this.t('askAnswered')
+        : state === 'timeout' ? this.t('askTimeout') : state === 'skipped' ? this.t('askSkipped') : '';
+      b.askCanOpen = state === 'pending';
+      b.askRows = answers ? b.questions.map(function (q) { return { k: q.id, q: q.text, a: hfyAnswerText(q, answers[q.id], L) }; }) : [];
+      b.askHasRows = b.askRows.length > 0;
+    },
     // Presentation pass: grouping, day separators, typing and every
     // locale-dependent label. Cheap enough to run on each structural event.
     relayout: function () {
@@ -861,10 +959,12 @@ window.hfyEmbed = function () {
           if (b.isTool) {
             // pending approvals stay visible in every mode: the viewer's own
             // open the sheet; anyone else's are a read-only "waiting" note
-            b.showPendingOwn = b.showApproval && turn.own;
-            b.showPendingOther = b.showApproval && !turn.own;
-            b.waitingText = turn.own ? self.t('waitingYou') : turn.userLabel ? self.t('waitingFor').replace('{name}', turn.userLabel) : self.t('approvalNeeded');
-            if (b.showPendingOwn && !b.submitted) pendingOwn.push(b);
+            var waitOther = turn.userLabel ? self.t('waitingFor').replace('{name}', turn.userLabel) : self.t('approvalNeeded');
+            b.showPendingOwn = b.showApproval && turn.own && !b.isAsk;
+            b.showPendingOther = b.showApproval && !turn.own && !b.isAsk;
+            b.waitingText = turn.own ? self.t('waitingYou') : waitOther;
+            if (b.showApproval && turn.own && !b.submitted) pendingOwn.push(b);
+            if (b.isAsk) self.askRecord(b, turn.own, waitOther);
             b.niceName = hfyToolName(b.name) || self.t('tool');
             if (b.argLang !== argKey) { b.argList = hfyArgList(b.argsRaw, yesNo); b.hasArgList = b.argList.length > 0; b.argLang = argKey; }
             b.toolLabel = b.name || self.t('tool');
@@ -878,9 +978,10 @@ window.hfyEmbed = function () {
             b.hasDetails = !!(b.argsText || b.content || b.structuredText);
             b.showRawArgs = mode === 'details' && !!b.argsText;
             // hidden mode still keeps decided approvals: the viewer made that call
-            b.showSummary = !b.showApproval && (mode === 'summary' || (mode === 'hidden' && !!b.decision));
-            b.showDetails = !b.showApproval && mode === 'details';
-            hidden = !b.showApproval && !b.showSummary && !b.showDetails;
+            // ask_user calls are never tool rows, in any mode: they have their own record
+            b.showSummary = !b.isAsk && !b.showApproval && (mode === 'summary' || (mode === 'hidden' && !!b.decision));
+            b.showDetails = !b.isAsk && !b.showApproval && mode === 'details';
+            hidden = !b.isAsk && !b.showApproval && !b.showSummary && !b.showDetails;
           }
           if (b.isText && b.endsFor !== b.text) {
             var leaf = b.isAgent ? hfyMdLastLeaf(hfyMdParse(b.text)) : null;
@@ -1201,25 +1302,110 @@ window.hfyEmbed = function () {
     // ---- approval sheet: a stepper over the viewer's own pending approvals.
     // Choices live on the blocks; nothing reaches the server before Allow/Deny
     // (single) or Submit (several). Dismissing only minimizes.
+    // The sheet is a stepper over the viewer's pending calls, in call order:
+    // one step per approval, one per question, then a review if any questions.
+    // Choices and answers live on the blocks (memory only) until Submit.
     syncSheet: function () {
-      var self = this, list = this.pendingOwn, n = list.length, fresh = false;
-      list.forEach(function (b) { if (!self._seenPending[b.callId]) { self._seenPending[b.callId] = 1; fresh = true; } });
+      var self = this, list = this.pendingOwn, fresh = false, byId = {};
+      list.forEach(function (b) {
+        byId[b.callId] = b;
+        if (!self._seenPending[b.callId]) { self._seenPending[b.callId] = 1; fresh = true; }
+      });
       if (fresh) this._sheetMin = false; // a new request (or a reload) surfaces the sheet
-      if (!n) this.sheetError = '';
+      var steps = hfyBuildSteps(list.map(function (b) {
+        return { kind: b.isAsk && b.questions.length ? 'ask' : 'approval', callId: b.callId, questions: b.questions };
+      }));
+      var n = steps.length;
+      this.sheetSteps = steps;
+      if (!n) { this.sheetError = ''; this._errKey = ''; this.sheetSkipConfirm = false; }
       if (this.sheetStep > n - 1) this.sheetStep = Math.max(0, n - 1);
-      var step = this.sheetStep, b = list[step], multi = n > 1, last = step === n - 1;
-      this.pendingCount = String(n);
-      this.showActionPill = n > 0 && this._sheetMin;
-      this.sheet = { title: b ? b.niceName : '', argList: b ? b.argList : [], hasArgList: !!b && b.hasArgList,
-        showRawArgs: !!b && this.config.tool_calls === 'details' && !!b.argsText, argsText: b ? b.argsText : '',
-        isMulti: multi, stepText: multi ? this.t('stepOf').replace('{n}', step + 1).replace('{total}', n) : '',
-        dots: multi ? list.map(function (x, i) { return { k: x.callId || String(i), cls: (i === step ? 'is-current' : '') + (x.choice ? ' is-' + x.choice : '') }; }) : [],
-        allowPressed: multi ? (!!b && b.choice === 'allowed') : null, denyPressed: multi ? (!!b && b.choice === 'denied') : null,
-        showBack: multi && step > 0, showNext: multi && !last, showSubmit: multi && last,
-        submitDisabled: this.sheetBusy || list.some(function (x) { return !x.choice; }), showDecide: !!b };
-      var open = n > 0 && !this._sheetMin;
-      if (open !== this.sheetOpen) { this.sheetOpen = open; this.syncModal(); this.sheetFocus(open, n > 0); }
+      var idx = this.sheetStep, step = steps[idx], b = step && step.callId ? byId[step.callId] : null;
+      var multi = n > 1, last = idx === n - 1, s = hfyBlankSheet();
+      var done = function (x) { return x.isAsk && x.questions.length ? hfyAskComplete(x.questions, x.draftAnswers) : !!x.choice; };
+      this.pendingCount = String(list.length);
+      this.showActionPill = list.length > 0 && this._sheetMin;
+      if (step) {
+        s.kind = step.kind; s.isApproval = step.kind === 'approval'; s.isQuestion = step.kind === 'question'; s.isReview = step.kind === 'review';
+        s.error = (!this._errKey || this._errKey === step.key) ? this.sheetError : '';
+        if (s.isApproval) {
+          s.kicker = this.t('wantsTo'); s.title = b.niceName; s.argList = b.argList; s.hasArgList = b.hasArgList;
+          s.showRawArgs = this.config.tool_calls === 'details' && !!b.argsText; s.argsText = b.argsText; s.showDecide = true;
+          s.allowPressed = multi ? b.choice === 'allowed' : null; s.denyPressed = multi ? b.choice === 'denied' : null;
+        } else if (s.isQuestion) this.questionView(s, step, b);
+        else {
+          s.title = this.t('review');
+          s.review = steps.filter(function (x) { return x.kind !== 'review'; }).map(function (x, i) {
+            var xb = byId[x.callId], q = x.kind === 'question' ? xb.questions[x.qi] : null;
+            var answer = q ? hfyAnswerText(q, xb.draftAnswers[q.id], { yes: self.t('confirmYes'), no: self.t('confirmNo'), none: self.t('noAnswer') })
+              : xb.choice ? self.t(xb.choice) : self.t('noAnswer');
+            var missing = q ? !hfyAnswerOk(q, xb.draftAnswers[q.id]) : !xb.choice;
+            return { k: x.key, q: q ? q.text : xb.niceName, a: answer, step: i, cls: missing ? 'is-missing' : '', label: self.t('edit') + ': ' + (q ? q.text : xb.niceName) };
+          });
+        }
+        s.isMulti = multi;
+        s.stepText = multi ? this.t('stepOf').replace('{n}', idx + 1).replace('{total}', n) : '';
+        s.dots = multi ? steps.map(function (x, i) {
+          var xb = byId[x.callId], ok = x.kind === 'review' ? false : x.kind === 'question' ? hfyAnswerOk(xb.questions[x.qi], xb.draftAnswers[xb.questions[x.qi].id]) && !hfyAnswerEmpty(xb.draftAnswers[xb.questions[x.qi].id]) : !!xb.choice;
+          var choice = x.kind === 'approval' && xb.choice ? ' is-' + xb.choice : ok ? ' is-allowed' : '';
+          return { k: x.key, cls: (i === idx ? 'is-current' : '') + choice };
+        }) : [];
+        s.showBack = multi && idx > 0;
+        s.showNext = multi && !last;
+        s.nextDisabled = s.isQuestion && !hfyAnswerOk(b.questions[step.qi], b.draftAnswers[b.questions[step.qi].id]);
+        s.showSubmit = multi && last;
+        s.submitDisabled = this.sheetBusy || !list.every(done);
+        s.showSkip = s.isQuestion;
+      }
+      this.sheet = s;
+      var open = list.length > 0 && !this._sheetMin;
+      if (open !== this.sheetOpen) { this.sheetOpen = open; this.syncModal(); this.sheetFocus(open, list.length > 0); }
     },
+    questionView: function (s, step, b) {
+      var self = this, q = b.questions[step.qi], v = b.draftAnswers[q.id], name = 'hfy-q-' + step.key;
+      s.kicker = this.t('questionOf').replace('{n}', step.qn).replace('{total}', step.qTotal);
+      s.title = q.text; s.groupName = name;
+      if (q.type === 'text') {
+        s.isText = true; s.text = typeof v === 'string' ? v : ''; s.placeholder = q.placeholder;
+        s.counter = Array.from(s.text).length + ' / ' + HFY_TEXT_MAX;
+      } else {
+        s.isChoice = true;
+        s.groupRole = q.type === 'multi' ? 'group' : 'radiogroup';
+        var opts = q.type === 'confirm' ? [{ value: 'true', label: this.t('confirmYes') }, { value: 'false', label: this.t('confirmNo') }] : q.options;
+        s.options = opts.map(function (o, i) {
+          var on = q.type === 'multi' ? Array.isArray(v) && v.indexOf(o.value) !== -1 : q.type === 'confirm' ? String(v) === o.value : v === o.value;
+          return { k: name + ':' + i, value: o.value, label: o.label, checked: on, type: q.type === 'multi' ? 'checkbox' : 'radio', cls: on ? 'is-on' : '' };
+        });
+        if (q.type === 'multi') { s.hint = this.t('chooseMany'); s.showHint = true; }
+      }
+      if (!q.required) { s.hint = (s.hint ? s.hint + ' · ' : '') + this.t('optional'); s.showHint = true; }
+    },
+    currentStep: function () {
+      var step = this.sheetSteps[this.sheetStep], self = this;
+      var b = step && step.callId ? this.pendingOwn.find(function (x) { return x.callId === step.callId; }) : null;
+      return { step: step, b: b, q: b && step.kind === 'question' ? b.questions[step.qi] : null, self: self };
+    },
+    // answers: radios / checkboxes (real inputs) and the textarea
+    pickOption: function (ev) {
+      var c = this.currentStep(), opt = this.opt;
+      if (!c.q || !opt) return;
+      var ans = c.b.draftAnswers, id = c.q.id;
+      if (c.q.type === 'multi') {
+        var cur = Array.isArray(ans[id]) ? ans[id].slice() : [];
+        var i = cur.indexOf(opt.value);
+        if (ev.target.checked && i === -1) cur.push(opt.value);
+        if (!ev.target.checked && i !== -1) cur.splice(i, 1);
+        // keep the options' order, not the click order
+        ans[id] = c.q.options.map(function (o) { return o.value; }).filter(function (x) { return cur.indexOf(x) !== -1; });
+      } else ans[id] = c.q.type === 'confirm' ? opt.value === 'true' : opt.value;
+      this.clearStepError(); this.syncSheet();
+    },
+    onAnswerText: function (ev) {
+      var c = this.currentStep();
+      if (!c.q) return;
+      c.b.draftAnswers[c.q.id] = Array.from(ev.target.value).slice(0, HFY_TEXT_MAX).join('');
+      this.clearStepError(); this.syncSheet();
+    },
+    clearStepError: function () { if (this._errKey) { this._errKey = ''; this.sheetError = ''; } },
     sheetFocus: function (open, pending) {
       var self = this;
       // after x-show (applied on Alpine's next tick) has revealed the target
@@ -1231,43 +1417,75 @@ window.hfyEmbed = function () {
         if (!a || a === document.body || (sheet && sheet.contains(a))) { var i = self.inputEl(); if (i) i.focus(); }
       }, 30);
     },
-    minimizeSheet: function () { this._sheetMin = true; this.syncSheet(); },
+    minimizeSheet: function () { this.sheetSkipConfirm = false; this._sheetMin = true; this.syncSheet(); },
     openSheet: function () { this._sheetMin = false; this.syncSheet(); },
     openApproval: function () {
       var id = this.block && this.block.callId;
-      var i = this.pendingOwn.findIndex(function (b) { return b.callId === id; });
+      this.syncSheet();
+      var i = this.sheetSteps.findIndex(function (s) { return s.callId === id; });
       if (i >= 0) this.sheetStep = i;
       this.openSheet();
     },
-    sheetBack: function () { if (this.sheetStep > 0) this.sheetStep--; this.syncSheet(); },
-    sheetNext: function () { if (this.sheetStep < this.pendingOwn.length - 1) this.sheetStep++; this.syncSheet(); },
+    // after a step change the focused control may be gone or disabled: keep
+    // focus inside the dialog so Esc and Tab still work
+    goStep: function (i) { this.sheetStep = i; this.syncSheet(); hfyFocusSoon('.hfy-sheet'); },
+    jumpTo: function () { if (this.row) this.goStep(this.row.step); },
+    sheetBack: function () { if (this.sheetStep > 0) this.goStep(this.sheetStep - 1); },
+    sheetNext: function () {
+      if (!this.sheet.nextDisabled && this.sheetStep < this.sheetSteps.length - 1) this.goStep(this.sheetStep + 1);
+    },
     sheetAllow: function () { this.sheetChoose('allowed'); },
     sheetDeny: function () { this.sheetChoose('denied'); },
     sheetChoose: function (choice) {
-      var list = this.pendingOwn, b = list[this.sheetStep];
-      if (!b || this.sheetBusy) return;
-      b.choice = choice;
-      if (list.length === 1) { this.sendDecisions([b]); return; }
-      if (this.sheetStep < list.length - 1) this.sheetStep++;
-      this.syncSheet();
+      var c = this.currentStep();
+      if (!c.b || this.sheetBusy) return;
+      c.b.choice = choice;
+      if (this.sheetSteps.length === 1) { this.sendDecisions([c.b]); return; }
+      this.clearStepError();
+      if (this.sheetStep < this.sheetSteps.length - 1) this.goStep(this.sheetStep + 1); else this.syncSheet();
     },
-    sheetSubmit: function () {
-      var list = this.pendingOwn.slice();
-      if (list.length && !list.some(function (b) { return !b.choice; })) this.sendDecisions(list);
-    },
-    // in order; the first failure stops the run and stays in the sheet
+    sheetSubmit: function () { if (!this.sheet.submitDisabled) this.sendDecisions(this.pendingOwn.slice()); },
+    // In call order: approvals as Allow/Deny, question sets with their
+    // answers. The first failure stops the run and lands on its step.
     sendDecisions: async function (list) {
       if (!hfyClient || this.sheetBusy) return;
-      this.sheetBusy = true; this.sheetError = ''; this.syncSheet();
+      this.sheetBusy = true; this.sheetError = ''; this._errKey = ''; this.syncSheet();
+      var failKey = '';
       for (var i = 0; i < list.length; i++) {
-        try { await hfyClient.approve(list[i].callId, list[i].choice === 'allowed'); list[i].submitted = true; }
-        catch (e) { this.sheetError = (e && e.message) || this.t('error'); break; }
+        var b = list[i];
+        try {
+          if (b.isAsk && b.questions.length) await hfyClient.approve(b.callId, true, undefined, hfyAskPayload(b.questions, b.draftAnswers));
+          else await hfyClient.approve(b.callId, b.choice === 'allowed');
+          b.submitted = true;
+        } catch (e) {
+          this.sheetError = (e && e.message) || this.t('error');
+          // a 400 names the question id; else the call's first step
+          var named = b.isAsk ? b.questions.find(function (q) { return new RegExp('\\b' + q.id + '\\b').test(this.sheetError); }, this) : null;
+          failKey = named ? b.callId + ':' + named.id : (b.isAsk && b.questions.length ? b.callId + ':' + b.questions[0].id : b.callId);
+          break;
+        }
       }
-      this.sheetBusy = false; this.sheetStep = 0;
+      this.sheetBusy = false; this._errKey = failKey;
+      this.relayout(); this.syncSheet();
+      var at = this.sheetSteps.findIndex(function (s) { return s.key === failKey; });
+      this.sheetStep = at >= 0 ? at : 0;
+      this.syncSheet();
+    },
+    // "Skip questions": declines that question set (approve:false), after a confirm.
+    askSkip: function () { if (this.currentStep().b) { this.sheetSkipConfirm = true; hfyFocusSoon('.hfy-skip-cancel'); } },
+    skipCancel: function () { this.sheetSkipConfirm = false; hfyFocusSoon('.hfy-sheet'); },
+    skipConfirmed: async function () {
+      var b = this.currentStep().b;
+      this.sheetSkipConfirm = false;
+      if (!b || !hfyClient || this.sheetBusy) return;
+      this.sheetBusy = true; this.syncSheet();
+      try { await hfyClient.approve(b.callId, false); b.submitted = true; this.sheetError = ''; this._errKey = ''; }
+      catch (e) { this.sheetError = (e && e.message) || this.t('error'); this._errKey = ''; }
+      this.sheetBusy = false;
       this.relayout(); this.syncSheet();
     },
     onSheetKey: function (ev) {
-      if (ev.key === 'Escape') { ev.preventDefault(); this.minimizeSheet(); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); if (this.sheetSkipConfirm) this.skipCancel(); else this.minimizeSheet(); return; }
       hfyTrap(ev);
     },
     onHandleDown: function (ev) {
@@ -1290,5 +1508,7 @@ window.hfyEmbed = function () {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { hfyMdParse: hfyMdParse, hfyMdBuild: hfyMdBuild, hfySafeHref: hfySafeHref, hfySafeUrl: hfySafeUrl, hfyOnColor: hfyOnColor,
-    hfyToolName: hfyToolName, hfyArgList: hfyArgList, hfyTick: hfyTick, hfyHue: hfyHue };
+    hfyToolName: hfyToolName, hfyArgList: hfyArgList, hfyTick: hfyTick, hfyHue: hfyHue,
+    hfyAskQuestions: hfyAskQuestions, hfyAnswerOk: hfyAnswerOk, hfyAskComplete: hfyAskComplete, hfyAskPayload: hfyAskPayload,
+    hfyAnswerText: hfyAnswerText, hfyBuildSteps: hfyBuildSteps };
 }

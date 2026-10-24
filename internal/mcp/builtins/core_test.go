@@ -64,7 +64,7 @@ func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 // config reserves every built-in tool name, so no sub-agent (an hfy.* tool
 // too) can shadow one.
 func TestBuiltinNamesAreReserved(t *testing.T) {
-	names := []string{ToolSearch, ConversationSearch}
+	names := []string{ToolSearch, ConversationSearch, AskUser}
 	for _, c := range CoreTools() {
 		names = append(names, c.Tool.Name)
 	}

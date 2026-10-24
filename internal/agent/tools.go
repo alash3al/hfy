@@ -11,6 +11,7 @@ import (
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -28,6 +29,14 @@ func (rt *Runtime) registerBuiltins() {
 			return c.Run(ctx, args)
 		}})
 	}
+	rt.builtins = append(rt.builtins, builtin{builtins.AskUserTool(), func(ctx context.Context, _ *loop, args json.RawMessage) (mcp.Result, error) {
+		// Never reached: the loop pauses on hfy.ask_user before anything
+		// would run it, and a resumed turn serves the stored answers.
+		if _, err := svc.ParseQuestions(args); err != nil {
+			return errResult("invalid questions: " + err.Error()), nil
+		}
+		return errResult("hfy.ask_user is handled by the harness, not by running it"), nil
+	}})
 	rt.builtins = append(rt.builtins, builtin{builtins.ToolSearchTool(), rt.toolSearch})
 	if rt.Cfg.Embeddings != nil {
 		rt.builtins = append(rt.builtins, builtin{builtins.ConversationSearchTool(), rt.conversationSearch})

@@ -103,6 +103,37 @@ func TestUserMessageSignsOnlyWhatItSends(t *testing.T) {
 	}
 }
 
+// hfy.ask_user reaches only top agents that opt in: never sub-agents (they
+// cannot pause) nor other specs.
+func TestAskUserIsOptInAndTopOnly(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.Server{Secret: "s"},
+		Providers: map[string]config.Provider{
+			"fake": {Type: "mock", Mock: config.MockProvider{Reply: "ok", EmbedDimensions: 4}},
+		},
+		Embeddings: &config.Embeddings{Model: "fake/e", Dimensions: 4},
+		Agent: config.Agent{Model: "fake/m", Settings: config.Settings{ContextWindow: 1000},
+			AskUser: true, Approval: &config.Approval{Tools: []string{"x.y"}}},
+		Subagents: map[string]config.Subagent{
+			"helper": {Description: "helps", Model: "fake/m", Settings: config.Settings{ContextWindow: 1000}},
+		},
+	}
+	cfg.SetDefaults()
+	rt, err := NewRuntime(cfg, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rt.agents["main"].Builtins["ask_user"] || !rt.agents["main"].Top {
+		t.Fatalf("an opted-in top agent must have ask_user: %+v", rt.agents["main"])
+	}
+	if b, ok := rt.findBuiltin("hfy.ask_user"); !ok || b.tool.Name != "ask_user" || b.tool.Schema == nil {
+		t.Fatalf("ask_user not registered: %+v %+v", b, ok)
+	}
+	if rt.subs["helper"].Builtins["ask_user"] {
+		t.Fatal("a sub-agent must never get ask_user")
+	}
+}
+
 // cleanupUploads deletes expired upload slots only: a fresh slot stays and
 // the verified copies under conversations/ are never touched.
 func TestCleanupUploads(t *testing.T) {

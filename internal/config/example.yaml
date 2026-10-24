@@ -76,6 +76,8 @@ agent:                               # the default agent ("main")
   # approval:                        # omit = no approvals
   #   tools: [files.write_*, files.delete_*]
   #   timeout: 10m
+  # ask_user: true                    # the agent may pause a turn asking the viewer
+  #                                   # structured questions (hfy.ask_user); timeout above or 30m
   # mcp: [files, search]             # optional; omit = all MCP servers via tool search
 
 # agents:                            # more agents, same fields as agent; a grant

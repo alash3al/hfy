@@ -134,9 +134,11 @@ class HfyClient {
     return att;
   }
 
-  async approve(callId, approve, result) {
+  // answers: the {question id: value} object for an hfy.ask_user call.
+  async approve(callId, approve, result, answers) {
     var body = { call_id: callId, approve: !!approve };
     if (result !== undefined) body.result = result;
+    if (answers !== undefined) body.answers = answers;
     return this.#request('/v1/conversation/approvals', { method: 'POST', body: body });
   }
 

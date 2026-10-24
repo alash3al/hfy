@@ -120,6 +120,20 @@
 
                     <template x-if="block.isTool">
                       <div class="hfy-tool-wrap">
+                        <template x-if="block.isAsk">
+                          <div class="hfy-ask-rec" :class="block.askCls">
+                            <div class="hfy-ask-head">
+                              <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                              <span class="hfy-appr-text"><span class="hfy-appr-name" x-text="L.askTitle"></span><span class="hfy-appr-wait" x-text="block.askStateText"></span></span>
+                              <button type="button" class="hfy-appr-open" x-show="block.askCanOpen" @click="openApproval" x-text="L.open"></button>
+                            </div>
+                            <dl class="hfy-ask-rows" x-show="block.askHasRows">
+                              <template x-for="row in block.askRows" :key="row.k">
+                                <div class="hfy-ask-row"><dt dir="auto" x-text="row.q"></dt><dd dir="auto" x-text="row.a"></dd></div>
+                              </template>
+                            </dl>
+                          </div>
+                        </template>
                         <template x-if="block.showPendingOwn">
                           <div class="hfy-appr-rec is-mine">
                             <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
@@ -247,8 +261,8 @@
             <template x-for="dot in sheet.dots" :key="dot.k"><span class="hfy-dot-step" :class="dot.cls"></span></template>
           </span>
         </div>
-        <p class="hfy-sheet-kicker" id="hfy-sheet-kicker" x-text="L.wantsTo"></p>
-        <h2 class="hfy-sheet-title" id="hfy-sheet-title" x-text="sheet.title"></h2>
+        <p class="hfy-sheet-kicker" id="hfy-sheet-kicker" x-show="sheet.kicker" x-text="sheet.kicker"></p>
+        <h2 class="hfy-sheet-title" id="hfy-sheet-title" dir="auto" x-text="sheet.title"></h2>
         <dl class="hfy-args" x-show="sheet.hasArgList">
           <template x-for="arg in sheet.argList" :key="arg.k">
             <div class="hfy-arg">
@@ -261,7 +275,35 @@
           <summary x-text="L.args"></summary>
           <pre class="hfy-pre" x-text="sheet.argsText"></pre>
         </details>
-        <p class="hfy-sheet-err" role="alert" x-show="sheetError" x-text="sheetError"></p>
+        <div class="hfy-q" x-show="sheet.isQuestion">
+          <p class="hfy-q-hint" x-show="sheet.showHint" x-text="sheet.hint"></p>
+          <div class="hfy-qopts" x-show="sheet.isChoice" :role="sheet.groupRole" aria-labelledby="hfy-sheet-title">
+            <template x-for="opt in sheet.options" :key="opt.k">
+              <label class="hfy-qopt" :class="opt.cls">
+                <input class="hfy-qinput" :type="opt.type" :name="sheet.groupName" :value="opt.value" :checked="opt.checked" @change="pickOption">
+                <span class="hfy-qmark" aria-hidden="true"><svg class="hfy-i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <span class="hfy-qlabel" dir="auto" x-text="opt.label"></span>
+              </label>
+            </template>
+          </div>
+          <div class="hfy-qtext-wrap" x-show="sheet.isText">
+            <textarea class="hfy-qtext" name="answer" dir="auto" rows="4" :value="sheet.text" :placeholder="sheet.placeholder"
+                      aria-labelledby="hfy-sheet-title" @input="onAnswerText"></textarea>
+            <span class="hfy-counter" x-text="sheet.counter"></span>
+          </div>
+        </div>
+        <ul class="hfy-review" x-show="sheet.isReview">
+          <template x-for="row in sheet.review" :key="row.k">
+            <li>
+              <button type="button" class="hfy-review-row" :class="row.cls" :title="row.label" @click="jumpTo">
+                <span class="hfy-review-q" dir="auto" x-text="row.q"></span>
+                <span class="hfy-review-a" dir="auto" x-text="row.a"></span>
+                <svg class="hfy-i hfy-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </li>
+          </template>
+        </ul>
+        <p class="hfy-sheet-err" role="alert" x-show="sheet.error" x-text="sheet.error"></p>
         <div class="hfy-sheet-choice" x-show="sheet.showDecide">
           <button type="button" class="hfy-btn hfy-btn-reject" :disabled="sheetBusy" :aria-pressed="sheet.denyPressed" @click="sheetDeny">
             <svg class="hfy-i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg><span x-text="L.deny"></span>
@@ -270,11 +312,21 @@
             <svg class="hfy-i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span x-text="L.allow"></span>
           </button>
         </div>
+        <button type="button" class="hfy-skip-link" x-show="sheet.showSkip" :disabled="sheetBusy" @click="askSkip" x-text="L.skipQuestions"></button>
         <div class="hfy-sheet-nav" x-show="sheet.isMulti">
           <button type="button" class="hfy-btn hfy-btn-ghost" x-show="sheet.showBack" @click="sheetBack" x-text="L.back"></button>
           <span class="hfy-nav-gap"></span>
-          <button type="button" class="hfy-btn hfy-btn-ghost" x-show="sheet.showNext" @click="sheetNext" x-text="L.next"></button>
+          <button type="button" class="hfy-btn hfy-btn-next" x-show="sheet.showNext" :disabled="sheet.nextDisabled" @click="sheetNext" x-text="L.next"></button>
           <button type="button" class="hfy-btn hfy-btn-submit" x-show="sheet.showSubmit" :disabled="sheet.submitDisabled" @click="sheetSubmit" x-text="L.submit"></button>
+        </div>
+        <div class="hfy-pv-confirm hfy-skip-confirm" x-show="sheetSkipConfirm" role="alertdialog" aria-modal="true" aria-labelledby="hfy-skip-t">
+          <div class="hfy-pv-confirm-card">
+            <p id="hfy-skip-t" x-text="L.skipConfirm"></p>
+            <div class="hfy-pv-confirm-actions">
+              <button type="button" class="hfy-btn hfy-btn-ghost hfy-skip-cancel" @click="skipCancel" x-text="L.cancel"></button>
+              <button type="button" class="hfy-btn hfy-btn-reject" @click="skipConfirmed" x-text="L.skip"></button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

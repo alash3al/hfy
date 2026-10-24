@@ -64,6 +64,61 @@
       ]
     }
   },
+  "ask_user": {
+    "description": "Ask the person you are talking to 1-10 structured questions, batched into ONE call, when the answers change what you do next (never for what you can decide or look up yourself). They pause the conversation as a form the person fills; your next tool result carries their answers. Keep every question self-contained.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "[a-z0-9_] up to 40 chars, unique in this call"
+              },
+              "text": {
+                "type": "string",
+                "description": "The question, up to 300 characters"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["single", "multi", "text", "confirm"],
+                "description": "single = one choice, multi = any of the choices, text = free text, confirm = yes/no"
+              },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 20,
+                "description": "single/multi only",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {"type": "string"},
+                    "label": {"type": "string"}
+                  },
+                  "required": ["value"]
+                }
+              },
+              "required": {
+                "type": "boolean",
+                "description": "default true"
+              },
+              "placeholder": {
+                "type": "string",
+                "description": "text only: hint seen in the empty textarea"
+              }
+            },
+            "required": ["id", "text", "type"]
+          }
+        }
+      },
+      "required": ["questions"]
+    }
+  },
   "subagent": {
     "schema": {
       "type": "object",

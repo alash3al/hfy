@@ -16,6 +16,7 @@ import (
 	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -26,6 +27,10 @@ var (
 
 // toolSearchName is the full name of the built-in tool search.
 const toolSearchName = builtins.Server + "." + builtins.ToolSearch
+
+// askUserTimeout is how long hfy.ask_user waits for answers when the agent
+// has no approval policy; with one, the agent's approval.timeout applies.
+const askUserTimeout = 30 * time.Minute
 
 const (
 	repeatWarn  = 3       // the third identical call is refused with advice
@@ -271,6 +276,22 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
 		case n >= repeatWarn:
 			res = errResult(promptRepeated)
+		case name == svc.AskUserTool:
+			// Validate before pausing: an invalid call comes back as an
+			// error result and never stalls the conversation. ask_user is
+			// never an approval match: it pauses here, exactly once.
+			if _, err := svc.ParseQuestions(args); err != nil {
+				res = errResult("invalid questions: " + err.Error())
+				break
+			}
+			timeout := askUserTimeout
+			if l.spec.Approval != nil {
+				timeout = l.spec.Approval.Timeout.D()
+			}
+			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, timeout); err != nil {
+				return callOutcome{}, err
+			}
+			return callOutcome{paused: true}, nil
 		case l.spec.Approval.Requires(name):
 			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, l.spec.Approval.Timeout.D()); err != nil {
 				return callOutcome{}, err

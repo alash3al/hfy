@@ -158,8 +158,13 @@ there is no credentials mode.
   older turns), `live_after` (open `/events?after=<live_after>` to continue
   without a gap) and `viewer` (the grant's own actor, in the same shape as
   event actors, so a client can tell its own messages apart).
-- `POST /v1/conversation/approvals` `{call_id, approve, result?}`. Only the
-  actor who started the turn decides its calls (`403` otherwise).
+- `POST /v1/conversation/approvals` `{call_id, approve, result?, answers?}`. Only the
+  actor who started the turn decides its calls (`403` otherwise). For a paused
+  `hfy.ask_user` call, approving takes `answers` (a `{question id: value}` object,
+  ≤ 32 KiB, one answer per question, `required` ones answered) and it is validated
+  against the stored questions (`400` names the question); declining is plain
+  `{call_id, approve: false}` and the model is told the user declined.
+  `answers` on a call that is not an ask is a `400`.
 - `POST /v1/conversation/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
 
@@ -295,16 +300,31 @@ event as stored.
 - **Approvals.** Calls matching `agent.approval.tools` (`<server>.<tool>`
   patterns, `hfy.*` works) pause the turn; nothing waits in a worker. After
   `approval.timeout` the call is rejected. Each agent has its own `approval`.
+  `hfy.ask_user` pauses the same way and never twice: it always asks the
+  viewer, even if a pattern matched its name; it runs after
+  `approval.timeout` (the agent's own if it has one, else a fixed 30m).
   Approval covers an agent's own calls only: a sub-agent's own tool calls are not checked, so if a sub-agent
   can reach a guarded tool, guard the sub-agent itself (`hfy.<name>`).
-- **Core tools.** Every agent gets hfy's own tools, served by the built-in `hfy`
-  server (the name is reserved): `hfy.now {timezone?}` (UTC, and local time,
-  weekday and offset for an IANA zone) and `hfy.math_calc {expression}`
+- **Core tools.** Every agent gets hfy.now {timezone?} (UTC, and local time,
+  weekday and offset for an IANA zone) and hfy.math_calc {expression}
   (arithmetic, comparisons and math functions via
   [expr](https://github.com/expr-lang/expr), math built-ins only; numbers
-  never wrap around and results drop float noise). A tool is core only if it
-  is pure (no I/O, no app data, no permissions) and does what models get
-  wrong alone; anything touching data belongs to your MCP servers.
+  never wrap around and results drop float noise), served by the built-in `hfy`
+  server (the name is reserved; no sub-agent may shadow a built-in name). A
+  tool is core only if it is pure (no I/O, no app data, no permissions) and
+  does what models get wrong alone; anything touching data belongs to your
+  MCP servers.
+- **Asking the viewer.** A top agent may opt into `hfy.ask_user`
+  (`agent.ask_user: true`, and the same field per entry under `agents:`): one
+  call pauses the turn with up to 10 structured questions (single/multi with
+  2–20 options, free text, confirm) the viewer answers as a form. The model
+  receives the answers as the tool's result: the JSON
+  `{"answers": {"<question id>": value}}` (single: an option value, multi: an
+  array of them, text: a string, confirm: true/false), or
+  "The user declined to answer." when the viewer skips, "The user did not
+  answer in time." after the timeout above. Without the opt-in the tool does
+  not exist for that agent (an API-only app would stall); invalid arguments
+  come back as an error result without pausing; sub-agents never ask.
 - **Sub-agents** are tools (`hfy__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn. Every agent may call them.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`

@@ -382,12 +382,26 @@ func (s *Service) Stop(ctx context.Context, conversationID, actor int64) error {
 // nobody approves what another person's turn is about to do.
 func (s *Service) Approve(ctx context.Context, conversationID, actor int64, d types.ApprovalDecided) error {
 	return s.store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, err := s.pendingCall(ctx, tx, conversationID, d.CallID)
+		turn, call, err := s.pendingCall(ctx, tx, conversationID, d.CallID)
 		if err != nil {
 			return err
 		}
 		if turn.ActorID != actor {
 			return ErrNotTurnOwner
+		}
+		if len(d.Answers) > 0 && call.Name != AskUserTool {
+			return badf("answers are only accepted for %s calls", AskUserTool)
+		}
+		if call.Name == AskUserTool && d.Approve {
+			// The call's arguments were validated before it paused; the
+			// answers themselves are the client's input: 400s, here.
+			qs, err := ParseQuestions(call.Arguments)
+			if err != nil {
+				return badf("the stored questions are invalid: %v", err)
+			}
+			if d.Answers, err = ParseAnswers(qs, d.Answers); err != nil {
+				return err
+			}
 		}
 		return s.decide(ctx, tx, turn, actor, d)
 	})
@@ -404,7 +418,7 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 		return err
 	}
 	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, err := s.pendingCall(ctx, tx, turn.ConversationID, p.CallID)
+		turn, _, err := s.pendingCall(ctx, tx, turn.ConversationID, p.CallID)
 		if err != nil {
 			return err
 		}
@@ -417,27 +431,32 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 }
 
 // pendingCall locks the conversation and returns the active turn if callID is
-// awaiting a decision in it.
-func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, conversationID int64, callID string) (db.EventRow, error) {
+// awaiting a decision in it, with that call as stored.
+func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, conversationID int64, callID string) (db.EventRow, types.ToolCall, error) {
 	conv, err := s.store.LockConversation(ctx, tx, conversationID)
 	if err != nil {
-		return db.EventRow{}, err
+		return db.EventRow{}, types.ToolCall{}, err
 	}
 	if conv.ActiveTurnID == nil {
-		return db.EventRow{}, ErrNoPendingApproval
+		return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
 	}
 	events, err := s.store.TurnEvents(ctx, tx, *conv.ActiveTurnID)
 	if err != nil {
-		return db.EventRow{}, err
+		return db.EventRow{}, types.ToolCall{}, err
 	}
 	v, err := ViewOf(events)
 	if err != nil {
-		return db.EventRow{}, err
+		return db.EventRow{}, types.ToolCall{}, err
 	}
 	if _, decided := v.Decided[callID]; v.State != types.StateAwaitingApproval || !v.Requested[callID] || decided {
-		return db.EventRow{}, ErrNoPendingApproval
+		return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
 	}
-	return events[0], nil // the turn
+	for _, c := range v.Calls {
+		if c.CallID == callID {
+			return events[0], c, nil // the turn, and the call it paused on
+		}
+	}
+	return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
 }
 
 // decide records d on turn (from pendingCall, in the same tx) and resumes it.

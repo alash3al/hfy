@@ -358,6 +358,58 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-sheet-nav{display:flex;align-items:center;gap:var(--s2);padding-top:var(--s2);border-top:1px solid var(--hfy-border)}
 .hfy-nav-gap{flex:1}
 
+/* question steps: real radio / checkbox inputs inside large tappable rows */
+.hfy-q{display:grid;gap:var(--s2)}
+.hfy-q-hint{margin:-4px 0 0;font-size:13px;color:var(--hfy-muted)}
+.hfy-qopts{display:grid;gap:8px}
+.hfy-qopt{position:relative;display:flex;align-items:center;gap:12px;min-height:52px;padding:10px 14px;border:1.5px solid var(--hfy-border);
+  border-radius:var(--r3);background:var(--hfy-surface);cursor:pointer;font-size:15px;transition:border-color .15s,background-color .15s}
+.hfy-qopt:hover{background:var(--hfy-surface-2)}
+.hfy-qopt.is-on{border-color:var(--hfy-accent);background:var(--hfy-accent-soft)}
+.hfy-qinput{position:absolute;inset-inline-start:14px;width:22px;height:22px;margin:0;opacity:0}
+.hfy-qopt:has(.hfy-qinput:focus-visible){outline:2px solid var(--hfy-accent);outline-offset:2px}
+.hfy-qmark{display:grid;place-items:center;flex:none;width:22px;height:22px;border:2px solid var(--hfy-muted);border-radius:50%;color:var(--hfy-on-accent);transition:background-color .15s,border-color .15s}
+.hfy-qinput[type="checkbox"]+.hfy-qmark{border-radius:6px}
+.hfy-qmark .hfy-i{width:14px;height:14px;stroke-width:3;opacity:0}
+.hfy-qopt.is-on .hfy-qmark{background:var(--hfy-accent);border-color:var(--hfy-accent)}
+.hfy-qopt.is-on .hfy-qmark .hfy-i{opacity:1}
+.hfy-qlabel{min-width:0;overflow-wrap:anywhere}
+.hfy-qtext-wrap{display:grid;gap:4px}
+.hfy-qtext{width:100%;min-height:110px;max-height:40vh;padding:10px 12px;border:1.5px solid var(--hfy-border);border-radius:var(--r3);background:var(--hfy-surface);
+  color:inherit;resize:vertical;line-height:1.5;unicode-bidi:plaintext}
+.hfy-qtext:focus{outline:none;border-color:var(--hfy-accent);box-shadow:0 0 0 3px var(--hfy-ring)}
+.hfy-counter{justify-self:end;font-size:12px;color:var(--hfy-muted);font-variant-numeric:tabular-nums}
+.hfy-review{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.hfy-review-row{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:2px 8px;align-items:center;width:100%;min-height:52px;padding:8px 12px;
+  border:0;border-radius:var(--r2);background:var(--hfy-surface-2);color:var(--hfy-text);text-align:start}
+.hfy-review-row:hover{background:var(--hfy-surface-3)}
+/* dir="auto" text keeps its own direction but sits at the container start edge */
+.hfy-review-q,.hfy-review-a,.hfy-sheet-title{justify-self:start;max-width:100%}
+.hfy-ask-row dt,.hfy-ask-row dd{width:fit-content;max-width:100%}
+.hfy-review-q{grid-column:1;font-size:12.5px;color:var(--hfy-muted)}
+.hfy-review-a{grid-column:1;font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.hfy-review-row .hfy-chev{grid-column:2;grid-row:1/3;color:var(--hfy-muted)}
+.hfy-review-row.is-missing .hfy-review-a{color:var(--hfy-err)}
+.hfy-skip-link{justify-self:center;min-height:36px;padding:4px 12px;border:0;border-radius:var(--r1);background:none;color:var(--hfy-muted);
+  font-size:13.5px;text-decoration:underline;text-underline-offset:2px}
+.hfy-skip-link:hover{color:var(--hfy-text)}
+.hfy-btn-next{background:var(--hfy-accent);color:var(--hfy-on-accent);min-width:110px}
+.hfy-btn-next:hover:not(:disabled){filter:brightness(1.08)}
+.hfy-skip-confirm{border-radius:inherit}
+
+/* question sets in the timeline */
+.hfy-ask-rec{display:grid;gap:8px;width:min(100%,460px);padding:8px 8px 8px 12px;padding-inline:12px 8px;border-radius:var(--r3);background:var(--hfy-surface);
+  box-shadow:var(--hfy-shadow-1);font-size:13px}
+.hfy-ask-rec.is-pending{border-inline-start:3px solid var(--hfy-accent)}
+.hfy-ask-head{display:flex;align-items:center;gap:8px;min-height:32px}
+.hfy-ask-head>.hfy-i{width:16px;height:16px;color:var(--hfy-accent-text)}
+.hfy-ask-head .hfy-appr-text{flex:1}
+.hfy-ask-rec.is-skipped .hfy-appr-wait,.hfy-ask-rec.is-timeout .hfy-appr-wait{color:var(--hfy-warn)}
+.hfy-ask-rec.is-answered .hfy-appr-wait{color:var(--hfy-ok)}
+.hfy-ask-rows{display:grid;gap:6px;margin:0;padding:8px 10px;border-radius:var(--r2);background:var(--hfy-surface-2)}
+.hfy-ask-row dt{font-size:12px;color:var(--hfy-muted)}
+.hfy-ask-row dd{margin:0;font-size:14px;font-weight:550;overflow-wrap:anywhere;white-space:pre-wrap}
+
 /* minimized sheet: a pill above the composer */
 .hfy-action-wrap{display:flex;justify-content:center;padding-bottom:var(--s2)}
 .hfy-action-pill{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:6px 8px;padding-inline:14px 8px;border:0;border-radius:999px;
