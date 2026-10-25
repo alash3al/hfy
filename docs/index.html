@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hfy · An AI assistant inside your app, without the plumbing</title>
+<meta name="description" content="hfy is a ready-made backend and chat window for AI conversations. One binary, one Postgres database, one YAML file. Your app keeps its users and data; hfy runs the model, the tools, the history and the chat.">
+<meta property="og:title" content="hfy · An AI assistant inside your app, without the plumbing">
+<meta property="og:description" content="A ready-made backend and chat window for AI conversations. You run it next to your app.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#073b36">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7d71'/%3E%3Cpath d='M9 22V10m0 6h7m0-6v12m4-8v8m0-8c0-2 1-4 3.5-4' stroke='%23f6f3ec' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --teal-900: #062f2b;
+  --teal-800: #073b36;
+  --teal-700: #0a5149;
+  --teal-600: #0b7d71;
+  --teal-500: #12a090;
+  --teal-200: #a8e2d8;
+  --teal-100: #dcf1ed;
+  --teal-50:  #eef8f6;
+  --paper: #f6f3ec;
+  --ink: #0f1c1b;
+  --ink-2: #3c4d4b;
+  --ink-3: #6b7b79;
+  --line: #ddd8cc;
+  --sans: "Schibsted Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --wrap: 1180px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 1.1875rem/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+a { color: inherit; }
+img, svg { display: block; }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 clamp(1.25rem, 4vw, 2.5rem); }
+code { font-family: var(--mono); }
+:focus-visible { outline: 3px solid var(--teal-500); outline-offset: 3px; border-radius: 4px; }
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 1rem; top: 1rem; z-index: 10; background: #fff; padding: .5rem 1rem; }
+
+/* nav */
+.nav { background: var(--teal-800); color: var(--paper); }
+.nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 76px; }
+.mark { font-weight: 800; font-size: 1.6rem; letter-spacing: -0.04em; text-decoration: none; }
+.mark span { color: var(--teal-200); }
+.nav ul { display: flex; gap: clamp(1rem, 3vw, 2.25rem); list-style: none; margin: 0; padding: 0; font-size: 1rem; font-weight: 500; }
+.nav a { text-decoration: none; opacity: .82; }
+.nav a:hover { opacity: 1; text-decoration: underline; text-underline-offset: 6px; }
+
+/* hero */
+.hero { background: var(--teal-800); color: var(--paper); padding: clamp(2.5rem, 6vw, 5rem) 0 clamp(4.5rem, 9vw, 7rem); overflow: hidden; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: center; }
+.hero h1 {
+  font-size: clamp(2.75rem, 5.4vw, 5rem); line-height: 1; letter-spacing: -0.045em;
+  font-weight: 800; margin: 0 0 2rem; text-wrap: balance;
+}
+.hero h1 em { font-style: normal; color: var(--teal-200); }
+.lede { font-size: clamp(1.2rem, 1.7vw, 1.45rem); line-height: 1.55; color: #cfe3df; max-width: 36rem; margin: 0 0 2.75rem; }
+.ctas { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.btn {
+  display: inline-flex; align-items: center; gap: .6rem; padding: 1rem 1.6rem; border-radius: 999px;
+  font-weight: 700; font-size: 1.05rem; text-decoration: none; transition: transform .15s ease, background .15s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary { background: var(--paper); color: var(--teal-800); }
+.btn-primary:hover { background: #fff; }
+.btn-ghost { color: var(--paper); box-shadow: inset 0 0 0 1.5px rgba(246,243,236,.35); }
+.btn-ghost:hover { box-shadow: inset 0 0 0 1.5px var(--paper); }
+.facts { display: flex; flex-wrap: wrap; gap: .5rem 1.75rem; margin: 3rem 0 0; padding: 0; list-style: none; color: #9cc4bd; font-size: 1rem; }
+.facts li::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--teal-500); margin-right: .6rem; vertical-align: middle; }
+
+/* the chat mock */
+.device {
+  position: relative; width: min(100%, 380px); justify-self: center; aspect-ratio: 380 / 640;
+  background: #eef3f1; border-radius: 34px; overflow: hidden;
+  box-shadow: 0 0 0 10px #0d4a43, 0 40px 80px -20px rgba(0,0,0,.55);
+  font-family: var(--sans); color: #12201f; font-size: 15px; line-height: 1.42;
+}
+.chat { padding: 22px 16px; display: flex; flex-direction: column; gap: 10px; }
+.day { align-self: center; font-size: 12px; font-weight: 500; color: #50605e; background: #fff; padding: 4px 12px; border-radius: 8px; margin-bottom: 6px; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+.msg { max-width: 82%; padding: 8px 11px 6px; border-radius: 12px; box-shadow: 0 1px 1px rgba(0,0,0,.08); position: relative; }
+.msg .meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; font-size: 11px; color: #6d7b79; margin-top: 2px; }
+.msg.me { align-self: flex-end; background: #d4efe9; border-top-right-radius: 4px; }
+.msg.bot { align-self: flex-start; background: #fff; border-top-left-radius: 4px; }
+.msg b { font-weight: 700; }
+.ticks { width: 17px; height: 11px; color: #2a9ed8; }
+.scrim { position: absolute; inset: 0; background: rgba(8, 28, 26, .38); }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 22px 22px 0 0;
+  padding: 10px 20px 22px; box-shadow: 0 -12px 30px rgba(0,0,0,.12);
+}
+.grip { width: 38px; height: 4px; border-radius: 4px; background: #d3dbd9; margin: 0 auto 16px; }
+.kicker { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--teal-600); text-transform: uppercase; letter-spacing: .06em; }
+.kicker span:last-child { color: #8a9795; font-weight: 500; letter-spacing: .02em; text-transform: none; }
+.progress { height: 3px; background: #e6eceb; border-radius: 3px; margin: 10px 0 16px; }
+.progress i { display: block; width: 50%; height: 100%; background: var(--teal-600); border-radius: 3px; }
+.q { font-size: 19px; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 14px; line-height: 1.25; }
+.opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1.5px solid #e1e7e6; border-radius: 12px; margin-bottom: 8px; font-weight: 500; }
+.opt::before { content: ""; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #b9c6c4; flex: none; }
+.opt.on { border-color: var(--teal-600); background: var(--teal-50); }
+.opt.on::before { border: 5.5px solid var(--teal-600); }
+.next { margin-top: 14px; background: var(--teal-600); color: #fff; text-align: center; font-weight: 700; padding: 13px; border-radius: 999px; }
+
+/* sections */
+section { padding: clamp(5rem, 10vw, 8.5rem) 0; }
+.eyebrow { font: 500 .95rem/1 var(--mono); color: var(--teal-600); letter-spacing: .02em; margin: 0 0 1.5rem; }
+h2 { font-size: clamp(2.3rem, 4.6vw, 4rem); line-height: 1.03; letter-spacing: -0.04em; font-weight: 800; margin: 0 0 1.75rem; text-wrap: balance; }
+h3 { font-size: 1.4rem; line-height: 1.25; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 .65rem; }
+p { margin: 0 0 1.25rem; }
+.big { font-size: clamp(1.2rem, 1.6vw, 1.4rem); color: var(--ink-2); line-height: 1.6; }
+
+/* why */
+.why .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2.5rem, 7vw, 7rem); }
+.asks { list-style: none; margin: .5rem 0 2.25rem; padding: 0; }
+.asks li { padding: 1.15rem 0; border-top: 1px solid var(--line); font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em; }
+.asks li:last-child { border-bottom: 1px solid var(--line); }
+.answer { font-size: 1.25rem; color: var(--ink-2); }
+.answer strong { color: var(--teal-700); }
+
+/* use cases */
+.cases { background: var(--teal-900); color: var(--paper); }
+.cases header { max-width: 50rem; margin-bottom: clamp(3rem, 6vw, 4.5rem); }
+.cases .eyebrow { color: var(--teal-200); }
+.cases .big { color: #b9d6d0; }
+.uc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(1.25rem, 2.5vw, 2rem); }
+.uc { background: var(--paper); color: var(--ink); border-radius: 28px; overflow: hidden; display: flex; flex-direction: column; }
+.uc .scene {
+  background: #e6efed; padding: 26px 22px; display: flex; flex-direction: column; gap: 10px;
+  font-size: 15px; line-height: 1.42; color: #12201f; min-height: 268px; justify-content: flex-end;
+}
+.uc:nth-child(2) .scene { background: #f1e9dc; }
+.uc:nth-child(3) .scene { background: #dfeae8; }
+.uc:nth-child(4) .scene { background: #e9ece4; }
+.uc .scene .msg { max-width: 86%; }
+.uc .body { padding: 1.9rem 2rem 2.2rem; }
+.uc .label { font: 500 .85rem/1 var(--mono); color: var(--teal-600); margin: 0 0 1rem; }
+.uc h3 { font-size: clamp(1.5rem, 2.2vw, 1.85rem); letter-spacing: -0.03em; line-height: 1.12; margin-bottom: .8rem; }
+.uc p { color: var(--ink-2); font-size: 1.075rem; margin: 0 0 1.4rem; }
+.uc .uses { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.uc .uses li { font-size: .9rem; font-weight: 500; padding: .35rem .8rem; border-radius: 999px; background: var(--teal-100); color: var(--teal-700); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start; }
+.chips span { background: #fff; border: 1.5px solid #cfdcda; border-radius: 999px; padding: 5px 13px; font-size: 14px; font-weight: 500; }
+.chips span.on { border-color: var(--teal-600); background: var(--teal-600); color: #fff; }
+.confirm {
+  align-self: flex-start; width: 86%; background: #fff; border-radius: 14px; padding: 12px 14px;
+  box-shadow: 0 1px 1px rgba(0,0,0,.08); border-left: 4px solid var(--teal-600);
+}
+.confirm small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--teal-600); }
+.confirm strong { display: block; font-size: 16px; margin: 2px 0 10px; }
+.confirm .row { display: flex; gap: 8px; }
+.confirm .row span { flex: 1; text-align: center; padding: 7px; border-radius: 999px; font-size: 14px; font-weight: 700; background: #edf1f0; }
+.confirm .row span:last-child { background: var(--teal-600); color: #fff; }
+/* embedding surfaces */
+.places header { max-width: 52rem; margin-bottom: clamp(3rem, 6vw, 4.5rem); }
+.places-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: clamp(2.5rem, 5vw, 4.5rem) clamp(2rem, 4vw, 3.5rem); align-items: end; }
+.places figure { margin: 0; }
+.places-grid > :nth-child(1), .places-grid > :nth-child(4) { grid-column: span 7; }
+.places-grid > :nth-child(2), .places-grid > :nth-child(3) { grid-column: span 5; }
+.places figcaption { margin-top: 1.6rem; max-width: 34rem; }
+.places figcaption h3 { margin-bottom: .4rem; }
+.places figcaption p { color: var(--ink-2); font-size: 1.075rem; margin: 0; }
+.places .wide-text { align-self: center; }
+.places .wide-text p { color: var(--ink-2); }
+
+/* the mini chat used inside every mock */
+.mini { --acc: var(--teal-600); --me: #d4efe9; --bg: #eef3f1; --bot: #fff; --fg: #12201f; --muted: #7b8a88;
+  background: var(--bg); color: var(--fg); display: flex; flex-direction: column; font-size: 12.5px; line-height: 1.4; min-height: 0; }
+.mini .log { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 12px; overflow: hidden; }
+.mini .log > * { flex-shrink: 0; }
+.mini .b { max-width: 84%; padding: 6px 9px; border-radius: 10px; background: var(--bot); box-shadow: 0 1px 1px rgba(0,0,0,.07); }
+.mini .b.me { align-self: flex-end; background: var(--me); border-top-right-radius: 3px; }
+.mini .b.bot { align-self: flex-start; border-top-left-radius: 3px; }
+.mini .b b { font-weight: 700; }
+.mini .tool { align-self: flex-start; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.mini .tool::before { content: ""; width: 7px; height: 4px; border-left: 1.6px solid var(--acc); border-bottom: 1.6px solid var(--acc); transform: rotate(-45deg) translateY(-1px); }
+.mini .b.photo { padding: 3px; }
+.mini .b.photo .img { width: 110px; height: 76px; border-radius: 8px; background: linear-gradient(140deg, #5b6f8a, #2e3c52 60%, #c9a46a); }
+.mini .composer { display: flex; gap: 6px; padding: 8px 10px 10px; align-items: center; }
+.mini .composer i { flex: 1; height: 30px; border-radius: 999px; background: var(--bot); color: var(--muted); font-style: normal; display: flex; align-items: center; padding: 0 12px; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+.mini .composer u { width: 30px; height: 30px; border-radius: 50%; background: var(--acc); flex: none; position: relative; }
+.mini .composer u::after { content: ""; position: absolute; left: 11px; top: 9px; border: 6px solid transparent; border-left: 9px solid #fff; border-right: 0; }
+
+/* website */
+.browser { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 var(--line), 0 30px 60px -30px rgba(7,59,54,.35); border: 1px solid var(--line); }
+.browser .bar { height: 38px; background: #efebe3; display: flex; align-items: center; gap: 7px; padding: 0 14px; }
+.browser .bar s { width: 10px; height: 10px; border-radius: 50%; background: #d6d0c4; }
+.browser .bar em { margin-left: 14px; flex: 1; max-width: 300px; height: 22px; border-radius: 6px; background: #fff; font: 400 11.5px/22px var(--sans); font-style: normal; color: #7d8a88; padding: 0 10px; }
+.browser .page { position: relative; height: 380px; padding: 20px 24px; background: #fffdf9; }
+.sk { background: #ebe6dc; border-radius: 6px; }
+.browser .nav-sk { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.browser .nav-sk .logo { width: 70px; height: 16px; background: #e4572e; border-radius: 4px; }
+.browser .nav-sk .sk { width: 46px; height: 9px; }
+.browser .hero-sk { width: 52%; }
+.browser .hero-sk .sk { height: 14px; margin-bottom: 10px; }
+.browser .hero-sk .sk:nth-child(2) { width: 75%; }
+.browser .prods { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 52%; margin-top: 26px; }
+.browser .prods div { height: 92px; border-radius: 10px; background: #f1ece3; }
+.browser .widget { position: absolute; right: 18px; bottom: 18px; width: 46%; max-width: 270px; height: 318px; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 18px 40px -12px rgba(0,0,0,.28); display: flex; flex-direction: column; }
+.browser .widget .head { background: #e4572e; color: #fff; font: 700 13px/1 var(--sans); padding: 12px 14px; display: flex; justify-content: space-between; }
+.browser .widget .mini { flex: 1; --acc: #e4572e; --me: #fde3d9; --bg: #faf6f1; }
+
+/* mobile */
+.phone2 { width: min(100%, 270px); margin: 0 auto; aspect-ratio: 270 / 540; border-radius: 34px; background: #0f1c1b; padding: 9px; box-shadow: 0 30px 60px -30px rgba(7,59,54,.45); }
+.phone2 .screen { height: 100%; border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; background: #fff; }
+.phone2 .appbar { display: flex; align-items: center; gap: 10px; padding: 26px 14px 12px; background: #fff; border-bottom: 1px solid #edf0ef; font: 700 14px/1.2 var(--sans); color: #12201f; }
+.phone2 .appbar small { display: block; font-weight: 400; font-size: 11px; color: #7b8a88; }
+.phone2 .appbar .back { width: 9px; height: 9px; border-left: 2px solid #12201f; border-bottom: 2px solid #12201f; transform: rotate(45deg); margin-left: 4px; }
+.phone2 .mini { flex: 1; }
+.phone2 .tabs { display: flex; justify-content: space-around; padding: 10px 0 14px; border-top: 1px solid #edf0ef; }
+.phone2 .tabs span { width: 22px; height: 22px; border-radius: 7px; background: #e3e9e8; }
+.phone2 .tabs span.on { background: var(--teal-600); }
+
+/* desktop */
+.window { border-radius: 14px; overflow: hidden; background: #111a19; box-shadow: 0 30px 60px -30px rgba(0,0,0,.5); border: 1px solid #23302f; }
+.window .title { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 14px; background: #1a2423; }
+.window .title s { width: 10px; height: 10px; border-radius: 50%; background: #3a4847; }
+.window .title em { margin: 0 auto; font: 500 11.5px/1 var(--sans); font-style: normal; color: #8fa19f; padding-right: 50px; }
+.window .body { display: grid; grid-template-columns: 30% 1fr; height: 340px; }
+.window .side { background: #162120; padding: 16px 14px; display: flex; flex-direction: column; gap: 9px; }
+.window .side .item { height: 30px; border-radius: 8px; background: #1f2b2a; }
+.window .side .item.on { background: #24403c; box-shadow: inset 3px 0 0 var(--teal-500); }
+.window .mini { --acc: var(--teal-500); --bg: #0f1716; --bot: #1d2827; --me: #0f4a43; --fg: #e3eeec; --muted: #7d908d; }
+
+/* features */
+.features { background: #fff; }
+.features header { max-width: 50rem; margin-bottom: clamp(3rem, 6vw, 5rem); }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: clamp(2rem, 4vw, 3.5rem); }
+.feat { padding: 2.25rem 0 2.5rem; border-top: 1.5px solid var(--ink); }
+.feat .n { font: 500 .9rem/1 var(--mono); color: var(--teal-600); display: block; margin-bottom: 1.4rem; }
+.feat p { color: var(--ink-2); font-size: 1.075rem; margin: 0; }
+
+/* how */
+.how { background: var(--teal-50); }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(2rem, 4vw, 3.5rem); margin-top: clamp(3rem, 6vw, 4.5rem); }
+.step { border-top: 1.5px solid var(--teal-600); padding-top: 2rem; }
+.step .num { font: 800 4.5rem/1 var(--sans); letter-spacing: -0.05em; color: var(--teal-600); margin-bottom: 1rem; }
+.step p { color: var(--ink-2); }
+
+/* agents band */
+.agents { background: var(--teal-700); color: var(--paper); }
+.agents .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: center; }
+.agents .eyebrow { color: var(--teal-200); }
+.agents .big { color: #cfe3df; }
+.agents .big a, .human a { color: var(--teal-200); text-underline-offset: 5px; }
+.human { color: #9cc4bd; margin: 0; }
+.prompt { background: var(--teal-900); border-radius: 18px; padding: 1.75rem; }
+.prompt .who { font: 500 .85rem/1 var(--mono); color: #79a8a0; margin-bottom: 1rem; }
+.prompt p { font-size: 1.3rem; line-height: 1.5; margin: 0; font-weight: 500; letter-spacing: -0.01em; }
+.prompt code { color: var(--teal-200); font-size: 1.05rem; word-break: break-all; }
+
+/* not */
+.not .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: clamp(2.5rem, 5vw, 4rem); }
+.not .feat { border-top-color: var(--line); border-top-width: 1px; }
+.not h3 span { color: var(--teal-600); }
+
+
+footer { background: var(--ink); color: #9aa8a6; padding: 3rem 0; font-size: 1rem; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+footer a { color: var(--paper); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+footer nav { display: flex; gap: 1.75rem; }
+
+@media (max-width: 960px) {
+  .hero .wrap, .why .wrap, .agents .wrap, .steps { grid-template-columns: minmax(0, 1fr); }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .uc-grid, .places-grid { grid-template-columns: minmax(0, 1fr); }
+  .places-grid > * { grid-column: auto !important; }
+  .device { margin-top: 1rem; }
+}
+@media (max-width: 640px) {
+  body { font-size: 1.0625rem; }
+  .grid, .not .grid { grid-template-columns: minmax(0, 1fr); }
+  .nav ul li:not(:last-child) { display: none; }
+  .step .num { font-size: 3.25rem; }
+  .browser .widget { width: 64%; }
+  .btn { padding: .85rem 1.3rem; font-size: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="mark" href="./" aria-label="hfy home">hfy<span>.</span></a>
+    <ul>
+      <li><a href="#use-cases">Use cases</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#start">Get started</a></li>
+      <li><a href="llms.txt">llms.txt</a></li>
+      <li><a href="https://github.com/alash3al/hfy">GitHub</a></li>
+    </ul>
+  </div>
+</header>
+
+<main id="main">
+<div class="hero">
+  <div class="wrap">
+    <div>
+      <h1>Put an AI assistant inside your app. <em>Skip the plumbing.</em></h1>
+      <p class="lede">hfy is a ready-made backend and chat window for AI conversations. Your app keeps its users and its data. hfy runs the model, calls your tools, remembers every conversation and gives your users a chat that feels like part of your product.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="#start">Get started</a>
+        <a class="btn btn-ghost" href="#features">See what you get</a>
+      </div>
+      <ul class="facts">
+        <li>Runs on your own servers</li>
+        <li>Works with the model you choose</li>
+        <li>For web and mobile apps</li>
+        <li>Open source, MIT licensed</li>
+      </ul>
+    </div>
+
+    <div class="device" role="img" aria-label="The hfy chat window on a phone: the assistant found the customer's order and asks why they are returning it, as a tap-through question sheet.">
+      <div class="chat">
+        <div class="day">Today</div>
+        <div class="msg me">I want to return the blue jacket I bought last week.
+          <div class="meta">10:42 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div>
+        </div>
+        <div class="msg bot">Found it: <b>Order #4821</b>, delivered Oct 19. Two quick questions and I'll start the return.
+          <div class="meta">10:42</div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grip"></div>
+        <div class="kicker"><span>Questions</span><span>1 of 2</span></div>
+        <div class="progress"><i></i></div>
+        <p class="q">Why are you sending it back?</p>
+        <div class="opt">Too small</div>
+        <div class="opt on">Too large</div>
+        <div class="opt">Not what I expected</div>
+        <div class="next">Next</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="why" id="why">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Why hfy</p>
+      <h2>The demo takes a day. Everything after it takes months.</h2>
+      <p class="big">Getting a model to answer is easy. Turning that into something your customers can rely on is where teams lose their roadmap, and every team rebuilds the same pieces.</p>
+    </div>
+    <div>
+      <ul class="asks">
+        <li>What happens when someone refreshes halfway through an answer?</li>
+        <li>How does the assistant use our systems without seeing everyone's data?</li>
+        <li>Who says yes before it issues that refund?</li>
+        <li>Where do conversations live, and how do we find them later?</li>
+        <li>Why does the chat look wrong inside our mobile app?</li>
+      </ul>
+      <p class="answer"><strong>hfy answers these once</strong>, in a single service you run next to your app, so your team can spend its time on what makes your product different.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cases" id="use-cases">
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">Use cases</p>
+      <h2>Made for the conversations your business already has.</h2>
+      <p class="big">The same hfy runs all of these. What changes is the instructions you write and the tools you connect.</p>
+    </header>
+    <div class="uc-grid">
+
+      <article class="uc">
+        <div class="scene" aria-hidden="true">
+          <div class="msg me">I was charged twice for my order 😕<div class="meta">09:14 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div></div>
+          <div class="msg bot">You're right, there are two charges of <b>$49.00</b> on Oct 12. I can refund the duplicate now.<div class="meta">09:14</div></div>
+          <div class="confirm"><small>Confirm action</small><strong>Refund $49.00 to Visa •••• 4242</strong><div class="row"><span>Not now</span><span>Refund</span></div></div>
+        </div>
+        <div class="body">
+          <p class="label">Customer support</p>
+          <h3>Solve the ticket instead of filing it.</h3>
+          <p>The assistant looks up the order, explains what happened and fixes it on the spot. Refunds wait for a tap, and your team can step into the same conversation whenever they want.</p>
+          <ul class="uses"><li>Your tools</li><li>Confirmation</li><li>Rooms</li></ul>
+        </div>
+      </article>
+
+      <article class="uc">
+        <div class="scene" aria-hidden="true">
+          <div class="msg me">Running shoes for flat feet, under $120?<div class="meta">18:02 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div></div>
+          <div class="msg bot">Three good fits in stock: <b>Glide 4</b> ($110), <b>Pace Stable</b> ($95) and <b>Arc Run</b> ($118). What's your size?<div class="meta">18:02</div></div>
+          <div class="chips"><span>EU 41</span><span class="on">EU 42</span><span>EU 43</span><span>EU 44</span></div>
+        </div>
+        <div class="body">
+          <p class="label">E-commerce</p>
+          <h3>A shop assistant that never says "check the website".</h3>
+          <p>It searches your live catalog, asks for size and budget with a tap instead of a typed reply, and takes a photo of what the customer is looking for.</p>
+          <ul class="uses"><li>Questions</li><li>Product search</li><li>Photos</li></ul>
+        </div>
+      </article>
+
+      <article class="uc">
+        <div class="scene" aria-hidden="true">
+          <div class="msg me">How many orders shipped late this week?<div class="meta">11:30 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div></div>
+          <div class="msg bot"><b>37 orders</b>, 29 of them from the Alexandria warehouse after Tuesday's delay. Want me to email those customers a discount code?<div class="meta">11:30</div></div>
+          <div class="msg me">Yes, 10% off. Keep it short.<div class="meta">11:31 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div></div>
+        </div>
+        <div class="body">
+          <p class="label">Team copilot</p>
+          <h3>Give your staff an assistant that can actually do things.</h3>
+          <p>A separate assistant for your team, with its own instructions and access to your internal tools. Questions about your business get answers from your data, and chores get done.</p>
+          <ul class="uses"><li>Many assistants</li><li>Your tools</li><li>Memory</li></ul>
+        </div>
+      </article>
+
+      <article class="uc">
+        <div class="scene" aria-hidden="true">
+          <div class="msg me">Can I see Dr. Hana sometime next week?<div class="meta">21:05 <svg class="ticks" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.2 3.2L11 2.2M7.4 9.2L14.4 2.2"/></svg></div></div>
+          <div class="msg bot">She has two openings. Which works for you?<div class="meta">21:05</div></div>
+          <div class="chips"><span class="on">Tue 10:00 AM</span><span>Thu 4:30 PM</span></div>
+        </div>
+        <div class="body">
+          <p class="label">Bookings &amp; appointments</p>
+          <h3>Fill your calendar while you sleep.</h3>
+          <p>Clinics, salons, studios, repair shops. The assistant checks your calendar, offers the free slots as choices and confirms the booking, at 9 PM on a Sunday as easily as at noon.</p>
+          <ul class="uses"><li>Questions</li><li>Confirmation</li><li>Your calendar</li></ul>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section class="places" id="everywhere">
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">Wherever your users are</p>
+      <h2>Your website, your phone app, your desktop app.</h2>
+      <p class="big">The chat lives inside the product your users already open, dressed in your colors. You decide where it goes and what frames it: a floating bubble, a full screen or a side panel.</p>
+    </header>
+
+    <div class="places-grid">
+      <figure>
+        <div class="browser" role="img" aria-label="An online store in a browser with the hfy chat open as an orange support panel in the corner.">
+          <div class="bar"><s></s><s></s><s></s><em>shop.example.com/orders</em></div>
+          <div class="page">
+            <div class="nav-sk"><div class="logo"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
+            <div class="hero-sk"><div class="sk"></div><div class="sk"></div></div>
+            <div class="prods"><div></div><div></div><div></div></div>
+            <div class="widget">
+              <div class="head"><span>Help</span><span>×</span></div>
+              <div class="mini">
+                <div class="log">
+                  <div class="b me">Is the linen shirt back in medium?</div>
+                  <div class="b bot">It is: <b>Linen shirt, sand</b>, $58, with 4 left in medium.</div>
+                  <div class="b me">Great, I'll take one.</div>
+                  <div class="b bot">Added to your cart. Anything else?</div>
+                </div>
+                <div class="composer"><i>Message</i><u></u></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <h3>On your website</h3>
+          <p>A help bubble on your store, a panel in your dashboard or a page of its own. A few lines on your page put it there, in your brand's colors.</p>
+        </figcaption>
+      </figure>
+
+      <figure>
+        <div class="phone2" role="img" aria-label="A mobile app screen titled Order 4821 with the hfy chat filling the screen under the app's own header and tab bar.">
+          <div class="screen">
+            <div class="appbar"><span class="back"></span><span>Order #4821<small>Delivered Oct 19</small></span></div>
+            <div class="mini">
+              <div class="log">
+                <div class="b me">The zipper broke on day two.</div>
+                <div class="b bot">Sorry about that. Send me a photo and I'll arrange a free replacement.</div>
+                <div class="b me photo"><div class="img"></div></div>
+                <div class="b bot">Got it. A new one ships <b>tomorrow</b>, and the courier will collect the old one.</div>
+              </div>
+              <div class="composer"><i>Message</i><u></u></div>
+            </div>
+            <div class="tabs"><span></span><span class="on"></span><span></span><span></span></div>
+          </div>
+        </div>
+        <figcaption>
+          <h3>In your mobile app</h3>
+          <p>A screen in your iOS, Android, Flutter or React Native app, under your own header and tabs. Photos come straight from the camera.</p>
+        </figcaption>
+      </figure>
+
+      <div class="wide-text">
+        <h3>One conversation, every device</h3>
+        <p>Someone starts on their phone during lunch and finishes at their desk. The conversation is the same everywhere, down to the last message, because it lives in hfy rather than in the device.</p>
+      </div>
+
+      <figure>
+        <div class="window" role="img" aria-label="A desktop app in dark mode with a sidebar and the hfy chat in the main area.">
+          <div class="title"><s></s><s></s><s></s><em>Acme Console</em></div>
+          <div class="body">
+            <div class="side"><div class="item"></div><div class="item on"></div><div class="item"></div><div class="item"></div><div class="item"></div></div>
+            <div class="mini">
+              <div class="log">
+                <div class="b me">Which customers haven't paid this month's invoice?</div>
+                <div class="tool">Looked up invoices</div>
+                <div class="b bot"><b>12 customers</b>, $8,940 in total. The three largest are Nile Foods, Brightline and Studio Kite. Want reminders sent?</div>
+                <div class="b me">Yes, but skip Brightline.</div>
+              </div>
+              <div class="composer"><i>Message</i><u></u></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <h3>In your desktop app</h3>
+          <p>Electron, Tauri, Windows or macOS apps open it like any other view. Dark mode follows the user's system.</p>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">Out of the box</p>
+      <h2>Everything a real assistant needs, already working.</h2>
+      <p class="big">No SDK to learn and no glue to maintain. Choose a model, describe your assistant, and all of this comes with it.</p>
+    </header>
+    <div class="grid">
+      <article class="feat"><span class="n">01</span>
+        <h3>A chat that feels native</h3>
+        <p>Drop it into a web page or your mobile app. Message bubbles, delivery ticks, formatted replies, photos and documents, dark mode and right-to-left languages. Your users will assume you built it.</p></article>
+      <article class="feat"><span class="n">02</span>
+        <h3>Nothing gets lost</h3>
+        <p>Every step is saved the moment it happens. Refreshes, flaky networks, deploys and crashes don't lose a word, and an interrupted reply picks up where it stopped.</p></article>
+      <article class="feat"><span class="n">03</span>
+        <h3>Any model, one line</h3>
+        <p>OpenAI, OpenRouter, a model on your own hardware, or any other that speaks the common OpenAI format. Switch models without touching your app.</p></article>
+      <article class="feat"><span class="n">04</span>
+        <h3>Your tools, your rules</h3>
+        <p>The assistant reaches your systems through MCP, the open standard for AI tools. Every request says who is asking, so your systems decide what that person may see or do.</p></article>
+      <article class="feat"><span class="n">05</span>
+        <h3>It asks instead of guessing</h3>
+        <p>When details are missing, the assistant sends a short form: choices, yes or no, a line of text. Your user taps through it like any screen in your app.</p></article>
+      <article class="feat"><span class="n">06</span>
+        <h3>Confirmation only where it counts</h3>
+        <p>Refunds, deletions and anything you mark as risky wait for the user's go-ahead. Everything else just runs, without a permission prompt in sight.</p></article>
+      <article class="feat"><span class="n">07</span>
+        <h3>Conversations as rooms</h3>
+        <p>A customer, a member of your staff and two assistants can share one conversation. Everyone knows who said what, and each person sees it live.</p></article>
+      <article class="feat"><span class="n">08</span>
+        <h3>Memory that keeps up</h3>
+        <p>Long conversations are summarized so they keep fitting the model. Turn on search and the assistant can recall what a customer said weeks ago.</p></article>
+      <article class="feat"><span class="n">09</span>
+        <h3>Many assistants, one service</h3>
+        <p>A shopping assistant for customers and an admin assistant for staff, each with its own model, instructions and tools, plus specialists they can hand work to.</p></article>
+      <article class="feat"><span class="n">10</span>
+        <h3>Files, handled</h3>
+        <p>Users attach photos and documents straight from the chat. hfy checks them, stores them in S3 or on disk, and passes them to the model.</p></article>
+      <article class="feat"><span class="n">11</span>
+        <h3>Ready for production</h3>
+        <p>Health checks, metrics for your monitoring and limits on every conversation. It grows with your traffic, and all it needs beside it is a Postgres database.</p></article>
+      <article class="feat"><span class="n">12</span>
+        <h3>Private by default</h3>
+        <p>The browser only ever holds a short-lived pass to one conversation. API keys, instructions and your server secret never leave your servers.</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="how" id="how">
+  <div class="wrap">
+    <p class="eyebrow">How it fits</p>
+    <h2>Three steps between your app and a working assistant.</h2>
+    <p class="big">You keep doing what you already do: sign people in. hfy does the rest.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Your app lets people in</h3>
+        <p>When a signed-in user opens the chat, your backend asks hfy for a short-lived pass to their conversation and picks which assistant answers them.</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>The chat appears where you want it</h3>
+        <p>On a page of your website or a screen in your mobile app. It takes your colors and your users' language, and looks at home in both.</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>hfy runs the conversation</h3>
+        <p>It follows your instructions, uses your tools, asks before risky actions, streams each answer and saves every step, so a refresh or restart changes nothing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="not" id="not">
+  <div class="wrap">
+    <p class="eyebrow">Straight answers</p>
+    <h2>What hfy is not.</h2>
+    <div class="grid">
+      <article class="feat">
+        <h3>Not a hosted service<span>.</span></h3>
+        <p>You run it next to your app, on your own infrastructure. Conversations live in your database and nowhere else.</p></article>
+      <article class="feat">
+        <h3>Not a framework<span>.</span></h3>
+        <p>There is no SDK to adopt and nothing to program inside hfy. You describe your assistants in one settings file, and any backend language can talk to it.</p></article>
+      <article class="feat">
+        <h3>Not a knowledge base<span>.</span></h3>
+        <p>Your documents and data stay where they are. Offer them as a search tool and the assistant looks things up when it needs to.</p></article>
+      <article class="feat">
+        <h3>Not one service for every app<span>.</span></h3>
+        <p>One instance serves one app and all of its users. Building a second app? Run a second copy, and each stays simple.</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="agents" id="start">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Get started</p>
+      <h2>Setup is one sentence to your coding agent.</h2>
+      <p class="big">hfy ships with <a href="llms.txt">llms.txt</a>, a complete guide written for AI coding agents. It covers installing hfy, connecting your model and tools, and placing the chat in your app. Hand it over and review what comes back.</p>
+      <p class="human">Prefer to do it yourself? The <a href="https://github.com/alash3al/hfy#readme">documentation</a> walks through every step.</p>
+    </div>
+    <div class="prompt">
+      <div class="who">you → your coding agent</div>
+      <p>Read <code>https://alash3al.github.io/hfy/llms.txt</code> and add an hfy chat to our customer dashboard. Customers should be able to ask about their orders.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>hfy, by <a href="https://github.com/alash3al">@alash3al</a> · <a href="https://github.com/alash3al/hfy/blob/main/LICENSE">MIT license</a></span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/alash3al/hfy">GitHub</a>
+      <a href="https://github.com/alash3al/hfy#readme">Documentation</a>
+      <a href="llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

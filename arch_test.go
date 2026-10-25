@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// The rules in README "Conventions" that a reviewer could miss are checked
+// The rules in docs/reference.md "Conventions" that a reviewer could miss are checked
 // here, on the source, so they hold however many people contribute.
 
 const module = "github.com/alash3al/hfy"

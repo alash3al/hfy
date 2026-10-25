@@ -1,0 +1,90 @@
+name: release
+# Runs only when a GitHub release is published: binaries are attached to the
+# release, and the Docker image is pushed to ghcr.io/<owner>/hfy.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: |
+          name="hfy_${GOOS}_${GOARCH}"   # unversioned, so releases/latest/download/<name> links never change
+          bin=hfy; [ "$GOOS" = windows ] && bin=hfy.exe
+          mkdir -p "dist/$name"
+          go build -trimpath -ldflags "-s -w -X main.version=${TAG}" -o "dist/$name/$bin" .
+          cp README.md LICENSE "dist/$name/"
+          cd dist
+          if [ "$GOOS" = windows ]; then archive="$name.zip"; zip -qr "$archive" "$name"; else archive="$name.tar.gz"; tar -czf "$archive" "$name"; fi
+          echo "ARCHIVE=dist/$archive" >> "$GITHUB_ENV"
+      - name: upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$ARCHIVE" --clobber
+
+  checksums:
+    needs: binaries
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'hfy_*' -D dist
+          cd dist && sha256sum hfy_* > checksums.txt
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" checksums.txt --clobber
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.event.release.tag_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
