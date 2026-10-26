@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"strings"
-	"sync"
 	"text/template"
 
 	"github.com/jackc/pgx/v5"
@@ -54,9 +53,8 @@ type Embeddings struct {
 type Store struct {
 	Pool *pgxpool.Pool
 
-	sql    map[string]string
-	actors sync.Map // "type/ref" -> int64, agents only: a closed set from config
-	emb    *Embeddings
+	sql map[string]string
+	emb *Embeddings
 }
 
 // queryNames lists every query file the code uses; a missing file is a startup error.
