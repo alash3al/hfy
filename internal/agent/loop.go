@@ -308,7 +308,7 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			if l.spec.Approval != nil {
 				timeout = l.spec.Approval.Timeout.D()
 			}
-			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, timeout); err != nil {
+			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
 				return callOutcome{}, err
 			}
 			return callOutcome{paused: true}, nil
@@ -317,7 +317,7 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			if l.spec.Approval != nil {
 				timeout = l.spec.Approval.Timeout.D()
 			}
-			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, info.ID, timeout); err != nil {
+			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
 				return callOutcome{}, err
 			}
 			return callOutcome{paused: true}, nil
@@ -326,12 +326,34 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 			if err := ctx.Err(); err != nil {
 				return callOutcome{}, err // cancelled mid-call: leave it to be marked interrupted
 			}
+			if out2, err := l.holdForQuestions(ctx, info, res); out2.paused || err != nil {
+				return out2, err
+			}
 		}
 	}
 	if err := l.finishCall(ctx, info, res); err != nil {
 		return callOutcome{}, err
 	}
 	return out, nil
+}
+
+// holdForQuestions pauses on a tool's own questions (design B: they ride the
+// tool's real call). The result is already computed, so the request holds it:
+// on resume it becomes the call's tool_result next to the user's answers.
+func (l *loop) holdForQuestions(ctx context.Context, info CallInfo, res mcp.Result) (callOutcome, error) {
+	if len(res.Questions) == 0 {
+		return callOutcome{}, nil
+	}
+	timeout := askUserTimeout
+	if l.spec.Approval != nil {
+		timeout = l.spec.Approval.Timeout.D()
+	}
+	req := types.ApprovalRequested{CallID: info.ID, Questions: res.Questions, UI: res.UI,
+		Held: &types.HeldResult{Content: res.Content, Structured: res.Structured}}
+	if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, req, timeout); err != nil {
+		return callOutcome{}, err
+	}
+	return callOutcome{paused: true}, nil
 }
 
 // needsApproval is the one decision for "does this call wait for approval?".

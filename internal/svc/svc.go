@@ -205,6 +205,31 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, conversationID, turn
 	if err != nil {
 		return false, err
 	}
+	// A tool that ran and asked questions holds its finished result until its
+	// questions are decided. If the turn now ends first (stop or exhaustion),
+	// the model still gets its one tool_result, as an unanswered one.
+	events, err := s.store.TurnEvents(ctx, tx, turnID)
+	if err != nil {
+		return false, err
+	}
+	v, err := ViewOf(events)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range v.Calls {
+		req := v.RequestData[c.CallID]
+		if _, decided := v.Decided[c.CallID]; req.Held == nil || v.Done[c.CallID] || decided {
+			continue
+		}
+		text := "The user stopped before answering."
+		if h := req.Held.Content; h != "" {
+			text = h + "\n\n" + text
+		}
+		if err := s.appendTo(ctx, tx, events[0], main, types.ToolResult{CallID: c.CallID,
+			Content: text, Structured: req.Held.Structured, UI: req.UI}); err != nil {
+			return false, err
+		}
+	}
 	usage, _, err := s.store.TurnUsage(ctx, tx, turnID, main)
 	if err != nil {
 		return false, err
@@ -382,20 +407,27 @@ func (s *Service) Stop(ctx context.Context, conversationID, actor int64) error {
 // nobody approves what another person's turn is about to do.
 func (s *Service) Approve(ctx context.Context, conversationID, actor int64, d types.ApprovalDecided) error {
 	return s.store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, call, err := s.pendingCall(ctx, tx, conversationID, d.CallID)
+		turn, call, req, err := s.pendingCall(ctx, tx, conversationID, d.CallID)
 		if err != nil {
 			return err
 		}
 		if turn.ActorID != actor {
 			return ErrNotTurnOwner
 		}
-		if len(d.Answers) > 0 && call.Name != AskUserTool {
+		// Answers go to a call that is asking questions: hfy.ask_user picks
+		// them from its arguments, a tool that asked carries them now in its
+		// approval request.
+		qraw := req.Questions
+		if call.Name == AskUserTool && len(qraw) == 0 {
+			qraw = call.Arguments
+		}
+		if len(d.Answers) > 0 && len(qraw) == 0 {
 			return badf("answers are only accepted for %s calls", AskUserTool)
 		}
-		if call.Name == AskUserTool && d.Approve {
-			// The call's arguments were validated before it paused; the
-			// answers themselves are the client's input: 400s, here.
-			qs, err := ParseQuestions(call.Arguments)
+		if d.Approve && len(qraw) > 0 {
+			// The stored questions were validated before the turn paused;
+			// the answers themselves are the client's input: 400s, here.
+			qs, err := ParseQuestions(qraw)
 			if err != nil {
 				return badf("the stored questions are invalid: %v", err)
 			}
@@ -418,7 +450,7 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 		return err
 	}
 	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
-		turn, _, err := s.pendingCall(ctx, tx, turn.ConversationID, p.CallID)
+		turn, _, _, err := s.pendingCall(ctx, tx, turn.ConversationID, p.CallID)
 		if err != nil {
 			return err
 		}
@@ -431,32 +463,33 @@ func (s *Service) ApprovalTimeout(ctx context.Context, p ApprovalTimeoutPayload)
 }
 
 // pendingCall locks the conversation and returns the active turn if callID is
-// awaiting a decision in it, with that call as stored.
-func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, conversationID int64, callID string) (db.EventRow, types.ToolCall, error) {
+// awaiting a decision in it, with that call as stored and its approval
+// request's payload (questions, card and held result, if any).
+func (s *Service) pendingCall(ctx context.Context, tx pgx.Tx, conversationID int64, callID string) (db.EventRow, types.ToolCall, types.ApprovalRequested, error) {
 	conv, err := s.store.LockConversation(ctx, tx, conversationID)
 	if err != nil {
-		return db.EventRow{}, types.ToolCall{}, err
+		return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, err
 	}
 	if conv.ActiveTurnID == nil {
-		return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
+		return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, ErrNoPendingApproval
 	}
 	events, err := s.store.TurnEvents(ctx, tx, *conv.ActiveTurnID)
 	if err != nil {
-		return db.EventRow{}, types.ToolCall{}, err
+		return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, err
 	}
 	v, err := ViewOf(events)
 	if err != nil {
-		return db.EventRow{}, types.ToolCall{}, err
+		return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, err
 	}
 	if _, decided := v.Decided[callID]; v.State != types.StateAwaitingApproval || !v.Requested[callID] || decided {
-		return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
+		return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, ErrNoPendingApproval
 	}
 	for _, c := range v.Calls {
 		if c.CallID == callID {
-			return events[0], c, nil // the turn, and the call it paused on
+			return events[0], c, v.RequestData[callID], nil // the turn, the call it paused on, its request
 		}
 	}
-	return db.EventRow{}, types.ToolCall{}, ErrNoPendingApproval
+	return db.EventRow{}, types.ToolCall{}, types.ApprovalRequested{}, ErrNoPendingApproval
 }
 
 // decide records d on turn (from pendingCall, in the same tx) and resumes it.
@@ -470,9 +503,11 @@ func (s *Service) decide(ctx context.Context, tx pgx.Tx, turn db.EventRow, actor
 // RequestApproval pauses the running turn on a tool call. The request, the
 // awaiting_approval state and the timeout job commit together under the
 // conversation lock, so a stop that committed first wins (ErrStopRequested) and a
-// crash cannot leave a pause without its timeout.
+// crash cannot leave a pause without its timeout. req carries the call id and,
+// for a tool that asks the viewer questions (design B), its questions, display
+// card and held result.
 // timeout is the agent's approval.timeout.
-func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID int64, callID string, timeout time.Duration) error {
+func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID int64, req types.ApprovalRequested, timeout time.Duration) error {
 	return s.store.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.store.LockConversation(ctx, tx, conversationID); err != nil {
 			return err
@@ -488,12 +523,15 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 		if v.Cancelled {
 			return ErrStopRequested
 		}
+		if req.CallID == "" {
+			return errors.New("approval request: call_id required")
+		}
 		turn := events[0]
 		main, err := s.agentOf(ctx, tx, turn)
 		if err != nil {
 			return err
 		}
-		if err := s.appendTo(ctx, tx, turn, main, types.ApprovalRequested{CallID: callID}); err != nil {
+		if err := s.appendTo(ctx, tx, turn, main, req); err != nil {
 			return err
 		}
 		if err := s.appendTo(ctx, tx, turn, main, types.TurnStateEvent{State: types.StateAwaitingApproval}); err != nil {
@@ -502,7 +540,7 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 		at := time.Now().Add(timeout)
 		_, err = s.store.Enqueue(ctx, tx, db.NewJob{
 			Type: types.JobApprovalTimeout, Queue: types.QueueTurns,
-			Payload: ApprovalTimeoutPayload{TurnEventID: turnID, CallID: callID}, RunAt: &at,
+			Payload: ApprovalTimeoutPayload{TurnEventID: turnID, CallID: req.CallID}, RunAt: &at,
 			MaxAttempts: s.cfg.Queue.MaxAttempts,
 		})
 		return err

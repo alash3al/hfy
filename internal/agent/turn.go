@@ -148,6 +148,31 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 		info := CallInfo{ID: c.CallID, Name: c.Name, Args: c.Arguments}
 		d, decided := v.Decided[c.CallID]
 		switch {
+		case decided && v.RequestData[c.CallID].Held != nil:
+			// A held call already ran; its stored result is the tool_result,
+			// joined with the answers (a decline or a timeout just tells the
+			// model the viewer passed). The client's d.Result is ignored.
+			req := v.RequestData[c.CallID]
+			var text string
+			switch {
+			case d.Approve:
+				text = answersText(d.Answers)
+				if text == "" {
+					text = strings.TrimSpace(promptDeclined)
+				}
+			case d.Reason == "timeout":
+				text = strings.TrimSpace(promptTimeout)
+			default:
+				text = strings.TrimSpace(promptDeclined)
+			}
+			content := req.Held.Content
+			if content != "" && text != "" {
+				content += "\n\n"
+			}
+			content += text
+			if err := sink.CallFinished(ctx, info, mcp.Result{Content: content, Structured: req.Held.Structured, UI: req.UI}); err != nil {
+				return err
+			}
 		case decided && d.Approve && c.Name == svc.AskUserTool:
 			// Never re-run an answered ask: the decision's answers ARE the
 			// tool result, exactly this JSON (strictly; an old decision without
@@ -187,6 +212,10 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 					return err
 				}
 			}
+			if len(res.Questions) > 0 { // approved calls cannot pause again
+				slog.Warn("approved tool asked questions; dropped", "tool", c.Name)
+			}
+			res.Questions = nil
 			if err := sink.CallFinished(ctx, info, res); err != nil {
 				return err
 			}

@@ -13,11 +13,15 @@ type TurnView struct {
 	Calls     []types.ToolCall
 	Done      map[string]bool // call ids with a result or an interrupted marker
 	Requested map[string]bool // call ids waiting on (or given) an approval
-	Decided   map[string]types.ApprovalDecided
+	// RequestData holds each approval request's extra payload (a tool's
+	// questions, card and held result) keyed by call id.
+	RequestData map[string]types.ApprovalRequested
+	Decided     map[string]types.ApprovalDecided
 }
 
 func ViewOf(events []db.EventRow) (TurnView, error) {
-	v := TurnView{Done: map[string]bool{}, Requested: map[string]bool{}, Decided: map[string]types.ApprovalDecided{}}
+	v := TurnView{Done: map[string]bool{}, Requested: map[string]bool{},
+		RequestData: map[string]types.ApprovalRequested{}, Decided: map[string]types.ApprovalDecided{}}
 	var err error
 	for _, e := range events {
 		switch e.Type {
@@ -43,6 +47,7 @@ func ViewOf(events []db.EventRow) (TurnView, error) {
 			var a types.ApprovalRequested
 			a, err = e.Payload[types.ApprovalRequested]()
 			v.Requested[a.CallID] = true
+			v.RequestData[a.CallID] = a
 		case types.EventApprovalDecided:
 			var a types.ApprovalDecided
 			a, err = e.Payload[types.ApprovalDecided]()
