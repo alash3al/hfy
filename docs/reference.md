@@ -360,7 +360,8 @@ event as stored.
   `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
   `environment`. Each tool call has `timeout` (default 2m) to answer.
 - **Attachments** are references your app hosts. Hosts, types and size are
-  checked when the message is posted. Images go to the model only in the turn
+  checked when the message is posted (`attachments.max_count` caps them per
+  message, default 10). Images go to the model only in the turn
   they arrive in, always as their URL: fetching it is the provider's job, so
   the URL must be reachable from the provider (a presigned URL works well).
   A local model server (Ollama, llama.cpp) only sees images it can fetch
