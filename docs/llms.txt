@@ -245,7 +245,7 @@ embed:
 
 For per-viewer overrides, send a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls`, and `strings` (an object overriding UI strings). Built-in strings are English and Arabic. Time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable.
 
-What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
+What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see MCP section) with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
 
 ### 7. Give the agent tools (MCP)
 
@@ -257,6 +257,8 @@ mcp:
     headers: { Authorization: "Bearer ${ORDERS_MCP_TOKEN}" }
     approval: [refund, cancel_*]                  # these tools wait for the viewer's approval, for every agent
     approve_destructive: true                     # also wait on tools annotated destructiveHint: true
+    ui:                                           # opt the server's tools into cards + tool-triggered questions
+      image_hosts: ["img.shop.example", "*.imgshop.net"]  # https hosts allowed in cards' images
   files:
     type: local                                   # stdio command, started by hfy
     command: [mcp-filesystem, /data]
@@ -266,7 +268,7 @@ agent:
   mcp: [orders]        # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
 ```
 
-Every tool call carries `_meta["hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content.
+Every tool call carries `_meta["hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content. A background task may ship a display card in `_meta["hfy/ui"]` (see "Tool cards" below) — v1.1.0 renamed these keys from the old `io.github.alash3al.hfy/*` spelling; servers must send `hfy/turn` and `hfy/ui`.
 
 Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help center as an MCP search tool (filtered by `_meta.actor`), and the agent calls it when needed. For small, fixed knowledge, put it in the system prompt or pass it via grant `vars`.
 
@@ -298,7 +300,7 @@ Auth: `Authorization: Bearer <grant token>` (on `/events` also `?token=` for `Ev
 - `POST /v1/conversation/uploads` `{mime, size}` → `{file, upload_url, expires_at, direct}`. PUT the bytes to `upload_url` with `Content-Type: <mime>`: if `direct` is true it is a presigned S3 URL (no auth header); otherwise it is an hfy path, so prefix the hfy base URL and send the grant `Authorization`. Then post a message with `{file, mime}`.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope. Resume with `Last-Event-ID`, or `?after=<event uuid>`. Without either it starts from now. `: ping` every 15 s. The stream ends when the grant ends.
 - `GET /v1/conversation/history?limit=&before=` → durable events grouped by turn, newest page first; `next` (older-page cursor), `live_after` (open `/events?after=<live_after>` to continue without a gap), `viewer` (this grant's actor, to recognize own messages).
-- `POST /v1/conversation/approvals` `{call_id, approve, result?, answers?}`. Only the actor who started the turn decides (else 403). For `hfy.ask_user`, approve with `answers: {"<question id>": value}`, validated against the stored questions (400 names the bad one). Decline with `approve: false`.
+- `POST /v1/conversation/approvals` `{call_id, approve, result?, answers?}`. Only the actor who started the turn decides (else 403). For `hfy.ask_user` — or a tool call that asked questions of its own — approve with `answers: {"<question id>": value}`, validated against the stored questions (400 names the bad one). Decline with `approve: false`; `answers` on a plain approval are a 400.
 - `POST /v1/conversation/stop` stops the caller's own active turn and their queued ones.
 
 Errors are `{"error": "..."}`: 400 bad input, 401 missing/unknown/expired/revoked token, 403 not your turn or the grant's agent no longer exists, 404 unknown conversation or grant, 409 no pending approval, 413 body over 2 MiB.
@@ -314,7 +316,7 @@ Envelope (stream and history):
  "v":1,"data":{"name":"orders.lookup","call_id":"c1","arguments":{}},"created_at":"…"}
 ```
 
-Types: `turn` (root, `parent` null; `data.agent`) · `turn.state` (`queued` `running` `awaiting_approval` `completed` `failed` `stopped` `cancelled`) · `turn.cancel_requested` · `message.text` (`{text, attachments?}`) · `reasoning` · `tool_call` · `tool_call.interrupted` · `tool_result` (`content`, `is_error`, optional `structured`) · `approval.requested` · `approval.decided` · `model.usage` · `summary` · ephemeral, live-only: `text.delta`, `reasoning.delta`.
+Types: `turn` (root, `parent` null; `data.agent`) · `turn.state` (`queued` `running` `awaiting_approval` `completed` `failed` `stopped` `cancelled`) · `turn.cancel_requested` · `message.text` (`{text, attachments?}`) · `reasoning` · `tool_call` · `tool_call.interrupted` · `tool_result` (`content`, `is_error`, optional `structured`, optional `ui` — the sanitized `_meta["hfy/ui"]` card) · `approval.requested` (a tool's own questions add `questions`, `ui` and `held`) · `approval.decided` · `model.usage` · `summary` · ephemeral, live-only: `text.delta`, `reasoning.delta`.
 
 Rendering rules: append `text.delta` under its turn, then replace it with the durable `message.text`. Pair `tool_call` and `tool_result` by `data.call_id`. Ignore unknown types. Served attachments for stored files carry a fresh signed `url`.
 
@@ -339,6 +341,41 @@ The page's origin must be in `server.cors_origins`.
 ### hfy.ask_user
 
 Enable it with `ask_user: true` on a top-level agent (not available to sub-agents). One call pauses the turn with 1–10 questions of type `single`/`multi` (2–20 options), `text` or `confirm`. The UI shows them as a step-by-step sheet. The model gets `{"answers": {...}}`, "The user declined to answer.", or "The user did not answer in time." (agent `approval.timeout`, else 30m). Small slips from small models (string options, odd ids, type synonyms) are repaired. Small models (around 3B) often ask in plain text instead of calling the tool; use a stronger model or say "ask with hfy.ask_user" in the system prompt.
+
+### Tool cards (`_meta["hfy/ui"]`)
+
+An MCP server can put a display card (or carousel) in a tool result's `_meta["hfy/ui"]`, and — when both the server (`mcp.<name>.ui` in hfy's config) and the agent (`ask_user: true`) allow — structured questions that attach to the tool's **own** call: the turn pauses on the real call, the viewer answers in the approval sheet, and the model receives the tool's text joined with `{"answers": {...}}`. hfy rebuilds the block server-side before any viewer sees it: unknown fields are dropped, strings clipped, urls filtered, limits enforced (32 KiB total, 6 kv rows, 3 buttons, 10 cards, payload ≤ 2 KiB). The model never sees the card. **Deploy hfy updated to this version before your MCP servers start returning `hfy/ui`: an older hfy instance stores unknown `_meta` keys untouched, and cards sent to them are simply never rendered.**
+
+The block, sent as ordinary JSON under `_meta["hfy/ui"]`:
+
+```json
+{"v": 1, "type": "card", "title": "Your order", "subtitle": "Pizza Express", "body": "Margherita, extra cheese", "badge": "12 EUR",
+ "kv": [{"label": "Size", "value": "Large"}, {"label": "Delivery", "value": "30–40 min"}],
+ "image": "https://img.shop.example/margherita.jpg", "buttons": [
+   {"send": {"label": "Order it"}},
+   {"link": {"label": "Menu", "url": "https://shop.example/menu"}},
+   {"host": {"label": "Pay now", "name": "pay_host", "payload": {"amount": 12}}}]}
+
+{"type": "action", "v": 1, "name": "pay_host", "payload": {"amount": 12}, "call_id": "01JD..."}  // what the host receives when "Pay now" is clicked
+
+{"v": 1, "type": "carousel", "cards": [
+  {"v": 1, "type": "card", "title": "Margherita", "body": "12 EUR", "image": "https://img.shop.example/m.jpg"},
+  {"v": 1, "type": "card", "title": "Capriciosa", "body": "14 EUR", "image": "https://img.shop.example/c.jpg"}]}
+```
+
+The `//` comments are doc-only. Questions never live on a button: they are a top-level field of the block, always shaped `{"questions": [...]}` like `hfy.ask_user`'s arguments:
+
+```json
+{"v": 1, "type": "card", "title": "Your order", "body": "Margherita, 12 EUR", "image": "https://img.shop.example/m.jpg",
+ "buttons": [{"send": {"label": "Order it"}}],
+ "questions": {"questions": [{"id": "size", "text": "Which size?", "type": "single", "options": [{"value": "s", "label": "Small"}, {"value": "l", "label": "Large"}]}]}}
+```
+
+A carousel is `{"v": 1, "type": "carousel", "cards": [<card>, ...]}` (up to 10). If the questions part is unusable the card survives; if the whole block is unusable (wrong `v`, no title and no body, bad carousel) nothing is rendered. An ui-carrying tool that **also** needs approval cannot ask: approval pauses first, and after it the questions are dropped (log a warning). Stopping the turn while the questions are open ends it with the held tool result plus "The user stopped before answering.".
+
+Host actions arrive as `{"v": 1, "type": "action", "name": "<name>", "payload": {...}, "call_id": "<call>"}` over the widget bridge (`window.HfyBridge.postMessage`, webkit messageHandlers, `chrome.webview`, ReactNativeWebView, or `postMessage` when framed); send the token the same way (`token-needed` / `hfy.receive`). Send buttons are live only on the viewer's own, current turn; link buttons always are.
+
+Mobile hosts: Android WebView needs the file-chooser callback (`onShowFileChooser` → Activity result) wired for document/attachment picking, and Flutter's `file_selector`/`webview_flutter` plugin equivalents; both are documented here, not device-tested.
 
 ### Approvals
 

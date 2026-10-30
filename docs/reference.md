@@ -163,7 +163,8 @@ there is no credentials mode.
   ≤ 32 KiB, one answer per question, `required` ones answered) and it is validated
   against the stored questions (`400` names the question); declining is plain
   `{call_id, approve: false}` and the model is told the user declined.
-  `answers` on a call that is not an ask is a `400`.
+  `answers` are accepted the same way for a tool call that asked its own
+  questions (below); on a plain approval they are a `400`.
 - `POST /v1/conversation/stop` stops the caller's own turns: the active one
   if they started it, and their queued ones. Everyone else's keep their place.
 
@@ -331,6 +332,58 @@ event as stored.
   answer in time." after the timeout above. Without the opt-in the tool does
   not exist for that agent (an API-only app would stall); invalid arguments
   come back as an error result without pausing; sub-agents never ask.
+- **Cards and questions from tools.** A tool that opts in may ship its own
+  display card in `_meta["hfy/ui"]`, and, when its server allows, structured
+  questions that attach to the tool's real call. Before anything reaches a
+  viewer it is rebuilt server-side from the allowlist below; anything the
+  schema does not know is dropped, strings are clipped and cleaned, and the
+  model never sees the card.
+
+  Enable per MCP server (`mcp.<name>.ui`):
+
+  ```yaml
+  mcp:
+    shop:
+      type: local
+      command: ["node", "shop-mcp.js"]
+      ui:
+        image_hosts: ["cdn.shop.example", "*.shop-cdn.net"] # https only; exact host or *.suffix
+  ```
+
+  Allowed shapes (unknown fields are dropped, not fatal):
+
+  - `{v: 1, type: "card", title?, subtitle?, body?, badge?, kv?: [{label,
+    value}], image?, buttons?}` — title or body required. At most 6 kv rows,
+    3 buttons; title/subtitle ≤ 120 chars, body ≤ 500, value ≤ 120, image ≤
+    2048 bytes and only https on a configured `image_hosts` host; a broken
+    image drops only the image.
+  - `{v: 1, type: "carousel", cards: [...]}` — the first 10 usable cards.
+  - `questions: {"questions": [...]}` — same shape as `hfy.ask_user`'s
+    arguments. Questions reach the viewer only when the agent itself may ask
+    (`ask_user: true`, top agents): otherwise they are dropped and the card
+    survives. An over-total (32 KiB) or v-not-1 block is dropped whole.
+  - buttons: `{send: {label}}` (label is sent verbatim as a new viewer
+    message), `{link: {label, url}}` (https, opens in a new tab), or
+    `{host: {label, name, payload?}}` (name `a-z0-9_.-`, payload a JSON
+    object ≤ 2 KiB; the message goes to the host app, see below).
+
+  When a tool's call carries questions, the turn pauses on that same call
+  (no second, synthetic ask): the embedded UI answers them in the approval
+  sheet with the card beside it, and the model then receives the tool's own
+  result joined with `{"answers": {...}}` — exactly one `tool_result`.
+  Declining, timing out (`approval.timeout`, else 30m) or stopping the turn
+  all end with the held result plus a plain note; a stop keeps the card but
+  adds "The user stopped before answering.". Approval-gated tools cannot
+  ask: their calls run only after the approval, and any questions they
+  return then are dropped with a log line.
+  Host actions reach the app embedding the widget as
+  `{"v": 1, "type": "action", "name": "<host.name>", "payload": <object>,
+  "call_id": "<the tool call>"}` over the same bridge as tokens
+  (`window.HfyBridge`, webkit messageHandlers, chrome.webview,
+  ReactNativeWebView, or postMessage from the framed widget).
+  Send/host buttons are clickable only while the conversation ends in their
+  own turn and the viewer started it; link buttons are always live. Cards
+  render in every `tool_calls` mode.
 - **Sub-agents** are tools (`hfy__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn. Every agent may call them.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
@@ -339,6 +392,7 @@ event as stored.
   actor is whoever started the turn; `vars` are the grant's, so keep
   secrets out of them: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
+   Put a display card in `_meta["hfy/ui"]` (the next section) for the viewer.
 - **A conversation is a room.** Every agent that answers in it sees the whole
   conversation: its own messages and tool calls as its own, and, once others
   speak (another agent, or a second person), everyone else's messages framed
