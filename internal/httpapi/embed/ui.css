@@ -596,6 +596,35 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 [data-layout="transcript"] .hfy-typing{box-shadow:none;background:none;padding:0}
 [data-layout="transcript"] .hfy-tool-sum,[data-layout="transcript"] .hfy-reasoning{box-shadow:none;border:1px solid var(--hfy-border)}
 
+/* ---- tool cards: a tool's hfy/ui block, rendered under its own row ---- */
+.hfy-card-host:empty{display:none}
+.hfy-cards{display:flex;gap:var(--s2);margin-top:var(--s1);align-items:stretch}
+.hfy-cards.is-carousel{overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:2px;scrollbar-width:thin}
+.hfy-cards.is-carousel .hfy-card{flex:0 0 min(260px,72vw);scroll-snap-align:start}
+.hfy-card{display:flex;flex-direction:column;gap:var(--s2);background:var(--hfy-surface);border:1px solid var(--hfy-border);border-radius:12px;padding:var(--s3);min-width:0;flex:1 1 0;box-shadow:var(--hfy-shadow-1)}
+.hfy-card-top{display:flex;gap:var(--s2);align-items:center;min-width:0}
+.hfy-card-title{font-weight:600;font-size:14px;color:var(--hfy-text);margin:0;overflow-wrap:anywhere}
+.hfy-card-badge{font-size:11px;font-weight:600;line-height:1.4;color:var(--hfy-accent-text);background:var(--hfy-accent-soft);padding:1px 8px;border-radius:999px;white-space:nowrap}
+.hfy-card-sub{font-size:13px;color:var(--hfy-muted);overflow-wrap:anywhere}
+.hfy-card-img{width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid var(--hfy-border)}
+.hfy-card-body{font-size:13px;line-height:1.45;color:var(--hfy-text);margin:0;overflow-wrap:anywhere}
+.hfy-card-kv{display:flex;flex-direction:column;gap:2px;font-size:13px;margin:0;min-width:0}
+.hfy-card-kv div{display:flex;gap:var(--s2);align-items:baseline}
+.hfy-card-kv dt{color:var(--hfy-muted);white-space:nowrap}
+.hfy-card-kv dd{margin:0;color:var(--hfy-text);overflow-wrap:anywhere}
+.hfy-card-btns{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:auto;padding-top:var(--s1)}
+.hfy-card-btn{appearance:none;border:1px solid var(--hfy-border);background:var(--hfy-surface-2);color:var(--hfy-text);font:inherit;font-size:13px;font-weight:600;line-height:1.4;padding:6px 12px;border-radius:999px;cursor:pointer;min-height:34px;text-decoration:none;overflow-wrap:anywhere}
+a.hfy-card-btn{background:var(--hfy-surface-2)}
+.hfy-card-btn:not(:disabled):hover{background:var(--hfy-surface-3)}
+.hfy-card-btn:disabled{opacity:.55;cursor:default}
+/* a card shape this UI cannot draw: its raw JSON takes the card's place */
+.hfy-card-fallback{font:12px/1.4 var(--hfy-mono);background:var(--hfy-surface-2);border:1px solid var(--hfy-border);border-radius:8px;padding:var(--s2);color:var(--hfy-muted);margin-top:var(--s1);overflow-x:auto;white-space:pre}
+/* the sheet covers the flow: the cards it relates to shrink out of the way */
+.is-sheet-open .hfy-card{padding:var(--s2);box-shadow:none;gap:var(--s1)}
+.is-sheet-open .hfy-card-img{display:none}
+.is-sheet-open .hfy-card-title{font-size:13px}
+.is-sheet-open .hfy-card-btns{display:none}
+
 /* ---- small screens ---- */
 @media (max-width:520px){
   .hfy-msg{max-width:88%}

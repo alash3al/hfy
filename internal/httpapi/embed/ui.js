@@ -325,6 +325,90 @@ function hfyCopyFallback(text) {
   if (!ok) throw new Error('copy failed');
 }
 
+/* ---- tool cards: the server's hfy/ui block, parsed and built for the x-hfy-card directive ---- */
+function hfyCardData(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  var cards = [];
+  if (raw.type === 'carousel' && Array.isArray(raw.cards)) cards = raw.cards;
+  else if (raw.type === 'card') cards = [raw];
+  cards = cards.filter(function (c) { return c && typeof c === 'object' && (c.title || c.body); });
+  return cards.length ? cards : null;
+}
+function hfyCardEl(c, doc, callId, live) {
+  var el = doc.createElement('div'); el.className = 'hfy-card';
+  var top = doc.createElement('div'); top.className = 'hfy-card-top';
+  var title = doc.createElement('h3'); title.className = 'hfy-card-title'; title.setAttribute('dir', 'auto'); title.textContent = String(c.title || '');
+  top.appendChild(title);
+  if (c.badge) { var badge = doc.createElement('span'); badge.className = 'hfy-card-badge'; badge.textContent = String(c.badge); top.appendChild(badge); }
+  el.appendChild(top);
+  if (c.subtitle) { var sub = doc.createElement('div'); sub.className = 'hfy-card-sub'; sub.setAttribute('dir', 'auto'); sub.textContent = String(c.subtitle); el.appendChild(sub); }
+  if (c.image) {
+    var img = doc.createElement('img'); img.className = 'hfy-card-img'; img.loading = 'lazy'; img.alt = '';
+    img.src = hfySafeUrl(c.image); // the sanitizer's denylist again; an unsafe url yields an unloaded img
+    if (img.src) el.appendChild(img);
+  }
+  if (c.body) { var body = doc.createElement('p'); body.className = 'hfy-card-body'; body.setAttribute('dir', 'auto'); body.textContent = String(c.body); el.appendChild(body); }
+  if (Array.isArray(c.kv) && c.kv.length) {
+    var kv = doc.createElement('dl'); kv.className = 'hfy-card-kv';
+    c.kv.forEach(function (r) {
+      var row = doc.createElement('div'); var dt = doc.createElement('dt'); var dd = doc.createElement('dd');
+      dt.setAttribute('dir', 'auto'); dt.textContent = String(r.label || '');
+      dd.setAttribute('dir', 'auto'); dd.textContent = String(r.value || '');
+      row.appendChild(dt); row.appendChild(dd); kv.appendChild(row);
+    });
+    el.appendChild(kv);
+  }
+  if (Array.isArray(c.buttons) && c.buttons.length) {
+    var row = doc.createElement('div'); row.className = 'hfy-card-btns';
+    c.buttons.forEach(function (b) {
+      if (b.link) {
+        var a = doc.createElement('a'); a.className = 'hfy-card-btn is-link'; a.setAttribute('dir', 'auto'); a.textContent = String(b.link.label);
+        if ((a.href = hfySafeUrl(b.link.url))) { a.target = '_blank'; a.rel = 'noopener noreferrer'; row.appendChild(a); }
+        return;
+      }
+      var host = b.host, send = !host && b.send ? b.send : null;
+      if (!host && !send) return;
+      var btn = doc.createElement('button'); btn.setAttribute('type', 'button'); btn.className = 'hfy-card-btn';
+      btn.setAttribute('dir', 'auto'); btn.textContent = String((host ? host.label : send.label) || '');
+      btn.disabled = !live;
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        if (host) hfySendToHost('action', { name: host.name, payload: host.payload && typeof host.payload === 'object' ? host.payload : {}, call_id: callId });
+        else if (hfyClient) hfyClient.send(send.label).catch(function () { /* the composer reports send errors */ });
+      });
+      row.appendChild(btn);
+    });
+    if (row.children.length) el.appendChild(row);
+  }
+  return el;
+}
+// While the sheet covers the flow, the newest card scrolls into view above it.
+function hfyCardIntoView() {
+  setTimeout(function () {
+    var cs = document.querySelectorAll('.hfy-card');
+    if (cs.length) cs[cs.length - 1].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, 30); // after x-show has laid the sheet out
+}
+function hfyCardRender(el, block) {
+  var raw = block.uiCard;
+  var sig = (raw ? JSON.stringify(raw) : '') + ':' + (block.cardButtonsLive ? 1 : 0);
+  if (sig === el._hfyCardSig) return;
+  el._hfyCardSig = sig;
+  el.replaceChildren();
+  var cards = hfyCardData(raw);
+  if (!cards) {
+    if (raw) { // a card shape this version cannot draw: its raw JSON, rendered inert
+      var pre = document.createElement('pre'); pre.className = 'hfy-card-fallback'; pre.textContent = hfyPretty(raw);
+      el.appendChild(pre);
+    }
+    return;
+  }
+  var wrap = document.createElement('div');
+  wrap.className = 'hfy-cards' + (cards.length > 1 ? ' is-carousel' : '');
+  cards.forEach(function (c) { wrap.appendChild(hfyCardEl(c, document, block.callId || '', !!block.cardButtonsLive)); });
+  el.appendChild(wrap);
+}
+
 /* ---- markdown: parse(text) -> tree (pure), build(tree) -> DOM ---- */
 var HFY_MD_DEPTH = 6;
 var HFY_MD_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
@@ -627,6 +711,18 @@ document.addEventListener('alpine:init', function () {
       get(function (v) { el.style.setProperty('--hfy-p', String(Math.max(0, Math.min(1, Number(v) || 0)))); });
     });
   });
+  // x-hfy-card="block": builds a tool's card; rerenders when the card, the
+  // block's call id or its buttons' gated state changes.
+  window.Alpine.directive('hfy-card', function (el, dir, util) {
+    var get = util.evaluateLater(dir.expression);
+    util.effect(function () {
+      get(function (block) {
+        if (!block) return;
+        void block.uiCard; void block.callId; void block.cardButtonsLive; // dependencies first
+        hfyCardRender(el, block);
+      });
+    });
+  });
   window.Alpine.data('hfyEmbed', function () { return window.hfyEmbed(); });
 });
 
@@ -796,6 +892,7 @@ window.hfyEmbed = function () {
         decidedText: '', decidedCls: '', busy: false, hasDetails: false,
         showPendingOwn: false, showPendingOther: false, waitingText: '', choice: '', submitted: false,
         isAsk: false, questions: [], draftAnswers: {}, finalAnswers: null, declineReason: '',
+        uiCard: null, cardButtonsLive: false,
         askState: '', askCls: '', askStateText: '', askCanOpen: false, askRows: [], askHasRows: false };
     },
     setAtts: function (b, list) {
@@ -884,6 +981,7 @@ window.hfyEmbed = function () {
           b.content = d.content || '';
           // an ask's result is {"answers": {...}}: the fallback when the decision event carried none
           if (b.isAsk && !b.finalAnswers) { var res = hfyData(b.content); if (res && res.answers && typeof res.answers === 'object') b.finalAnswers = res.answers; }
+          if (d.ui != null) b.uiCard = d.ui;
           if (d.structured != null) b.structuredText = hfyPretty(d.structured); break;
         case 'tool_call.interrupted':
           turn = this.ensureTurn(list, turnId);
@@ -892,6 +990,10 @@ window.hfyEmbed = function () {
           turn = this.ensureTurn(list, turnId);
           b = this.findTool(turn, d.call_id);
           if (!b) { b = this.newToolBlock(env, { call_id: d.call_id }); turn.blocks.push(b); }
+          if (d.questions && b.questions.length === 0) { // design B: the tool's own call asked
+            b.questions = hfyAskQuestions(d.questions);
+          }
+          if (d.ui != null) b.uiCard = d.ui;
           if (!b.showDecided) b.showApproval = true; break;
         case 'approval.decided':
           turn = this.ensureTurn(list, turnId);
@@ -950,7 +1052,7 @@ window.hfyEmbed = function () {
       var yesNo = { yes: this.t('yes'), no: this.t('no') }, argKey = lang + '|' + yesNo.yes + '|' + yesNo.no;
       this.turns.forEach(function (t) { t.blocks.forEach(function (b) { if (b.isText && b.isUser) people[b.actorKey] = 1; }); });
       var multi = Object.keys(people).length > 1;
-      this.turns.forEach(function (turn) {
+      this.turns.forEach(function (turn, turnIdx) {
         var terminal = HFY_TERMINAL.indexOf(turn.state) !== -1, tick = hfyTick(turn.state);
         // a turn is the viewer's when its user message is
         var starter = turn.blocks.find(function (b) { return b.isText && b.isUser; });
@@ -963,11 +1065,14 @@ window.hfyEmbed = function () {
             // pending approvals stay visible in every mode: the viewer's own
             // open the sheet; anyone else's are a read-only "waiting" note
             var waitOther = turn.userLabel ? self.t('waitingFor').replace('{name}', turn.userLabel) : self.t('approvalNeeded');
-            b.showPendingOwn = b.showApproval && turn.own && !b.isAsk;
-            b.showPendingOther = b.showApproval && !turn.own && !b.isAsk;
+            b.hasQuestions = b.questions.length > 0; // ask calls carry them in their arguments, a tool's ride its request
+            b.showPendingOwn = b.showApproval && turn.own && !b.hasQuestions;
+            b.showPendingOther = b.showApproval && !turn.own && !b.hasQuestions;
             b.waitingText = turn.own ? self.t('waitingYou') : waitOther;
             if (b.showApproval && turn.own && !b.submitted) pendingOwn.push(b);
-            if (b.isAsk) self.askRecord(b, turn.own, waitOther);
+            if (b.hasQuestions) self.askRecord(b, turn.own, waitOther);
+            // a card's send/host buttons live only while the conversation ends here in the viewer's own idle turn
+            b.cardButtonsLive = b.uiCard != null && turnIdx === self.turns.length - 1 && turn.own && !self.ownActive;
             b.niceName = hfyToolName(b.name) || self.t('tool');
             if (b.argLang !== argKey) { b.argList = hfyArgList(b.argsRaw, yesNo); b.hasArgList = b.argList.length > 0; b.argLang = argKey; }
             b.toolLabel = b.name || self.t('tool');
@@ -981,12 +1086,13 @@ window.hfyEmbed = function () {
             b.hasDetails = !!(b.argsText || b.content || b.structuredText);
             b.showRawArgs = mode === 'details' && !!b.argsText;
             // hidden mode still keeps decided approvals: the viewer made that call
-            // ask_user calls are never tool rows, in any mode: they have their own record
-            b.showSummary = !b.isAsk && !b.showApproval && (mode === 'summary' || (mode === 'hidden' && !!b.decision));
-            b.showDetails = !b.isAsk && !b.showApproval && mode === 'details';
-            hidden = !b.isAsk && !b.showApproval && !b.showSummary && !b.showDetails;
+            // asked calls are never tool rows, in any mode: they have their own record
+            b.showSummary = !b.hasQuestions && !b.showApproval && (mode === 'summary' || (mode === 'hidden' && !!b.decision));
+            b.showDetails = !b.hasQuestions && !b.showApproval && mode === 'details';
+            // a card the tool shipped keeps its block alive in every mode
+            hidden = !b.hasQuestions && !b.showApproval && !b.showSummary && !b.showDetails && b.uiCard == null;
             // a question set the server refused (or one not yet paused) has nothing to show
-            if (b.isAsk && b.askState === 'asking') hidden = true;
+            if (b.hasQuestions && b.askState === 'asking') hidden = true;
           }
           if (b.isText && b.endsFor !== b.text) {
             var leaf = b.isAgent ? hfyMdLastLeaf(hfyMdParse(b.text)) : null;
@@ -1324,7 +1430,7 @@ window.hfyEmbed = function () {
       });
       if (fresh) this._sheetMin = false; // a new request (or a reload) surfaces the sheet
       var steps = hfyBuildSteps(list.map(function (b) {
-        return { kind: b.isAsk && b.questions.length ? 'ask' : 'approval', callId: b.callId, questions: b.questions };
+        return { kind: b.hasQuestions ? 'ask' : 'approval', callId: b.callId, questions: b.questions };
       }));
       var n = steps.length;
       this.sheetSteps = steps;
@@ -1332,7 +1438,7 @@ window.hfyEmbed = function () {
       if (this.sheetStep > n - 1) this.sheetStep = Math.max(0, n - 1);
       var idx = this.sheetStep, step = steps[idx], b = step && step.callId ? byId[step.callId] : null;
       var multi = n > 1, last = idx === n - 1, s = hfyBlankSheet();
-      var done = function (x) { return x.isAsk && x.questions.length ? hfyAskComplete(x.questions, x.draftAnswers) : !!x.choice; };
+      var done = function (x) { return x.hasQuestions ? hfyAskComplete(x.questions, x.draftAnswers) : !!x.choice; };
       this.pendingCount = String(list.length);
       this.showActionPill = list.length > 0 && this._sheetMin;
       if (step) {
@@ -1369,7 +1475,10 @@ window.hfyEmbed = function () {
       }
       this.sheet = s;
       var open = list.length > 0 && !this._sheetMin;
-      if (open !== this.sheetOpen) { this.sheetOpen = open; this.syncModal(); this.sheetFocus(open, list.length > 0); }
+      if (open !== this.sheetOpen) {
+        this.sheetOpen = open; this.syncModal(); this.sheetFocus(open, list.length > 0);
+        if (open) hfyCardIntoView();
+      }
     },
     questionView: function (s, step, b) {
       var self = this, q = b.questions[step.qi], v = b.draftAnswers[q.id], name = 'hfy-q-' + step.key;
@@ -1475,14 +1584,14 @@ window.hfyEmbed = function () {
       for (var i = 0; i < list.length; i++) {
         var b = list[i];
         try {
-          if (b.isAsk && b.questions.length) await hfyClient.approve(b.callId, true, undefined, hfyAskPayload(b.questions, b.draftAnswers));
+          if (b.hasQuestions) await hfyClient.approve(b.callId, true, undefined, hfyAskPayload(b.questions, b.draftAnswers));
           else await hfyClient.approve(b.callId, b.choice === 'allowed');
           b.submitted = true;
         } catch (e) {
           this.sheetError = (e && e.message) || this.t('error');
           // a 400 names the question id; else the call's first step
-          var named = b.isAsk ? b.questions.find(function (q) { return new RegExp('\\b' + q.id + '\\b').test(this.sheetError); }, this) : null;
-          failKey = named ? b.callId + ':' + named.id : (b.isAsk && b.questions.length ? b.callId + ':' + b.questions[0].id : b.callId);
+          var named = b.hasQuestions ? b.questions.find(function (q) { return new RegExp('\\b' + q.id + '\\b').test(this.sheetError); }, this) : null;
+          failKey = named ? b.callId + ':' + named.id : (b.hasQuestions ? b.callId + ':' + b.questions[0].id : b.callId);
           break;
         }
       }

@@ -120,7 +120,8 @@
 
                     <template x-if="block.isTool">
                       <div class="hfy-tool-wrap">
-                        <template x-if="block.isAsk">
+                        <div class="hfy-card-host" x-show="block.uiCard" x-hfy-card="block"></div>
+                        <template x-if="block.hasQuestions">
                           <div class="hfy-ask-rec" :class="block.askCls">
                             <div class="hfy-ask-head">
                               <svg class="hfy-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
