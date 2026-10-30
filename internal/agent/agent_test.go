@@ -566,7 +566,7 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 		Actor                            struct{ Type, Ref string }
 		Vars                             map[string]string
 	}
-	ok := json.Unmarshal(meta["io.github.alash3al.hfy/turn"], &got) == nil
+	ok := json.Unmarshal(meta["hfy/turn"], &got) == nil
 	turnRow, _ := e.store.EventByID(e.ctx, e.store.Pool, turn)
 	if !ok || got.Conversation != e.conv.UUID.String() || got.Turn != turnRow.UUID.String() || got.CallID != "w1" ||
 		got.Agent != "main" || got.Actor.Type != "external" || got.Scope != "u1" || got.Vars["who"] != "everyone" {

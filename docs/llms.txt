@@ -266,7 +266,7 @@ agent:
   mcp: [orders]        # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
 ```
 
-Every tool call carries `_meta["io.github.alash3al.hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content.
+Every tool call carries `_meta["hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content.
 
 Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help center as an MCP search tool (filtered by `_meta.actor`), and the agent calls it when needed. For small, fixed knowledge, put it in the system prompt or pass it via grant `vars`.
 

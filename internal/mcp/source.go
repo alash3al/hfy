@@ -33,10 +33,14 @@ type Result struct {
 	IsError    bool
 }
 
-// MetaKey is the _meta key every tool call carries (reverse DNS, as the MCP
-// spec asks): who is acting, in which conversation and turn, so a tool server can
-// authorize the call itself. Its value is a TurnMeta.
-const MetaKey = "io.github.alash3al.hfy/turn"
+// MetaKey and UIMetaKey are the _meta keys a tool call carries: MetaKey names
+// who is acting, in which conversation and turn, so a tool server can authorize
+// the call itself (its value is a TurnMeta); UIMetaKey names a UI block
+// (a card for the chat timeline) the tool may return.
+const (
+	MetaKey   = "hfy/turn"
+	UIMetaKey = "hfy/ui"
+)
 
 // TurnMeta is the per-call context sent under MetaKey.
 type TurnMeta struct {

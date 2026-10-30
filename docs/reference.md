@@ -334,7 +334,7 @@ event as stored.
 - **Sub-agents** are tools (`hfy__<name>`), isolated (task text only), depth 1;
   their usage counts toward the parent's turn. Every agent may call them.
 - **Tool servers know who is calling.** Every MCP tool call carries `_meta`
-  `"io.github.alash3al.hfy/turn": {conversation, turn, call_id, agent, actor: {type,
+  `"hfy/turn": {conversation, turn, call_id, agent, actor: {type,
   ref}, scope, vars}`, so your MCP server can authorize each call itself (the
   actor is whoever started the turn; `vars` are the grant's, so keep
   secrets out of them: every MCP server, remote ones too, receives them). Return
