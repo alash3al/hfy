@@ -44,6 +44,9 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #     approve_destructive: true      # wait on tools the server's annotations say
 #                                    # are destructive (readOnlyHint not true AND
 #                                    # destructiveHint explicitly true)
+#     ui:                            # opt-in: this server's tools may return cards
+#       image_hosts: [cdn.example.com] # and ask the viewer questions; card images
+#                                      # load only from these hosts (no key = none)
 #   search:
 #     type: remote
 #     url: https://search.example.com/mcp

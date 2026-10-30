@@ -121,6 +121,16 @@ type MCPServer struct {
 	// (readOnlyHint not true, destructiveHint explicitly true) say they may
 	// destroy things.
 	ApproveDestructive bool `yaml:"approve_destructive"`
+	// UI opts this server's tools into returning cards (mcp _meta "hfy/ui")
+	// and tool-triggered questions. Nil (absent) = both dropped.
+	UI *UI `yaml:"ui"`
+}
+
+// UI enables the ui block one MCP server's tools may return. ImageHosts
+// filters the image URLs a card may show ("*.suffix" patterns allowed); an
+// empty list drops images.
+type UI struct {
+	ImageHosts []string `yaml:"image_hosts"`
 }
 
 type Embeddings struct {
@@ -320,12 +330,13 @@ func Expand(s string, lookup func(string) (string, bool)) (string, error) {
 }
 
 var (
-	envName    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	nameRe     = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-	varNameRe  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	placeholRe = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
-	accentRe   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-	langRe     = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
+	envName       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	nameRe        = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	varNameRe     = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	placeholRe    = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
+	accentRe      = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	langRe        = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
+	hostPatternRe = regexp.MustCompile(`^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$`)
 )
 
 // Render substitutes {{var}} placeholders; unknown names are left as written.
@@ -530,6 +541,13 @@ func (c *Config) Validate() error {
 		for _, p := range s.Approval {
 			if _, err := path.Match(p, ""); err != nil {
 				bad("mcp.%s.approval: bad pattern %q", name, p)
+			}
+		}
+		if s.UI != nil {
+			for _, h := range s.UI.ImageHosts {
+				if !hostPatternRe.MatchString(h) {
+					bad(`mcp.%s.ui.image_hosts: %q must be a host like cdn.example.com or "*.example.com"`, name, h)
+				}
 			}
 		}
 		switch s.Type {

@@ -106,6 +106,9 @@ type ToolResult struct {
 	// Structured is the tool's MCP structuredContent, passed through to
 	// clients (e.g. UI components); the model sees Content.
 	Structured json.RawMessage `json:"structured,omitempty"`
+	// UI is the tool's _meta "hfy/ui" block, sanitized, passed through to
+	// clients; the model never sees it.
+	UI json.RawMessage `json:"ui,omitempty"`
 }
 
 func (ToolResult) EventType() EventType { return EventToolResult }
@@ -116,8 +119,23 @@ func (r ToolResult) Validate() error {
 	return nil
 }
 
+// HeldResult is the finished outcome of a tool that ran and then asked the
+// viewer questions: its text and structuredContent are stored with the
+// approval request and become the tool_result once the questions settle.
+type HeldResult struct {
+	Content    string          `json:"content"`
+	Structured json.RawMessage `json:"structured,omitempty"`
+}
+
 type ApprovalRequested struct {
 	CallID string `json:"call_id"`
+	// Tool-triggered questions (design B: they attach to the tool's real
+	// call): Messages, the card shown while they are open and the held
+	// result. All empty for a plain approval pause. Additive and optional,
+	// so v stays 1.
+	Questions json.RawMessage `json:"questions,omitempty"`
+	UI        json.RawMessage `json:"ui,omitempty"`
+	Held      *HeldResult     `json:"held,omitempty"`
 }
 
 func (ApprovalRequested) EventType() EventType { return EventApprovalRequested }

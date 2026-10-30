@@ -180,6 +180,9 @@ func (c *Client) Call(ctx context.Context, tool string, args json.RawMessage, me
 	if res.StructuredContent != nil {
 		out.Structured, _ = json.Marshal(res.StructuredContent)
 	}
+	if ui, ok := res.Meta[UIMetaKey]; ok { // never in the text: flatten drops _meta anyway
+		out.UI, _ = json.Marshal(ui)
+	}
 	return out, nil
 }
 

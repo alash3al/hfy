@@ -31,7 +31,7 @@ func TestLocalClientListsAndCalls(t *testing.T) {
 	m.Add(c)
 
 	tools, errs := m.Tools(ctx, nil)
-	if len(errs) > 0 || len(tools) != 6 { // echo, write_file, whoami, getenv, boom, slow
+	if len(errs) > 0 || len(tools) != 10 { // echo, write_file, whoami, getenv, boom, slow, ui, ui_ask, ui_boom, ui_silent
 		t.Fatalf("tools=%v errs=%v", tools, errs)
 	}
 	if tools[0].FullName() != "files.boom" || mcp.WireName(tools[0]) != "files__boom" {
@@ -50,6 +50,36 @@ func TestLocalClientListsAndCalls(t *testing.T) {
 	res, err = m.Call(ctx, "files.boom", nil, nil)
 	if err != nil || !res.IsError {
 		t.Fatalf("boom must be an error result, got %+v %v", res, err)
+	}
+}
+
+// _meta handoff: the server's hfy/ui block arrives on the result, never in the
+// text the model reads.
+func TestUIMetaRoundTrip(t *testing.T) {
+	ctx := t.Context()
+	m := mcp.NewManager()
+	c := mcp.NewClient(ctx, "files", fakeServer())
+	defer c.Close()
+	m.Add(c)
+	res, err := m.Call(ctx, "files.ui", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ui any
+	if len(res.UI) == 0 || !json.Valid(res.UI) || json.Unmarshal(res.UI, &ui) != nil {
+		t.Fatalf("no _meta hfy/ui block: %+v", res)
+	}
+	if res.Content != "here is your order" || strings.Contains(res.Content, "Margherita") {
+		t.Fatalf("content leaked the ui block: %q", res.Content)
+	}
+	// a tool without _meta carries none
+	if res, err := m.Call(ctx, "files.echo", json.RawMessage(`{"text":"hi"}`), nil); err != nil || len(res.UI) != 0 {
+		t.Fatalf("echo: %+v %v", res.UI, err)
+	}
+	// _meta with no content blocks: the ui block never becomes the model's text
+	res, err = m.Call(ctx, "files.ui_silent", nil, nil)
+	if err != nil || res.Content != "" || len(res.UI) == 0 || !strings.Contains(string(res.UI), "Quiet card") {
+		t.Fatalf("ui_silent: content=%q ui=%v err=%v", res.Content, res.UI, err)
 	}
 }
 

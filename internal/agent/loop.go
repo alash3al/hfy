@@ -414,6 +414,18 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		slog.Warn("tool's structured result dropped: too large", "tool", tool.FullName(), "bytes", len(res.Structured))
 		res.Structured = nil
 	}
+	// A tool's ui block reaches clients only when its server's config opted
+	// in; errors, sub-agents and ask-less agents lose it. Questions ride the
+	// result separately and pause the turn later (handleCall).
+	if cfg := l.rt.Cfg.MCP[tool.Server]; cfg.UI != nil && !res.IsError {
+		card, qs, err := svc.SanitizeUI(res.UI, cfg.UI.ImageHosts, l.spec.Top && l.spec.Builtins[builtins.AskUser])
+		if err != nil {
+			slog.Warn("tool's ui block dropped", "tool", tool.FullName(), "err", err)
+		}
+		res.UI, res.Questions = card, qs
+	} else {
+		res.UI, res.Questions = nil, nil
+	}
 	return res
 }
 

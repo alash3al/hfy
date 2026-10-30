@@ -202,7 +202,7 @@ func (s *turnSink) CallStarted(ctx context.Context, c CallInfo) error {
 }
 
 func (s *turnSink) CallFinished(ctx context.Context, c CallInfo, r mcp.Result) error {
-	return s.append(ctx, types.ToolResult{CallID: c.ID, Content: r.Content, IsError: r.IsError, Structured: r.Structured}, nil)
+	return s.append(ctx, types.ToolResult{CallID: c.ID, Content: r.Content, IsError: r.IsError, Structured: r.Structured, UI: r.UI}, nil)
 }
 
 // quietSink is for sub-agents and the summarizer: of their runs only

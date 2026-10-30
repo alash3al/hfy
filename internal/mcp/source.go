@@ -30,7 +30,12 @@ func (t Tool) FullName() string { return t.Server + "." + t.Name }
 type Result struct {
 	Content    string          // what the model sees
 	Structured json.RawMessage // the tool's structuredContent, for clients (e.g. UI components)
-	IsError    bool
+	// UI is the tool's _meta "hfy/ui" block: the raw block as returned (in
+	// Call) and the sanitized card/questions once the agent loop gates it.
+	// The model never sees either.
+	UI        json.RawMessage
+	Questions json.RawMessage
+	IsError   bool
 }
 
 // MetaKey and UIMetaKey are the _meta keys a tool call carries: MetaKey names

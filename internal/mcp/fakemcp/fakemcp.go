@@ -46,6 +46,29 @@ func MaybeRun() {
 		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: os.Getenv(in.Text)}}}, nil, nil
 		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui", Description: "Return ui _meta next to text content"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			// The key matches mcp.UIMetaKey (this package imports nothing).
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "here is your order"}},
+				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Margherita", "body": "12 EUR"}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask", Description: "Return text plus a card that carries questions"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "your pizza, pick a size"}},
+				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Order",
+					"questions": map[string]any{"questions": []any{map[string]any{"id": "size",
+						"text": "Which size?", "type": "single", "options": []string{"small", "large"}}}}}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_boom", Description: "Fails and returns ui _meta anyway"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			r := &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Doomed"}}}
+			r.SetError(os.ErrInvalid)
+			return r, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_silent", Description: "Return ui _meta with no content blocks"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Quiet card"}}}, nil, nil
+		})
 	sdk.AddTool(s, &sdk.Tool{Name: "boom", Description: "Always fails"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
 			r := &sdk.CallToolResult{}

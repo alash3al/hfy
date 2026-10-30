@@ -320,3 +320,27 @@ func TestApprovalRequires(t *testing.T) {
 		}
 	}
 }
+
+// The ui node opts one MCP server into cards and questions; hosts are checked
+// and unknown keys inside it rejected.
+func TestMCPServerUI(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	c, err := Parse([]byte(base+`mcp: {files: {type: remote, url: http://x, ui: {image_hosts: [cdn.example.com, "*.s3.amazonaws.com"]}}}`+"\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := c.MCP["files"].UI
+	if u == nil || len(u.ImageHosts) != 2 || u.ImageHosts[0] != "cdn.example.com" {
+		t.Fatalf("ui parsed: %+v", u)
+	}
+	for yaml, want := range map[string]string{
+		`mcp: {files: {type: remote, url: http://x, ui: {image_host: [cdn.example.com]}}}`:       `unknown key "image_host" in config.mcp.files.ui`,
+		`mcp: {files: {type: remote, url: http://x, ui: {image_hosts: ["https://evil.com/x"]}}}`: "mcp.files.ui.image_hosts",
+		`mcp: {files: {type: remote, url: http://x, ui: {image_hosts: ["not a host"]}}}`:         "mcp.files.ui.image_hosts",
+		`mcp: {files: {type: remote, url: http://x, ui: {image_hosts: [""]}}}`:                   "mcp.files.ui.image_hosts",
+	} {
+		if _, err := Parse([]byte(base+yaml+"\n"), env(nil)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("want %q, got %v", want, err)
+		}
+	}
+}
