@@ -1,0 +1,75 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-6",
+  "name": "loadolder-state-seen",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T09:59:52.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Finish the search"
+        },
+        {
+          "args": {
+            "q": "receipt"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "2 results",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T09:59:54.000Z",
+          "kind": "tool",
+          "name": "files.search",
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": true,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "id": "ev-1a",
+          "iso": "2026-01-02T09:59:50.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Earlier context (was below the live page's slice, block id unseen)"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

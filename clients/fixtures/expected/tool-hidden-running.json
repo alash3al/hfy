@@ -1,0 +1,64 @@
+{
+  "config": {
+    "tool_calls": "hidden"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-4",
+  "name": "tool-hidden-running",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Find the receipt"
+        },
+        {
+          "args": {
+            "path": "receipts/jan.pdf"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": true,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "files.read_file",
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": true,
+      "state": "running"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

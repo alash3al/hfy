@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Run two things"
         },
@@ -37,8 +39,10 @@
           "kind": "tool",
           "name": "shop.search",
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -60,6 +64,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "and this too"
         }

@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Hello, world!"
         }

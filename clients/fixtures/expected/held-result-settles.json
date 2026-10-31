@@ -1,0 +1,64 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-6",
+  "name": "held-result-settles",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Pay the invoice"
+        },
+        {
+          "args": {
+            "amount": 9
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "Paid EUR 9",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:02:04.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": true,
+          "showDetails": false,
+          "showHead": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": true,
+          "status": "done",
+          "stopped": true
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": true,
+      "state": "running"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

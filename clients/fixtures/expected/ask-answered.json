@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "I want a pizza"
         },
@@ -145,8 +147,10 @@
             }
           ],
           "showApproval": false,
+          "showDay": false,
           "showDecided": true,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,
@@ -167,8 +171,10 @@
           "kind": "tool",
           "name": "shop.pay",
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": false,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -181,6 +187,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": false,
           "streaming": false,
           "text": "Ordered: Large, olives, extra cheese, after 6pm."
         }

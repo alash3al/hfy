@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Order a Margherita"
         },
@@ -101,8 +103,10 @@
             }
           ],
           "showApproval": false,
+          "showDay": false,
           "showDecided": true,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,
@@ -120,6 +124,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": false,
           "streaming": false,
           "text": "Margherita (Medium) confirmed, EUR 9."
         }

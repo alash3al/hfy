@@ -51,6 +51,11 @@ created_at}`. Rules the test enforces on every file:
   fabricated stamp would make folds non-deterministic).
 - `v` must be the current wire version (`1`) when present.
 - A `turn` event's `id` **is** the turn id; children carry it as `parent`.
+- Day separators came from the fold's **device time zone** in the browser; the
+  harness fixes that choice by running node with `TZ=UTC` (set in
+  `fixtures_test.go` before spawning it), so scenarios that cross a calendar
+  midnight (`grouping-gaps`) and `expected/*.json` in general are deterministic
+  across machines. Keep that pin in any other harness.
 
 Delivery semantics: `path:"live"` folds through `fold(env, false)` — unless an
 event carries `"history": true`. History-flagged events must form one **leading
@@ -61,8 +66,10 @@ as `connect()`'s page. `text.delta`/`reasoning.delta` are ephemeral and can
 never be history. After the leading history run the harness pins
 `liveAfter` into the projection's `lastEventId`, as `HfyClient#connect` does,
 and every live delivery moves it from there. `pages:` are delivered through the
-component's real `loadOlder()` (merging/deduping/overlap settlement included),
-as `HfyClient#loadHistory` does while the loader collects.
+component's real `loadOlder()` — `HfyClient#loadOlder` fetches **one page per
+call**, so the harness keeps calling `loadOlder()` while `hasOlder` holds (a
+scenario needing two pages therefore exercises two calls) — with the
+component's merging/deduping/overlap settlement included.
 
 ### Duplicate delivery (the client.js rule the Dart client must copy)
 
@@ -70,10 +77,12 @@ Every delivery — live, history, and loadOlder pages — goes through a client-
 `fire()` that mirrors `HfyClient`'s private `#fire` (client.js:165-173):
 
 1. an envelope with `id != null` is delivered **at most once**: a per-client
-   seen-set tracks every id, and a re-delivered envelope is dropped entirely;
-2. only a **live** delivery (not history) updates `lastEventId`, and it does so
-   even when… it is always the first delivery (dropped duplicates change
-   nothing); `liveAfter`/history deliveries never touch it.
+   seen-set tracks every id, and a re-delivered envelope is dropped entirely
+   (before it can fire, move the cursor, or fold);
+2. only a **live** delivery (not history) updates `lastEventId`; since a
+   re-delivered id is dropped before anything else, an envelope updates the
+   cursor exactly once, on its first (necessarily live) delivery.
+   `liveAfter`/history deliveries never touch the cursor.
 
 So a reconnect that replays a `text.delta` under the same envelope id cannot
 double-append text, and replayed durable events cannot duplicate blocks — the
@@ -92,7 +101,8 @@ settles; it drops everything presentation-only.
 Mid-stream states are pinned by fixtures that **end mid-stream on purpose**
 (text deltas still streaming, reasoning deltas, two active turns, an ask that
 has never been surfaced…) — the final state of such a scenario IS its
-mid-stream state, and every mutation listed in the test's history survives it.
+mid-stream state, and a mutation that changes any of it makes the comparison
+against `expected/*.json` fail.
 
 ```json
 {
@@ -126,6 +136,7 @@ Common:
 | `id` | the folding event's id (streaming blocks get the synthetic `"<turnId>:stream"` / `"<turnId>:rstream"`) |
 | `kind` | `text`, `reasoning` or `tool` — the only block kinds the fold builds |
 | `iso` | ISO timestamp of the folding event (ordering/tag; formatted text is dropped) |
+| `showDay` / `showHead` | grouping, computed in `relayout()`: `showDay` marks the day's first visible block (calendar day changes); `showHead` a new group (day change, actor change, or a text block more than 5 minutes after the previous one) — both are measured against the previous **visible** block of any kind, hidden tool blocks show no separator and reset nothing; the day/time zone they derive from is pinned to UTC by the harness (see the header rules above), the label text itself is presentation-only and dropped |
 
 `text` additionally:
 
@@ -135,7 +146,7 @@ Common:
 | `ref` | the actor's `ref` (group framing; `""` for anonymous) |
 | `text` | the message text |
 | `streaming` | true only while `text.delta`s are still pending their durable `message.text` |
-| `attachments` | exactly what the fold computes for the block (`setAtts` → `mapAtts`), as `{images: […], files: […]}`, present only when a message carried any: each entry is the real `{k, url, label, isImage, isLink, isPlain}` — `url` is the **absolute url after `hfySafeUrl`** (relative `/v1/files/…` resolved against the page origin, `javascript:` and other unsafe schemes dropped to `""`), `label` `name ‖ mime ‖ t('file')`, `isImage` a safe url + `image/*` mime (goes to `images`), `isLink` a safe non-image link (goes to `files`), `isPlain` anything without a safe url |
+| `attachments` | exactly what the fold computes for the block (`setAtts` → `mapAtts`), as `{images: […], files: […]}`, present only when a message carried any: each entry is the real `{url, label, isImage, isLink, isPlain}` — `url` is the **absolute url after `hfySafeUrl`** (relative `/v1/files/…` resolved against the page origin, `javascript:` and other unsafe schemes dropped to `""`), `label` `name ‖ mime ‖ t('file')`, `isImage` a safe url + `image/*` mime (goes to `images`), `isLink` a safe non-image link (goes to `files`), `isPlain` anything without a safe url; the fold additionally assigns each entry an internal `k` (a stable id like `(file‖url‖mime):i` it only ever uses as Alpine's `x-for` :key), which is deliberately **not** part of the projection — a Dart port is free to key its rows however it likes |
 
 `reasoning` additionally: `text`, `streaming`.
 
@@ -164,8 +175,9 @@ Common:
 Dropped on purpose (presentation-only or environment-dependent): row/bubble
 class names, DOM, Alpine internals and derived labels that quote the string
 tables (`statusText`, `waitingText`, `askStateText`, `actorLabel`, tick
-labels…), formatted day/time text (ISO `iso` is kept), avatar/hue classes,
-grouping, fold-in-view geometry, token numbers/usage, and
+labels…), formatted day/time text (ISO `iso` and the day-separator/head booleans
+`showDay`/`showHead` are kept; the label strings are not), avatar/hue classes,
+fold-in-view geometry, token numbers/usage, and
 `model.usage`/`summary` events — note the **UI fold ignores both** (no
 projection possible for them; a Dart SDK that wants summary banners needs its
 own decision). The sheet extends from `pendingOwn` deterministically, so only

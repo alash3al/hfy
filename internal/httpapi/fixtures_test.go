@@ -79,6 +79,10 @@ function canon(x) {
 }
 const pretty = v => JSON.stringify(canon(v), null, 2) + '\n';
 
+// k (the fold's internal Alpine x-for row key) is deliberately NOT part of the
+// projection: it only keys DOM rows, so a Dart port is free to key rows however
+// it likes (see clients/fixtures/README.md, the text-block attachments row).
+const attView = a => ({ url: a.url, label: a.label, isImage: a.isImage, isLink: a.isLink, isPlain: a.isPlain });
 // The projection: every field the fold actually settles, none of the
 // presentation-only ones (see clients/fixtures/README.md for the schema).
 function projection(def, c, wireStructured, hasOlder, lastEventId) {
@@ -91,6 +95,10 @@ function projection(def, c, wireStructured, hasOlder, lastEventId) {
     showTyping: t.showTyping,
     blocks: t.blocks.map(b => {
       const base = { id: b.id, kind: b.kind, iso: b.iso };
+      // grouping (relayout): day separator and group head, derived from the
+      // previous VISIBLE block of any kind — not from hidden tool rows
+      base.showDay = b.showDay;
+      base.showHead = b.showHead;
       if (b.kind === 'text') {
         base.role = b.isAgent ? 'agent' : 'user';
         base.ref = b.ref || '';
@@ -98,7 +106,7 @@ function projection(def, c, wireStructured, hasOlder, lastEventId) {
         base.streaming = b.streaming;
         // the fold's own attachment split (setAtts -> mapAtts): every field the
         // template reads, urls resolved by hfySafeUrl against the page origin
-        if (b.images.length || b.files.length) base.attachments = { images: b.images, files: b.files };
+        if (b.images.length || b.files.length) base.attachments = { images: b.images.map(attView), files: b.files.map(attView) };
         return base;
       }
       if (b.kind === 'reasoning') {
@@ -177,14 +185,16 @@ async function runScenario(def) {
     comp.fold(env, isHistory);
   };
   const listeners = [];
+  let pageIdx = 0;
   const client = {
     viewer: def.viewer || null,
     hasOlder: !!def.hasOlder,
+    // HfyClient#loadOlder (client.js:108-112) fetches ONE history page per
+    // call and reports whether one remains — it never bursts all pages at once
     loadOlder: function () {
-      (def.pages || []).forEach(p => {
-        (p.events || []).forEach(e => listeners.forEach(fn => fn(e, true)));
-        client.hasOlder = !!(p && p.next);
-      });
+      const p = (def.pages || [])[pageIdx++];
+      ((p && p.events) || []).forEach(e => listeners.forEach(fn => fn(e, true)));
+      client.hasOlder = !!(p && p.next);
     }
   };
   api.setClient(client);
@@ -199,7 +209,7 @@ async function runScenario(def) {
   });
   if (def.pages && def.pages.length) {
     listeners.push(function (e, isHistory) { fire(e, isHistory); }); // as hfyClient.init does
-    await comp.loadOlder();
+    while (client.hasOlder) await comp.loadOlder(); // one page per call, as the load-older chip does
   }
   // minimize is the user dragging the sheet down: run the REAL UI action so the
   // fixture can pin the minimized sheet (closed, action pill visible)
@@ -349,6 +359,7 @@ func TestFixturesMatchJS(t *testing.T) {
 			} `json:"config"`
 			LiveAfter string `json:"liveAfter"`
 			Minimize  bool   `json:"minimize"`
+			HasOlder  bool   `json:"hasOlder"`
 			Events    []struct {
 				ID        string `json:"id"`
 				Type      string `json:"type"`
@@ -410,6 +421,11 @@ func TestFixturesMatchJS(t *testing.T) {
 		}
 		if !needsLiveAfter && def.LiveAfter != "" {
 			t.Errorf("%s: liveAfter on a scenario that delivers no history content", name)
+		}
+		// the client only pages while it knows it has an older page: a fixture
+		// that ships pages but starts without hasOlder models an impossible state
+		if len(def.Pages) > 0 && !def.HasOlder {
+			t.Errorf("%s: pages without header hasOlder (hasOlder must be true before the first loadOlder)", name)
 		}
 		var checkEnvs []struct {
 			ID        string `json:"id"`

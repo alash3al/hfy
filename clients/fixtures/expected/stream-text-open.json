@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "What is for dinner?"
         },
@@ -29,6 +31,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": true,
           "streaming": true,
           "text": "Hello, world"
         }

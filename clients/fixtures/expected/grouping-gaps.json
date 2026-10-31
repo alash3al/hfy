@@ -1,0 +1,150 @@
+{
+  "config": {
+    "tool_calls": "hidden"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-14",
+  "name": "grouping-gaps",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-10-31T10:00:01.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Text A"
+        },
+        {
+          "id": "ev-4",
+          "iso": "2026-10-31T10:00:02.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Agent answer one (new actor -> head)"
+        },
+        {
+          "args": {
+            "q": "midnight"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": true,
+          "id": "ev-5",
+          "isAsk": false,
+          "iso": "2026-10-31T10:04:59.000Z",
+          "kind": "tool",
+          "name": "files.search",
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        },
+        {
+          "id": "ev-6",
+          "iso": "2026-10-31T10:05:03.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Agent answer two (5:01 after the first agent text, 4s after the hidden tool -> head only because the gap is measured from the previous VISIBLE block)"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-9",
+          "iso": "2026-10-31T23:55:01.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Text B, same calendar day, many minutes later (actor and day unchanged -> no separator, head by actor change only)"
+        },
+        {
+          "args": {
+            "path": "night/notes"
+          },
+          "callId": "t2-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": true,
+          "id": "ev-10",
+          "isAsk": false,
+          "iso": "2026-11-01T00:00:04.000Z",
+          "kind": "tool",
+          "name": "files.write",
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": true,
+      "state": "running"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-13",
+          "iso": "2026-11-01T00:05:01.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Text C, after midnight: new day separator survived the hidden tool between B and C"
+        }
+      ],
+      "id": "turn-3",
+      "own": true,
+      "showTyping": false,
+      "state": "running"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

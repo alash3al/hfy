@@ -22,6 +22,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Size please"
         },
@@ -76,8 +78,10 @@
             }
           ],
           "showApproval": true,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,
@@ -99,6 +103,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "One more question set"
         },
@@ -153,8 +159,10 @@
             }
           ],
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": false,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,
@@ -176,6 +184,8 @@
           "kind": "text",
           "ref": "u2",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "From another viewer"
         },
@@ -230,8 +240,10 @@
             }
           ],
           "showApproval": true,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,

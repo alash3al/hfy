@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Favorite topping?"
         }
@@ -38,6 +40,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": false,
           "streaming": false,
           "text": "Ordering my favorite"
         }

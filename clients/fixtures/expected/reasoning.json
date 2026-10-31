@@ -18,6 +18,8 @@
           "id": "ev-5",
           "iso": "2026-01-02T10:00:13.000Z",
           "kind": "reasoning",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "The user greeted me. Reply and greet back."
         },
@@ -27,6 +29,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": false,
           "streaming": false,
           "text": "Hi there!"
         }

@@ -1,0 +1,160 @@
+{
+  "name": "history-two-pages",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "hasOlder": true,
+  "pages": [
+    {
+      "next": "cursor-page2",
+      "events": [
+        {
+          "id": "turn-2",
+          "type": "turn",
+          "parent": null,
+          "actor": {
+            "uuid": "u1",
+            "type": "external",
+            "ref": "u1"
+          },
+          "v": 1,
+          "data": {
+            "agent": "main"
+          },
+          "created_at": "2026-01-02T09:59:00Z"
+        },
+        {
+          "id": "ev-a2",
+          "type": "message.text",
+          "parent": "turn-2",
+          "actor": {
+            "uuid": "u1",
+            "type": "external",
+            "ref": "u1"
+          },
+          "v": 1,
+          "data": {
+            "text": "One page of older history"
+          },
+          "created_at": "2026-01-02T09:59:01Z"
+        },
+        {
+          "id": "ev-a4",
+          "type": "turn.state",
+          "parent": "turn-2",
+          "actor": {
+            "uuid": "agent-main",
+            "type": "agent",
+            "ref": "main"
+          },
+          "v": 1,
+          "data": {
+            "state": "completed"
+          },
+          "created_at": "2026-01-02T09:59:03Z"
+        }
+      ]
+    },
+    {
+      "next": null,
+      "events": [
+        {
+          "id": "turn-1",
+          "type": "turn",
+          "parent": null,
+          "actor": {
+            "uuid": "u1",
+            "type": "external",
+            "ref": "u1"
+          },
+          "v": 1,
+          "data": {
+            "agent": "main"
+          },
+          "created_at": "2026-01-02T09:58:00Z"
+        },
+        {
+          "id": "ev-b2",
+          "type": "message.text",
+          "parent": "turn-1",
+          "actor": {
+            "uuid": "u1",
+            "type": "external",
+            "ref": "u1"
+          },
+          "v": 1,
+          "data": {
+            "text": "A second page, even older"
+          },
+          "created_at": "2026-01-02T09:58:01Z"
+        },
+        {
+          "id": "ev-b3",
+          "type": "turn.state",
+          "parent": "turn-1",
+          "actor": {
+            "uuid": "agent-main",
+            "type": "agent",
+            "ref": "main"
+          },
+          "v": 1,
+          "data": {
+            "state": "failed",
+            "error": "provider crashed"
+          },
+          "created_at": "2026-01-02T09:58:02Z"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "turn-3",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:30Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-3",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "The live page goes here"
+      },
+      "created_at": "2026-01-02T10:00:31Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-3",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:00:32Z"
+    }
+  ]
+}

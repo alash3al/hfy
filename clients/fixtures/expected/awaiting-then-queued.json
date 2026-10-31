@@ -1,0 +1,86 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-9",
+  "name": "awaiting-then-queued",
+  "path": "live",
+  "pendingOwn": [
+    "t1-c1"
+  ],
+  "sheetOpen": true,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Book the flight"
+        },
+        {
+          "args": {
+            "seat": "window"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "shop.book",
+          "showApproval": true,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": true,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:09.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Queue the hotel search too"
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "queued"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

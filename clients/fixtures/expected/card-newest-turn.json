@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "buy pizza"
         },
@@ -41,8 +43,10 @@
           "kind": "tool",
           "name": "shop.pay",
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -64,6 +68,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "another one"
         }

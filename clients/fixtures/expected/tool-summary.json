@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Pay the pizza"
         },
@@ -39,8 +41,10 @@
           "kind": "tool",
           "name": "shop.pay",
           "showApproval": false,
+          "showDay": false,
           "showDecided": true,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -58,6 +62,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": false,
           "streaming": false,
           "text": "Paid, thank you."
         }

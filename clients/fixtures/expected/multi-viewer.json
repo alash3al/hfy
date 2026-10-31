@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Table for two, please"
         },
@@ -29,6 +31,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "Booked, 20:00."
         }
@@ -47,6 +51,8 @@
           "kind": "text",
           "ref": "u2",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "Join that table too"
         },
@@ -56,6 +62,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "Added you, group of three."
         }

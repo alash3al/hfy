@@ -1,0 +1,232 @@
+{
+  "name": "grouping-gaps",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "config": {
+    "tool_calls": "hidden"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-10-31T10:00:00Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Text A"
+      },
+      "created_at": "2026-10-31T10:00:01Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-10-31T10:00:02Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Agent answer one (new actor -> head)"
+      },
+      "created_at": "2026-10-31T10:00:02Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "files.search",
+        "call_id": "t1-c1",
+        "arguments": {
+          "q": "midnight"
+        }
+      },
+      "created_at": "2026-10-31T10:04:59Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Agent answer two (5:01 after the first agent text, 4s after the hidden tool -> head only because the gap is measured from the previous VISIBLE block)"
+      },
+      "created_at": "2026-10-31T10:05:03Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-10-31T10:05:04Z"
+    },
+    {
+      "id": "turn-2",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-10-31T23:55:00Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Text B, same calendar day, many minutes later (actor and day unchanged -> no separator, head by actor change only)"
+      },
+      "created_at": "2026-10-31T23:55:01Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "tool_call",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "files.write",
+        "call_id": "t2-c1",
+        "arguments": {
+          "path": "night/notes"
+        }
+      },
+      "created_at": "2026-11-01T00:00:04Z"
+    },
+    {
+      "id": "ev-11",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-11-01T00:00:05Z"
+    },
+    {
+      "id": "turn-3",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-11-01T00:05:00Z"
+    },
+    {
+      "id": "ev-13",
+      "type": "message.text",
+      "parent": "turn-3",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Text C, after midnight: new day separator survived the hidden tool between B and C"
+      },
+      "created_at": "2026-11-01T00:05:01Z"
+    },
+    {
+      "id": "ev-14",
+      "type": "turn.state",
+      "parent": "turn-3",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-11-01T00:05:02Z"
+    }
+  ]
+}

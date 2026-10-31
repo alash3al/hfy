@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Show me the menu"
         },
@@ -88,8 +90,10 @@
           "kind": "tool",
           "name": "shop.menu",
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -111,6 +115,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "And one Capriciosa"
         },
@@ -135,8 +141,10 @@
           "kind": "tool",
           "name": "shop.order_pizza",
           "showApproval": false,
+          "showDay": false,
           "showDecided": false,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": true,
@@ -158,6 +166,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "and the calzone"
         }

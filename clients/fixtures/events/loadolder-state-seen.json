@@ -1,0 +1,129 @@
+{
+  "name": "loadolder-state-seen",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "hasOlder": true,
+  "pages": [
+    {
+      "next": null,
+      "events": [
+        {
+          "id": "ev-1a",
+          "type": "message.text",
+          "parent": "turn-1",
+          "actor": {
+            "uuid": "u1",
+            "type": "external",
+            "ref": "u1"
+          },
+          "v": 1,
+          "data": {
+            "text": "Earlier context (was below the live page's slice, block id unseen)"
+          },
+          "created_at": "2026-01-02T09:59:50Z"
+        },
+        {
+          "id": "ev-6",
+          "type": "turn.state",
+          "parent": "turn-1",
+          "actor": {
+            "uuid": "agent-main",
+            "type": "agent",
+            "ref": "main"
+          },
+          "v": 1,
+          "data": {
+            "state": "completed"
+          },
+          "created_at": "2026-01-02T09:59:56Z"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Finish the search"
+      },
+      "created_at": "2026-01-02T09:59:52Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T09:59:53Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "files.search",
+        "call_id": "t1-c1",
+        "arguments": {
+          "q": "receipt"
+        }
+      },
+      "created_at": "2026-01-02T09:59:54Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "2 results"
+      },
+      "created_at": "2026-01-02T09:59:55Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T09:59:56Z"
+    }
+  ]
+}

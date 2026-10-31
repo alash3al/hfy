@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Book a table"
         },
@@ -137,8 +139,10 @@
             }
           ],
           "showApproval": false,
+          "showDay": false,
           "showDecided": true,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,

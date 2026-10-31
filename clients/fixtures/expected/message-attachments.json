@@ -21,7 +21,6 @@
                 "isImage": false,
                 "isLink": true,
                 "isPlain": false,
-                "k": "conversations/c1/allergens.pdf:1",
                 "label": "allergens.pdf",
                 "url": "https://embed.example/files/s1/allergens.pdf"
               },
@@ -29,7 +28,6 @@
                 "isImage": false,
                 "isLink": false,
                 "isPlain": true,
-                "k": "conversations/c1/receipt.csv:2",
                 "label": "receipt.csv",
                 "url": ""
               }
@@ -39,7 +37,6 @@
                 "isImage": true,
                 "isLink": false,
                 "isPlain": false,
-                "k": "conversations/c1/menu.png:0",
                 "label": "menu.png",
                 "url": "https://embed.example/files/s1/menu.png"
               }
@@ -50,6 +47,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Here are the files"
         },
@@ -59,6 +58,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "Got them, reading the menu now."
         }

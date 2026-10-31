@@ -1,0 +1,120 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-9",
+  "name": "ask-result-answers",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:01:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Pick a target date"
+        },
+        {
+          "answers": {
+            "qc1": true,
+            "qs1": "saturday"
+          },
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Friday",
+                    "value": "friday"
+                  },
+                  {
+                    "label": "Saturday",
+                    "value": "saturday"
+                  }
+                ],
+                "required": true,
+                "text": "Which date?",
+                "type": "single"
+              },
+              {
+                "id": "qc1",
+                "required": true,
+                "text": "Lock it in?",
+                "type": "confirm"
+              }
+            ]
+          },
+          "askState": "answered",
+          "callId": "t1-a1",
+          "cardButtonsLive": false,
+          "content": "{\"answers\":{\"qs1\":\"saturday\",\"qc1\":true}}",
+          "decision": "allowed",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": true,
+          "iso": "2026-01-02T10:01:04.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Friday",
+                  "value": "friday"
+                },
+                {
+                  "label": "Saturday",
+                  "value": "saturday"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which date?",
+              "type": "single"
+            },
+            {
+              "id": "qc1",
+              "options": [],
+              "placeholder": "",
+              "required": true,
+              "text": "Lock it in?",
+              "type": "confirm"
+            }
+          ],
+          "showApproval": false,
+          "showDay": false,
+          "showDecided": true,
+          "showDetails": false,
+          "showHead": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

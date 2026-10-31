@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "What is for dinner?"
         },
@@ -27,6 +29,8 @@
           "id": "turn-1:rstream",
           "iso": "2026-01-02T10:00:05.000Z",
           "kind": "reasoning",
+          "showDay": false,
+          "showHead": true,
           "streaming": true,
           "text": "Planning the pizza order…"
         }

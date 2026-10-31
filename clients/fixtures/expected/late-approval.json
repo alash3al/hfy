@@ -20,6 +20,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "One more thing"
         },
@@ -135,8 +137,10 @@
             }
           ],
           "showApproval": false,
+          "showDay": false,
           "showDecided": true,
           "showDetails": false,
+          "showHead": true,
           "showPendingOther": false,
           "showPendingOwn": false,
           "showSummary": false,

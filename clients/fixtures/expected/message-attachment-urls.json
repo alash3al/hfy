@@ -21,7 +21,6 @@
                 "isImage": false,
                 "isLink": false,
                 "isPlain": true,
-                "k": "javascript:alert(1):1",
                 "label": "evil.png",
                 "url": ""
               },
@@ -29,7 +28,6 @@
                 "isImage": false,
                 "isLink": true,
                 "isPlain": false,
-                "k": "conversations/c1/receipt.pdf:3",
                 "label": "receipt.pdf",
                 "url": "https://embed.example/v1/files/conversations/c1/receipt.pdf?exp=1800000001&sig=def"
               }
@@ -39,7 +37,6 @@
                 "isImage": true,
                 "isLink": false,
                 "isPlain": false,
-                "k": "conversations/c1/logo.png:0",
                 "label": "logo.png",
                 "url": "https://embed.example/v1/files/conversations/c1/logo.png?exp=1800000000&sig=abc"
               },
@@ -47,7 +44,6 @@
                 "isImage": true,
                 "isLink": false,
                 "isPlain": false,
-                "k": "https://cdn.shop.example/menu.png:2",
                 "label": "menu.png",
                 "url": "https://cdn.shop.example/menu.png"
               }
@@ -58,6 +54,8 @@
           "kind": "text",
           "ref": "u1",
           "role": "user",
+          "showDay": true,
+          "showHead": true,
           "streaming": false,
           "text": "Here are more files"
         },
@@ -67,6 +65,8 @@
           "kind": "text",
           "ref": "main",
           "role": "agent",
+          "showDay": false,
+          "showHead": true,
           "streaming": false,
           "text": "Reading them now."
         }
