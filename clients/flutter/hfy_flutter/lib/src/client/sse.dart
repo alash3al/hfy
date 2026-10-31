@@ -10,7 +10,11 @@
 //   - the server closes the stream when the grant ends; the client then
 //     runs its reconnect ladder, and must treat >~30s WITHOUT ANY BYTES as
 //     a dead connection ([HfyIdleWatchdog]) — pings at 15s mean silence
-//     beyond ~2 ping intervals is an error.
+//     beyond ~2 ping intervals is an error;
+//   - no matter what the server streams, the parser buffers are bounded
+//     (1 MiB caps per line / per frame): a hostile stream fails the parser
+//     (typed [HfyProtocolException]) instead of growing memory unboundedly,
+//     and the client reconnects on that like on any stream error.
 //
 // Framing follows the WHATWG "server-sent events" stream interpretation
 // (HTML spec, §event stream parsing): UTF-8, \n \r\n \r all end a line, a
@@ -23,6 +27,8 @@
 // its trailing blank line is dropped on close, exactly as in the spec.
 import 'dart:async';
 import 'dart:convert' show utf8;
+
+import '../model/event.dart' show HfyProtocolException;
 
 /// One dispatched SSE frame.
 ///
@@ -69,6 +75,19 @@ class HfySseMessage {
 /// streams never expire: with no further [push]/[close] the parser simply
 /// holds the incomplete state.
 class HfySseParser {
+  /// Hard buffer caps, 1 MiB each: [maxLineBytes] caps ONE line as received
+  /// (raw wire bytes — any line, comments included), [maxEventBytes] caps
+  /// the `data` payload accumulated for one frame. The browser's
+  /// EventSource handles a buggy or hostile server by dying, but a native
+  /// client must die CLEANLY, before either buffer can grow unboundedly
+  /// (one huge line — or an unbounded run of small data lines — would
+  /// otherwise be a memory DoS in a mobile app). Breaching a cap fails the
+  /// parser with [HfyProtocolException] — the client treats that like any
+  /// stream error and reconnects — and leaves it UNUSABLE (a fresh parser
+  /// belongs to the fresh connection; push throws a StateError afterwards).
+  static const int maxLineBytes = 1 << 20;
+  static const int maxEventBytes = 1 << 20;
+
   final List<int> _line = <int>[];
   final List<int> _bomBuf = <int>[];
   bool _pendingCr = false;
@@ -79,12 +98,23 @@ class HfySseParser {
   String? _frameId; // `id:` of the frame being accumulated
   String _lastEventIdBuffer = ''; // per-spec buffer; promoted at dispatch
   String _lastEventId = '';
-  String _data = '';
+  final List<String> _dataLines = <String>[]; // one `data:` value per line —
+  // collected instead of re-concatenated into a growing String, so a frame
+  // of N data lines is assembled in O(N), not the O(N²) of str += str.
+  int _eventBytes = 0; // the frame-in-progress's buffered payload bytes
 
   /// The per-spec "last event ID": updated at every DISPATCH from the id
   /// buffer (so it persists across frames — a frame without `id:` repeats
   /// the previous value), never by unterminated trailing lines.
   String get lastEventId => _lastEventId;
+
+  /// A cap breach fails the connection: the parser closes itself, so no
+  /// further buffering happens, and the typed exception (not an untyped
+  /// crash) is what the networked client reconnects on.
+  Never _fail(String what) {
+    _closed = true;
+    throw HfyProtocolException(what);
+  }
 
   /// Consumes a byte chunk; returns the frames completed by it.
   List<HfySseMessage> push(List<int> bytes) {
@@ -93,7 +123,8 @@ class HfySseParser {
     }
     if (_start) {
       _bomBuf.addAll(bytes);
-      if (_bomBuf.length < 3) return <HfySseMessage>[]; // wait for a full BOM-or-not
+      if (_bomBuf.length < 3)
+        return <HfySseMessage>[]; // wait for a full BOM-or-not
       final isBom =
           _bomBuf[0] == 0xEF && _bomBuf[1] == 0xBB && _bomBuf[2] == 0xBF;
       bytes = isBom ? _bomBuf.sublist(3) : List<int>.of(_bomBuf);
@@ -122,6 +153,11 @@ class HfySseParser {
         _line.clear();
         if (bytes[i + 1] == 0x0A) i++; // \r\n: one terminator
       } else {
+        if (_line.length >= maxLineBytes) {
+          // Checked BEFORE buffering the next byte: a line reaches exactly
+          // maxLineBytes unharmed; one byte over never enters the buffer.
+          _fail('HfySseParser: SSE line exceeds $maxLineBytes bytes');
+        }
         _line.add(b);
       }
     }
@@ -148,22 +184,33 @@ class HfySseParser {
     }
     _line.clear();
     _bomBuf.clear();
-    _data = '';
+    _dataLines.clear();
+    _eventBytes = 0;
     _eventType = null;
     _frameId = null;
     return out;
   }
 
-  /// Pipes a chunk stream through, yielding frames as they complete; the
-  /// source's end runs [close] (never flushing a trailing event) and its
-  /// errors are propagated.
+  /// Pipes a chunk stream through, yielding frames as they complete. The
+  /// stream's END (normal end-of-source) runs [close] and yields whatever
+  /// it dispatches — e.g. an event finished by a final lone \r, whose blank
+  /// line completion is deferred to close. Errors and the listener's
+  /// CANCELLATION funnel through close() only to RELEASE buffered state:
+  /// a half-received event is never dispatched, and the (already dead)
+  /// output of close after a failure has nowhere to go.
   Stream<HfySseMessage> transform(Stream<List<int>> source) async* {
-    await for (final chunk in source) {
-      for (final message in push(chunk)) {
-        yield message;
+    try {
+      await for (final chunk in source) {
+        for (final message in push(chunk)) {
+          yield message;
+        }
       }
+      for (final message in close()) {
+        yield message; // normal end: the final close() may dispatch
+      }
+    } finally {
+      close(); // idempotent: releases on error/cancel, no-op after a normal end
     }
-    close();
   }
 
   void _processLine(List<int> line, List<HfySseMessage> out) {
@@ -176,12 +223,24 @@ class HfySseParser {
     final colon = decoded.indexOf(':');
     final field = colon == -1 ? decoded : decoded.substring(0, colon);
     var value = colon == -1 ? '' : decoded.substring(colon + 1);
+    // The value's WIRE byte count, O(1): for the `data` path the field name
+    // + colon are pure ASCII, so decoded code units before the value ARE
+    // wire bytes, and line.length − that prefix (minus a stripped space) is
+    // exactly the value as received.
+    final valueBytes =
+        line.length - (colon + 1) - (value.startsWith(' ') ? 1 : 0);
     if (value.startsWith(' ')) value = value.substring(1); // exactly one
     switch (field) {
       case 'data':
         // WHATWG field rule: append the value, then ONE LF; dispatch
         // removes a single trailing LF (multi-line data joins with \n).
-        _data = '$_data$value\n';
+        // The (=maxEventBytes) cap counts one LF per data line — one more
+        // than the joined payload's real separators — so the check errs shut.
+        _eventBytes += valueBytes + 1;
+        if (_eventBytes > maxEventBytes) {
+          _fail('HfySseParser: SSE event exceeds $maxEventBytes bytes of data');
+        }
+        _dataLines.add(value);
         break;
       case 'event':
         _eventType = value;
@@ -206,21 +265,32 @@ class HfySseParser {
     // does not get reset"). An `id:` with no value resets it to ''.
     _lastEventId = _lastEventIdBuffer;
     // …then the empty-data early return also clears the event type buffer.
-    if (_data.isEmpty) {
+    if (_dataLines.isEmpty) {
       _eventType = null;
       return;
     }
-    var payload = _data; // never empty here (a lone '\n' becomes '')
-    if (payload.endsWith('\n')) {
-      payload = payload.substring(0, payload.length - 1);
+    // Each queued value + ONE LF; the join IS the LF-append accumulator,
+    // and stripping one final LF matches the field rule exactly.
+    final buffer = StringBuffer();
+    for (final value in _dataLines) {
+      buffer
+        ..write(value)
+        ..write('\n');
     }
-    out.add(HfySseMessage(
-      data: payload,
-      event: _eventType,
-      id: _frameId,
-      lastEventId: _lastEventId,
-    ));
-    _data = '';
+    final payload = buffer.toString().substring(
+      0,
+      buffer.length - 1,
+    ); // the single trailing LF
+    out.add(
+      HfySseMessage(
+        data: payload,
+        event: _eventType,
+        id: _frameId,
+        lastEventId: _lastEventId,
+      ),
+    );
+    _dataLines.clear();
+    _eventBytes = 0;
     _eventType = null;
     _frameId = null;
   }
@@ -230,11 +300,18 @@ class HfySseParser {
 /// a dead stream. Arms `idle` on [feed]; if NO bytes arrive during the
 /// window (feed on every chunk — frames or pings alike), [onDead] fires
 /// once and the watchdog disarms until the next feed (new stream). Tests
-/// inject the timer, so no real 30s waits.
+/// inject the factory below, so no real 30s waits.
+///
+/// CLIENT CONTRACT: the networked client MUST call [feed] at connect time —
+/// before the first byte — so that a stream already hung before its first
+/// byte is detected by the same window, not just one that hangs later.
 class HfyIdleWatchdog {
   final Duration idle;
   final void Function() onDead;
-  final Timer Function(Duration delay, void Function() callback) startTimer;
+
+  /// Test-only knob; production never passes it. Kept private (`startTimer`
+  /// used to be a visible field that also invited misuse as a public API).
+  final Timer Function(Duration delay, void Function() callback) _startTimer;
 
   Timer? _timer;
 
@@ -242,14 +319,13 @@ class HfyIdleWatchdog {
     required this.idle,
     required this.onDead,
     Timer Function(Duration delay, void Function() callback)? timerFactory,
-  })
-      : startTimer =
-            timerFactory ?? ((delay, callback) => Timer(delay, callback));
+  }) : _startTimer =
+           timerFactory ?? ((delay, callback) => Timer(delay, callback));
 
   /// Activity resets the window and (re)arms the watchdog.
   void feed() {
     _timer?.cancel();
-    _timer = startTimer(idle, _fire);
+    _timer = _startTimer(idle, _fire);
   }
 
   /// Disarms; nothing fires on later silence.

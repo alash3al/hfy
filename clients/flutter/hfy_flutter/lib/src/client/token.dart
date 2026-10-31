@@ -2,6 +2,26 @@
 // PARITY.md P-CLIENT-002/P-CLIENT-017). The onTokenNeeded callback must
 // return a token string or {token, expires_at?}; the same validation
 // applies in Dart via [HfyGrant.fromResult].
+//
+// DEVIATIONS from client.js parseExpiryMs (for the PARITY.md deviation
+// list — copy verbatim when porting):
+//
+//   1. `''` / `' '` (a string Date.parse rejects AND `Number` turns into
+//      0): JS → 0 ms, an already-expired instant; Dart → null (no
+//      proactive refresh). ACCEPTED: an expiry that parses to nothing
+//      cannot be trusted, and scheduling refresh at epoch zero would
+//      hammer the server with a refresh storm.
+//   2. Expiries beyond the JS-Date range (|ms| > 8.64e15 — e.g. 1e16,
+//      9e18, '99999999999999999'): JS keeps the raw number (a harmlessly
+//      far future); Dart → null, because no [DateTime] can physically
+//      hold that instant (construction past ±8.64e15 ms fails), and "no
+//      expiry" is the honest downgrade for an unusable timestamp.
+//   3. Digit-only strings: both sides land in the epoch-number branch
+//      (JS Date.parse returns NaN for epoch-sized digits, Dart cannot
+//      parse digits as dates at all). JS ADDITIONALLY reads four-digit
+//      strings as years ('2026' → year 2026); Dart reads '2026' as 2026
+//      epoch seconds. Real grants carry RFC3339 or epoch numbers, so no
+//      real bearer is affected.
 import '../model/event.dart';
 
 /// The grant's token and its optional expiry. `expiresAt` is UTC at
@@ -17,21 +37,25 @@ class HfyGrant {
   int? get expiresAtMs => expiresAt?.millisecondsSinceEpoch;
 
   /// Parses what `onTokenNeeded` returned (client.js:175-181): a plain
-  /// string token, or `{token, expires_at?}` (camelCase tolerated). A
-  /// missing/empty token is the same hard error message the web client
-  /// throws ('onTokenNeeded returned no token').
+  /// string token, or `{token, expires_at?}` (camelCase tolerated). The
+  /// token must BE a string (the web client's own `typeof` guard) but any
+  /// missing/empty/non-string case raises the SAME hard error the web
+  /// client throws (client.js:178, 'onTokenNeeded returned no token').
   factory HfyGrant.fromResult(Object? result) {
-    final token = result is String
+    final Object? token = result is String
         ? result
-        : result is Map ? HfyActor.optString(result['token'], 'token') : null;
-    if (token == null || token.isEmpty) {
+        : result is Map
+        ? result['token']
+        : null;
+    if (token is! String || token.isEmpty) {
       throw const HfyProtocolException('onTokenNeeded returned no token');
     }
     final ms = parseExpiryMs(result);
     return HfyGrant(
       token: token,
-      expiresAt:
-          ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true),
+      expiresAt: ms == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true),
     );
   }
 
@@ -55,35 +79,44 @@ class HfyGrant {
   static int? parseExpiryValue(Object? value) {
     if (value == null) return null;
     if (value is DateTime) {
-      try {
-        return value.millisecondsSinceEpoch;
-      } on Exception {
-        return null;
-      }
+      return _boundedMs(value.millisecondsSinceEpoch);
     }
     if (value is num) {
       if (!value.isFinite) return null;
+      // Bounded in double space BEFORE any int conversion: out-of-range
+      // numbers must never reach .round() (int64 clamping on the VM,
+      // honest errors elsewhere).
       final ms = (value < 1e12 ? value * 1000 : value).toDouble();
-      // Out-of-representable doubles → null rather than garbage-across-int64.
-      if (ms.abs() > 9.2e18) return null;
+      if (ms.abs() > _maxDateMs) return null;
       return ms.round();
     }
     if (value is String) {
-      // NOTE (parity): JS Date.parse refuses all-digit strings (→ the
-      // numeric branch of client.js:21-22), while Dart's DateTime.parse
-      // would happily read them as YEARs. Keep the JS behaviour: digits are
-      // ALWAYS the epoch-seconds/ms branch.
+      // Parity note (client.js:19-22): JS runs Date.parse FIRST, which
+      // returns NaN for epoch-sized digit strings (→ its numeric branch)
+      // but does read four-digit strings as YEARS ('2026'). Dart cannot
+      // parse digit strings as dates at all, so digits go straight to the
+      // numeric branch: the same result for every bearing a real grant
+      // uses — see the deviation list at the top of this file.
       if (_digitsOnly.hasMatch(value)) {
         final numeric = num.tryParse(value);
         if (numeric != null) return parseExpiryValue(numeric);
       }
       final parsed = DateTime.tryParse(value);
-      if (parsed != null) return parsed.millisecondsSinceEpoch;
+      if (parsed != null) {
+        return _boundedMs(parsed.millisecondsSinceEpoch);
+      }
       final numeric = num.tryParse(value); // e.g. scientific notation
       if (numeric != null) return parseExpiryValue(numeric);
     }
     return null;
   }
+
+  /// The representable Date range (ECMAScript): |ms| ≤ 8.64e15, the bound
+  /// JS Date.max and Dart's DateTime share — construction past it is an
+  /// error, so an unusable expiry is refused as null, never a crash.
+  static const int _maxDateMs = 8640000000000000;
+
+  static int? _boundedMs(int ms) => ms.abs() > _maxDateMs ? null : ms;
 
   static final RegExp _digitsOnly = RegExp(r'^[+-]?\d+$');
 

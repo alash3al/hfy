@@ -8,7 +8,7 @@
 // to one). `created_at` is real RFC3339 in the fixtures; parsing stays
 // tolerant to null because the JS fold falls back to Date.now() anyway
 // (ui.js:894). Unknown event types are kept, never dropped: the client
-// listens to the 13 durable + 2 ephemeral names below but a rolling deploy
+// listens to exactly the 14 names below (P-CLIENT-001) but a rolling deploy
 // may serve newer shapes (docs/reference.md), and client.js dedupes/cursors
 // by envelope id regardless of type (P-CLIENT-015).
 import 'dart:convert' show jsonDecode, jsonEncode;
@@ -88,7 +88,10 @@ class HfyActor {
 
 /// One wire envelope. Immutable value object: `data` is kept as decoded
 /// (never re-encoded on the fly), `json` is the original envelope map for
-/// pass-through consumers.
+/// pass-through consumers. Both are deep-frozen at parse time ([fromJson]),
+/// so a caller mutating its source maps after the fact can never shift the
+/// event's contents — or its structural equality (which dedupe Orleans-style
+/// seen-sets rely on across reconnects).
 class HfyEvent {
   final String? id;
   final String type;
@@ -98,7 +101,8 @@ class HfyEvent {
   final Map<String, dynamic> data;
   final DateTime? createdAt;
 
-  /// The raw envelope as received. Treat as read-only; never mutate.
+  /// The raw envelope as received, deep-frozen (unmodifiable, recursively
+  /// copied once at parse time). Read anything from it; mutation throws.
   final Map<String, dynamic> json;
 
   const HfyEvent({
@@ -120,8 +124,10 @@ class HfyEvent {
   /// - `id`/`parent` optional strings; `v` optional int
   /// - `actor` optional {uuid,type,ref} of strings
   /// - `data` follows ui.js hfyData (ui.js:113-117): absent/null → {},
-  ///   JSON string → parsed ({} on failure), object → used; anything else
-  ///   (arrays/numbers the server never sends) throws typed
+  ///   JSON string → parsed ({} on failure), object → used; a raw array or
+  ///   a JSON string holding one degrades to {} like any other non-object
+  ///   (one bad envelope must not kill the stream); anything else
+  ///   (numbers/bools) throws typed
   /// - `created_at` RFC3339 → UTC [DateTime]; absent or unparsable → null
   ///   (the fold falls back to now upstream, ui.js:894)
   factory HfyEvent.fromJson(Object? json) {
@@ -151,27 +157,62 @@ class HfyEvent {
       actor: json['actor'] == null ? null : HfyActor.fromJson(json['actor']),
       v: version,
       data: _data(json['data']),
-      createdAt:
-          createdAtRaw is String ? DateTime.tryParse(createdAtRaw) : null,
-      json: Map<String, dynamic>.from(json),
+      createdAt: createdAtRaw is String
+          ? DateTime.tryParse(createdAtRaw)
+          : null,
+      json: _unmodifiable(json),
     );
   }
 
+  /// The envelope as an unmodifiable deep copy: mutating the SOURCE map
+  /// (or anything nested in it) after parsing must not be able to shift
+  /// this event's contents or equality ("$key" is a no-op for the String
+  /// keys real JSON has, and keeps exotic hand-built object-keyed maps
+  /// object-typed instead of crashing).
+  static Map<String, dynamic> _unmodifiable(Map<dynamic, dynamic> source) =>
+      Map<String, Object?>.unmodifiable(<Object?, Object?>{
+        for (final Object? key in source.keys) '$key': _freeze(source[key]),
+      });
+
+  /// Deep-frozen copy of [value]: every nested Map/List becomes its own
+  /// unmodifiable instance; String/num/bool/null are immutable already.
+  static Object? _freeze(Object? value) {
+    if (value is List) {
+      return List<Object?>.unmodifiable(<Object?>[
+        for (final Object? item in value) _freeze(item),
+      ]);
+    }
+    if (value is Map) {
+      return Map<String, Object?>.unmodifiable(<Object?, Object?>{
+        for (final Object? key in value.keys) '$key': _freeze(value[key]),
+      });
+    }
+    return value;
+  }
+
   // ui.js hfyData parity (ui.js:113-117): absent/null → {}, a JSON string
-  // parsed with {} on failure, an object used as-is. A string decoding to a
-  // non-object degenerates to {} (hfyData would return the array — the
-  // server never sends those; the typed model keeps {}).
+  // parsed with {} on failure, an object used as-is. Arrays — raw, or
+  // hidden inside a JSON string — and any other non-object DEGRADE to {}
+  // (ui.js hfyData would return the array itself): one bad envelope must
+  // never kill a whole stream, and this model's `data` is always an object.
   static Map<String, dynamic> _data(Object? x) {
     if (x == null) return const {};
-    if (x is Map<String, dynamic>) return x;
-    if (x is Map) return Map<String, dynamic>.from(x);
-    if (x is String) {
-      final decoded = tryJson(x);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      return const {};
+    final Object? decoded;
+    if (x is Map || x is List) {
+      decoded = x;
+    } else if (x is String) {
+      decoded = tryJson(x);
+    } else {
+      throw const HfyProtocolException(
+        'event envelope data must be an object or a JSON string',
+      );
     }
-    throw const HfyProtocolException(
-        'event envelope data must be an object or a JSON string');
+    if (decoded is Map) {
+      return Map<String, Object?>.unmodifiable(<Object?, Object?>{
+        for (final Object? key in decoded.keys) '$key': _freeze(decoded[key]),
+      });
+    }
+    return const {}; // a JSON string holding an array → {} (hfyData parity)
   }
 
   static Object? tryJson(String source) {
@@ -199,6 +240,19 @@ class HfyEvent {
     return jsonEncode('$value');
   }
 
+  // Each event's canonical form and hash are computed ONCE, cached weakly
+  // on the instance, no matter how often ==/hashCode run (dedupe/cursor
+  // loops hit them on every reconnect). An Expando keeps every field final,
+  // so the public const constructor stays const-constructible.
+  static final Expando<String> _canonicalCache = Expando<String>();
+  static final Expando<int> _hashCodeCache = Expando<int>();
+
+  String get _canonicalForm {
+    final cached = _canonicalCache[this];
+    if (cached != null) return cached;
+    return _canonicalCache[this] = _canonical(data);
+  }
+
   @override
   bool operator ==(Object other) =>
       other is HfyEvent &&
@@ -209,18 +263,22 @@ class HfyEvent {
       other.v == v &&
       other.createdAt?.microsecondsSinceEpoch ==
           createdAt?.microsecondsSinceEpoch &&
-      _canonical(other.data) == _canonical(data);
+      other._canonicalForm == _canonicalForm;
 
   @override
-  int get hashCode => Object.hash(
-        id,
-        type,
-        parent,
-        actor,
-        v,
-        createdAt?.microsecondsSinceEpoch,
-        _canonical(data).hashCode,
-      );
+  int get hashCode {
+    final cached = _hashCodeCache[this];
+    if (cached != null) return cached;
+    return _hashCodeCache[this] = Object.hash(
+      id,
+      type,
+      parent,
+      actor,
+      v,
+      createdAt?.microsecondsSinceEpoch,
+      _canonicalForm.hashCode,
+    );
+  }
 
   @override
   String toString() => 'HfyEvent(id: $id, type: $type, parent: $parent, v: $v)';

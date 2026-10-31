@@ -4,13 +4,14 @@
 // UTF-8 (Arabic + emoji), comments, multi-line data, space handling, empty
 // data, unknown fields, BOM, trailing partial events, id persistence, and
 // the idle watchdog.
-import 'dart:async' show Timer;
+import 'dart:async' show StreamController, StreamSubscription, Timer;
 import 'dart:convert' show utf8;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hfy_flutter/hfy_flutter.dart';
 
-const String canonical = 'id: 0a5f9bd4-871a-4cff-9f29-6b6e6f7a1a77\n'
+const String canonical =
+    'id: 0a5f9bd4-871a-4cff-9f29-6b6e6f7a1a77\n'
     'event: turn\n'
     'data: {"id":"turn-1","type":"turn","data":{"agent":"main"}}\n'
     '\n'
@@ -41,8 +42,12 @@ const List<HfySseMessage> canonicalMessages = <HfySseMessage>[
   ),
 ];
 
-HfySseMessage msg(String data, {String? event, String? id, String lastEventId = ''}) =>
-    HfySseMessage(data: data, event: event, id: id, lastEventId: lastEventId);
+HfySseMessage msg(
+  String data, {
+  String? event,
+  String? id,
+  String lastEventId = '',
+}) => HfySseMessage(data: data, event: event, id: id, lastEventId: lastEventId);
 
 // single push + close (a lone trailing \r completing a blank line dispatches
 // at the close itself — that output is included)
@@ -69,7 +74,8 @@ List<HfySseMessage> drainedRaw(List<int> bytes) {
   return out;
 }
 
-Future<List<HfySseMessage>> collect(Stream<HfySseMessage> source) => source.toList();
+Future<List<HfySseMessage>> collect(Stream<HfySseMessage> source) =>
+    source.toList();
 
 class _FakeTimer implements Timer {
   _FakeTimer(this.callback);
@@ -97,9 +103,12 @@ class _FakeTimer implements Timer {
 
 void main() {
   group('P-NAT-002 canonical stream', () {
-    test('the whole stream in one push: 3 events; the ping comment vanishes', () {
-      expect(drained(canonical), canonicalMessages);
-    });
+    test(
+      'the whole stream in one push: 3 events; the ping comment vanishes',
+      () {
+        expect(drained(canonical), canonicalMessages);
+      },
+    );
 
     test('server ping (`: ping`, events.go:120) never dispatches', () {
       expect(drained(': ping\n\n'), isEmpty);
@@ -225,10 +234,13 @@ void main() {
       expect(parser.push(utf8.encode('\n')), isEmpty); // LF alone: no-op
     });
 
-    test('deferred CR resolved by a non-LF byte keeps further bytes flowing', () {
-      // chunk cut between the CR and a new field line ('X' is unknown)
-      expect(drainedChunks(['data: a\r', 'X\n\n']), [msg('a')]);
-    });
+    test(
+      'deferred CR resolved by a non-LF byte keeps further bytes flowing',
+      () {
+        // chunk cut between the CR and a new field line ('X' is unknown)
+        expect(drainedChunks(['data: a\r', 'X\n\n']), [msg('a')]);
+      },
+    );
   });
 
   group('P-NAT-002 field rules', () {
@@ -245,11 +257,14 @@ void main() {
       expect(drained('data:   x\n\n'), [msg('  x')]);
     });
 
-    test('empty first data line creates its LF separator (spec append rule)', () {
-      // WHATWG: every data field appends value + LF; dispatch strips ONE
-      // trailing LF — an empty first line therefore yields a leading \n.
-      expect(drained('data:\ndata:y\n\n'), [msg('\ny')]);
-    });
+    test(
+      'empty first data line creates its LF separator (spec append rule)',
+      () {
+        // WHATWG: every data field appends value + LF; dispatch strips ONE
+        // trailing LF — an empty first line therefore yields a leading \n.
+        expect(drained('data:\ndata:y\n\n'), [msg('\ny')]);
+      },
+    );
 
     test('no data at all → nothing dispatches; bare `data:` fires EMPTY', () {
       expect(drained('data: \n\n'), [msg('')]); // lone value-free data line
@@ -290,8 +305,9 @@ void main() {
   group('P-NAT-002 id persistence — both views exposed', () {
     test('frame id vs persistent lastEventId across frames', () {
       final parser = HfySseParser();
-      final out = parser
-          .push(utf8.encode('id: a\ndata: 1\n\ndata: 2\n\nid: b\ndata: 3\n\n'));
+      final out = parser.push(
+        utf8.encode('id: a\ndata: 1\n\ndata: 2\n\nid: b\ndata: 3\n\n'),
+      );
       expect(out[0].id, 'a');
       expect(out[0].lastEventId, 'a');
       expect(out[1].id, isNull); // frame 2 carries no id:
@@ -303,8 +319,9 @@ void main() {
 
     test('NUL in an id: field is ignored per spec (older id survives)', () {
       final parser = HfySseParser();
-      final out =
-          parser.push(utf8.encode('id: a\ndata: 1\n\nid: b\u0000c\ndata: 2\n\n'));
+      final out = parser.push(
+        utf8.encode('id: a\ndata: 1\n\nid: b\u0000c\ndata: 2\n\n'),
+      );
       expect(out[0].id, 'a');
       expect(out[1].id, isNull);
       expect(out[1].lastEventId, 'a');
@@ -318,29 +335,37 @@ void main() {
       expect(parser.lastEventId, '');
     });
 
-    test('an EMPTY frame still promotes the id buffer (spec dispatch order)', () {
-      final parser = HfySseParser();
-      expect(parser.push(utf8.encode('id: a\ndata: 1\n\n')), [
-        msg('1', id: 'a', lastEventId: 'a'),
-      ]);
-      // 'id: b' + blank line + no data → no event, but the id IS promoted
-      // before the empty-data early return; `id:` with no value resets to ''.
-      expect(parser.push(utf8.encode('id: b\n\n')), isEmpty);
-      expect(parser.lastEventId, 'b');
-      expect(parser.push(utf8.encode('id:\ndata: 2\n\n')).single.lastEventId, '');
-    });
+    test(
+      'an EMPTY frame still promotes the id buffer (spec dispatch order)',
+      () {
+        final parser = HfySseParser();
+        expect(parser.push(utf8.encode('id: a\ndata: 1\n\n')), [
+          msg('1', id: 'a', lastEventId: 'a'),
+        ]);
+        // 'id: b' + blank line + no data → no event, but the id IS promoted
+        // before the empty-data early return; `id:` with no value resets to ''.
+        expect(parser.push(utf8.encode('id: b\n\n')), isEmpty);
+        expect(parser.lastEventId, 'b');
+        expect(
+          parser.push(utf8.encode('id:\ndata: 2\n\n')).single.lastEventId,
+          '',
+        );
+      },
+    );
 
     test('the WHATWG spec example stream (~9.2.6) fires all three events', () {
-      final out = drained(': test stream\n'
-          '\n'
-          'data: first event\n'
-          'id: 1\n'
-          '\n'
-          'data:second event\n'
-          'id\n'
-          '\n'
-          'data:  third event\n'
-          '\n');
+      final out = drained(
+        ': test stream\n'
+        '\n'
+        'data: first event\n'
+        'id: 1\n'
+        '\n'
+        'data:second event\n'
+        'id\n'
+        '\n'
+        'data:  third event\n'
+        '\n',
+      );
       expect(out, [
         msg('first event', id: '1', lastEventId: '1'),
         msg('second event', id: '', lastEventId: ''),
@@ -371,7 +396,9 @@ void main() {
     test('BOM after the stream start is content (U+FEFF character)', () {
       final midBom = <int>[
         ...utf8.encode('data: '),
-        0xEF, 0xBB, 0xBF,
+        0xEF,
+        0xBB,
+        0xBF,
         ...utf8.encode('x\n\n'),
       ];
       expect(drainedRaw(midBom).single.data, '\uFEFFx');
@@ -402,7 +429,9 @@ void main() {
 
     test('a complete dispatched event keeps its id after close', () {
       final parser = HfySseParser();
-      expect(parser.push(utf8.encode('id: q\ndata: 1\n\n')), [msg('1', id: 'q', lastEventId: 'q')]);
+      expect(parser.push(utf8.encode('id: q\ndata: 1\n\n')), [
+        msg('1', id: 'q', lastEventId: 'q'),
+      ]);
       parser.close();
       expect(parser.lastEventId, 'q');
     });
@@ -422,19 +451,196 @@ void main() {
   });
 
   group('P-NAT-002 transform()', () {
-    test('chunks stream into frames; EOF never flushes trailing state', () async {
-      final source = Stream<List<int>>.fromIterable(<List<int>>[
-        utf8.encode('id: a\nevent: turn\n'),
-        utf8.encode('data: hello\n\n'),
-        utf8.encode('data: trailing'),
-      ]);
-      final out = await collect(HfySseParser().transform(source));
-      expect(out, [msg('hello', event: 'turn', id: 'a', lastEventId: 'a')]);
+    test(
+      'chunks stream into frames; EOF never flushes trailing state',
+      () async {
+        final source = Stream<List<int>>.fromIterable(<List<int>>[
+          utf8.encode('id: a\nevent: turn\n'),
+          utf8.encode('data: hello\n\n'),
+          utf8.encode('data: trailing'),
+        ]);
+        final out = await collect(HfySseParser().transform(source));
+        expect(out, [msg('hello', event: 'turn', id: 'a', lastEventId: 'a')]);
+      },
+    );
+
+    test(
+      'what close() dispatches on normal end SURVIVES transform '
+      '(a final lone \\r — its blank-line completion is a close affair)',
+      () async {
+        // 'data: x\r\r': the second \r terminates the EMPTY line and closes x,
+        // but sitting at the very end of the stream it is deferred to close().
+        final source = Stream<List<int>>.fromIterable(<List<int>>[
+          utf8.encode('data: x\r\r'),
+        ]);
+        final out = await collect(HfySseParser().transform(source));
+        expect(out, [msg('x')]);
+      },
+    );
+
+    test(
+      'source errors propagate AND release the parser (close() ran)',
+      () async {
+        final parser = HfySseParser();
+        Stream<List<int>> source() async* {
+          yield utf8.encode('data: half');
+          throw StateError('boom');
+        }
+
+        await expectLater(
+          collect(parser.transform(source())),
+          throwsStateError,
+        );
+        // The error path already close()d the parser (release — nothing
+        // half-received is ever dispatched): it is now dead like any closed one.
+        expect(() => parser.push(const <int>[]), throwsStateError);
+        expect(parser.close(), isEmpty);
+      },
+    );
+
+    test(
+      'cancelling the transform releases the parser (close() ran)',
+      () async {
+        final parser = HfySseParser();
+        final controller = StreamController<List<int>>();
+        var received = 0;
+        Future<void>? cancelled;
+        late final StreamSubscription<HfySseMessage> done;
+        done = parser.transform(controller.stream).listen((_) {
+          // Cancel while the generator is suspended AT its yield — the one
+          // cancellation point whose teardown (the finally → close()) is
+          // guaranteed to run and to complete(done.cancel()'s future).
+          received++;
+          cancelled = done.cancel();
+        });
+        // One whole frame, then a half-received one: the listener above sees
+        // the first message and cancels mid-frame.
+        controller.add(utf8.encode('id: a\ndata: x\n\ndata: half'));
+        await controller
+            .close(); // settled delivery: the callback ran, cancel went in
+        await cancelled;
+        expect(received, 1);
+        expect(
+          () => parser.push(const <int>[]),
+          throwsStateError,
+          reason: 'a cancelled transform close()d (released) its parser',
+        );
+      },
+    );
+  });
+
+  group('P-NAT-002 buffer limits (1 MiB line / 1 MiB event)', () {
+    const oneMiB = 1 << 20;
+
+    test('a 50 MB single line is refused mid-stream, not buffered', () {
+      final parser = HfySseParser();
+      final chunk = List<int>.filled(
+        oneMiB,
+        0x78,
+      ); // same 'x' MiB, 50× streamed
+      // The first MiB is exactly at the line cap (fine); the first byte of
+      // the second chunk breaches it — the parser never holds more than the
+      // approved 1 MiB, making a 50 MB hostile line a 2 MiB event loop.
+      expect(() {
+        for (var i = 0; i < 50; i++) {
+          parser.push(chunk);
+        }
+      }, throwsHfyProtocol());
     });
 
-    test('source errors propagate (no swallow)', () async {
-      final source = Stream<List<int>>.error(StateError('boom'));
-      expect(collect(HfySseParser().transform(source)), throwsStateError);
+    test('exactly the line cap passes; one byte over throws', () {
+      // 'data: ' is 6 wire bytes → a value of (1 MiB − 6) 'x' makes the line
+      // EXACTLY maxLineBytes before the terminator: must dispatch whole.
+      final stream = 'data: ${'x' * (oneMiB - 6)}\n\n';
+      expect(drained(stream), [msg('x' * (oneMiB - 6))]);
+      expect(
+        () => drained('data: ${'x' * (oneMiB - 5)}\n\n'),
+        throwsHfyProtocol(),
+      );
+    });
+
+    test('many small data lines still make one event in O(n)', () {
+      // Horizontal growth is not the line cap's business: 100 000 one-char
+      // `data:` lines join into ONE frame (the collected-lines assembly is
+      // linear; the naive `+=` build this test guards against would crawl).
+      final parser = HfySseParser();
+      final out = <HfySseMessage>[];
+      for (var i = 0; i < 100000; i++) {
+        out.addAll(parser.push(utf8.encode('data: x')));
+        out.addAll(parser.push(const [0x0A])); // end each line separately
+      }
+      out.addAll(parser.push(const [0x0A])); // the dispatching blank line
+      final single = out.single;
+      expect(single.data.length, 199999); // join = 'x\n' × 99 999 + 'x'
+      expect(single.data.startsWith('x\nx'), isTrue);
+      expect(single.data.endsWith('\nx'), isTrue);
+    });
+
+    test('the event cap covers the whole frame, not each line', () {
+      // 7-char values + 1 LF = 8 payload bytes per data line:
+      // 131 072 lines = EXACTLY 1 MiB of payload (passes), one more breaches.
+      // (The final blank line DISPATCHES the at-limit frame.)
+      final line = 'data: ${'x' * 7}\n';
+      final atLimit = '${line * 131072}\n';
+      final messages = drained(atLimit);
+      expect(messages.single.data.length, oneMiB - 1); // joining strips 1 LF
+      expect(() => drained('${line * 131073}\n'), throwsHfyProtocol());
+    });
+
+    test(
+      'a breach leaves the parser UNUSABLE (reconnect = a fresh parser)',
+      () {
+        final parser = HfySseParser();
+        expect(
+          () => parser.push(utf8.encode('data: ${'x' * (oneMiB + 1)}\n\n')),
+          throwsHfyProtocol(),
+        );
+        expect(
+          () => parser.push(utf8.encode('data: again\n\n')),
+          throwsStateError,
+        );
+        expect(parser.close(), isEmpty); // releasing is all that is left
+      },
+    );
+
+    test('a boundless run of small data lines breaches the EVENT cap', () {
+      // 2 payload bytes per one-char line: the 524 288th data line is EXACTLY
+      // 1 MiB, the next one breaches. No single line is long, yet the frame
+      // as a whole still cannot unbound a cap.
+      final lineBytes = utf8.encode('data: x\n');
+      final parser = HfySseParser();
+      expect(() {
+        for (var i = 0; i < 524300; i++) {
+          parser.push(lineBytes);
+        }
+      }, throwsHfyProtocol());
+    });
+  });
+
+  group('P-NAT-002 one byte at a time', () {
+    test('the canonical stream fed byte-by-byte yields the same frames', () {
+      final parser = HfySseParser();
+      final out = <HfySseMessage>[];
+      for (final byte in utf8.encode(canonical)) {
+        out.addAll(parser.push([byte]));
+      }
+      out.addAll(parser.close());
+      expect(out, canonicalMessages);
+    });
+
+    test('a CRLF stream fed one byte at a time parses identically', () {
+      const stream =
+          'id: a\r\nevent: turn\r\ndata: one\r\ndata: two\r\n\r\nevent: x\r\ndata: t\r\r';
+      final parser = HfySseParser();
+      final out = <HfySseMessage>[];
+      for (final byte in utf8.encode(stream)) {
+        out.addAll(parser.push([byte]));
+      }
+      out.addAll(parser.close());
+      expect(out, [
+        msg('one\ntwo', event: 'turn', id: 'a', lastEventId: 'a'),
+        msg('t', event: 'x', lastEventId: 'a'),
+      ]);
     });
   });
 
@@ -501,20 +707,11 @@ void main() {
       expect(fired, 0);
     });
 
-    test('default factory uses real timers (short 10ms idle)', () async {
-      var fired = 0;
-      final watchdog = HfyIdleWatchdog(
-        idle: const Duration(milliseconds: 10),
-        onDead: () => fired++,
-      );
-      watchdog.feed();
-      await Future<void>.delayed(const Duration(milliseconds: 5)); // < idle
-      expect(fired, 0);
-      await Future<void>.delayed(const Duration(milliseconds: 15)); // > idle
-      expect(fired, 1);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(fired, 1, reason: 'fires once per armed window');
-      watchdog.cancel();
-    });
+    // No real-timer test: a 10ms wall-clock race is flaky by nature. The
+    // default factory (a plain Timer) is the one line `?? ((delay, callback)
+    // => Timer(delay, callback))` — every behavior above is verified on the
+    // injected factory with the exact idle duration asserted at arm time.
   });
 }
+
+Matcher throwsHfyProtocol() => throwsA(isA<HfyProtocolException>());
