@@ -3,7 +3,7 @@
 // PARITY IDs: P-CLIENT-001 (EVENT_TYPES), P-FOLD-001-adjacent data tolerance
 // (ui.js hfyData), §1 envelope shape (docs/reference.md, client.js).
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hfy_flutter/hfy_flutter.dart';
+import 'package:hfy_flutter/src/model/event.dart';
 
 import 'helpers/fixture_loader.dart';
 

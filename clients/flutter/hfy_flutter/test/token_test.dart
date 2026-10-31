@@ -3,7 +3,8 @@
 // (DateTime in Dart), epoch seconds (< 1e12 → ×1000) or ms, an RFC3339
 // string, or a numeric string with the same rule; anything else → null.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hfy_flutter/hfy_flutter.dart';
+import 'package:hfy_flutter/src/client/token.dart';
+import 'package:hfy_flutter/src/model/event.dart' show HfyProtocolException;
 
 void main() {
   group('P-CLIENT-002 HfyGrant.parseExpiryMs (parseExpiryMs parity)', () {

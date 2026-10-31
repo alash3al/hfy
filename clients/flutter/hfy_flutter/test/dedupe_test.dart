@@ -6,8 +6,9 @@
 // Scenarios replicate the fixtures events/dedupe-duplicate.json and
 // events/history-then-live.json (P-FOLD-015's silent types still advance
 // the cursor by envelope id; type is irrelevant to dedupe).
+// in-package test; HfyDedupe deliberately stays OFF the public barrel.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hfy_flutter/hfy_flutter.dart';
+import 'package:hfy_flutter/src/client/dedupe.dart';
 
 import 'helpers/fixture_loader.dart';
 

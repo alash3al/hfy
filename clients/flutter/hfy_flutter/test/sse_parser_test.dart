@@ -8,7 +8,9 @@ import 'dart:async' show StreamController, StreamSubscription, Timer;
 import 'dart:convert' show utf8;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hfy_flutter/hfy_flutter.dart';
+// in-package test; the SSE framing stays OFF the public barrel.
+import 'package:hfy_flutter/src/client/sse.dart';
+import 'package:hfy_flutter/src/model/event.dart' show HfyProtocolException;
 
 const String canonical =
     'id: 0a5f9bd4-871a-4cff-9f29-6b6e6f7a1a77\n'
