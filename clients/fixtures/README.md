@@ -135,14 +135,7 @@ Common:
 | `ref` | the actor's `ref` (group framing; `""` for anonymous) |
 | `text` | the message text |
 | `streaming` | true only while `text.delta`s are still pending their durable `message.text` |
-| `attachments` | exactly what the fold computes for the block (`setAtts` → `mapAtts`), as `{images: […], files: […]}`
-  present only when a message carried any: each entry is the real
-  `{k, url, label, isImage, isLink, isPlain}` — `url` is the **absolute url after
-  `hfySafeUrl`** (relative `/v1/files/…` resolved against the page origin,
-  `javascript:` and other unsafe schemes dropped to `""`), `label`
-  `name ‖ mime ‖ t('file')`, `isImage` a safe url + `image/*` mime (goes to
-  `images`), `isLink` a safe non-image link (goes to `files`), `isPlain` anything
-  without a safe url |
+| `attachments` | exactly what the fold computes for the block (`setAtts` → `mapAtts`), as `{images: […], files: […]}`, present only when a message carried any: each entry is the real `{k, url, label, isImage, isLink, isPlain}` — `url` is the **absolute url after `hfySafeUrl`** (relative `/v1/files/…` resolved against the page origin, `javascript:` and other unsafe schemes dropped to `""`), `label` `name ‖ mime ‖ t('file')`, `isImage` a safe url + `image/*` mime (goes to `images`), `isLink` a safe non-image link (goes to `files`), `isPlain` anything without a safe url |
 
 `reasoning` additionally: `text`, `streaming`.
 
