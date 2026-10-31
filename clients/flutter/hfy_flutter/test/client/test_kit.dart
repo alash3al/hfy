@@ -12,6 +12,8 @@ export '../support/fake_hfy_server.dart';
 /// mints increasing tokens with an expiry `ttlMs` after the fake clock when
 /// the queue runs dry — expressed as an RFC3339 string, so the tolerated
 /// expiry parse never trips the epoch-seconds branch (v < 1e12).
+typedef HfyTokenProvider = Future<Object?> Function(String reason);
+
 class TokenScript {
   final List<Object?> queued = [];
   final List<String> reasons = [];
@@ -104,15 +106,17 @@ class ClientKit {
   /// `.../prefix` with [FakeHfyServer.pathPrefix] = '/prefix' set BEFORE
   /// this call. [dio] rides through to the client so SSE-session wiring
   /// (interceptors/adapter factory, review item 4) can be asserted.
+  /// [provider] replaces [TokenScript.provider] (the mid-token-fetch /
+  /// mid-boot races park inside a custom provider instead).
   static Future<ClientKit> open(FakeHfyServer server,
-      {int ttlMs = 52000, Uri? api, Dio? dio}) async {
+      {int ttlMs = 52000, Uri? api, Dio? dio, HfyTokenProvider? provider}) async {
     final timers = FakeTimers()..now = 0;
     final tokens = TokenScript()..ttl(ttlMs);
     tokens.clock = () => timers.now;
     final kit = ClientKit._(server, timers, tokens);
     kit.client = HfyClient(
       api: api ?? server.base,
-      tokenProvider: tokens.provider,
+      tokenProvider: provider ?? tokens.provider,
       options: HfyClientOptions(
         clock: () => timers.now,
         timerFactory: timers.factory,

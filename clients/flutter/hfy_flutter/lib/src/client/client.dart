@@ -7,7 +7,11 @@
 //     (P-CLIENT-009/019);
 //   - send/upload/approve/stop (P-CLIENT-010..013);
 //   - close(): timers cancelled, stream closed, state `ended`; after that no
-//     events fire, no 401 retry and no token fetch (P-CLIENT-014/016);
+//     events fire, no 401 retry and no token fetch (P-CLIENT-014/016); the
+//     generation counter invalidates any in-flight boot/ladder chain at its
+//     next await, so a racing close()/dispose() can never leave a client
+//     that ends `live` but never delivers; connect() after close() boots
+//     clean (close is reusable), dispose() is final;
 //   - pause()/resume(): NEW native-only lifecycle pair (P-NAT-004 analog);
 //     pause() before the first connect() is a documented no-op (review item
 //     9), resume() defers to an in-flight connect() boot (review item 8);
@@ -218,6 +222,22 @@ class HfyClient {
   /// double-loading history / double-opening SSE (review item 8).
   Future<void>? _connectFlight;
 
+  /// The lifecycle generation: [close] and [dispose] bump it, and every
+  /// async step of a boot and of the reconnect/refresh chains re-reads the
+  /// generation it captured at entry after EVERY await. An awaiter orphaned
+  /// by a racing close()/dispose() (mid token fetch, mid history page, mid
+  /// ladder wait…) then abandons the whole task — no state move, no SSE
+  /// open, no timers — instead of delivering into an ended client.
+  int _bootGeneration = 0;
+
+  /// Whether the most recent boot got its history page + live_after pin.
+  /// [resume] reads it to distinguish pause() after a LIVE boot (the ladder
+  /// reconnect from the cursor is enough) from pause() during a boot that
+  /// then FAILED: there the direct reconnect path would reopen SSE from the
+  /// all-zero id with no history page and no viewer (own-ness false for
+  /// every turn), so the full history boot is redone instead.
+  bool _bootLoadedHistory = false;
+
   /// Set by dispose(): any state move after that is a programming error and
   /// fails with a typed StateError (not a Flutter assert deep inside the
   /// notifier).
@@ -301,6 +321,14 @@ class HfyClient {
     if (_stream != null) return Future<void>.value();
     final inFlight = _connectFlight;
     if (inFlight != null) return inFlight;
+    return _startBoot();
+  }
+
+  /// Starts a NEW boot and interlocks it into the single-flight slot (its
+  /// completion clears the slot; the identical() check keeps a slot already
+  /// taken by a LATER boot — close() then connect() while the old flight was
+  /// still parked mid-await — from being clobbered).
+  Future<void> _startBoot() {
     final flight = _connect();
     _connectFlight = flight;
     // Side chain that clears the slot; its errors are already delivered to
@@ -318,14 +346,22 @@ class HfyClient {
   }
 
   Future<void> _connect() async {
+    // The generation is captured FIRST: close()/dispose() during any of the
+    // awaits below bumps it, and every check after every await abandons the
+    // boot instead of carrying a dead client to `live`.
+    final gen = _bootGeneration;
     _everStarted = true;
     _closed = false; // a close()d client can be driven again (P-CLIENT-034)
     _paused = false;
+    _bootLoadedHistory = false;
     _wire.closed = false;
     _setState(HfyConnectionState.connecting);
     try {
       await _wire.gate.fetch('initial');
+      if (_bootGeneration != gen) return; // close()d/dispose()d mid-boot
       final liveAfter = await _loadHistory(null);
+      if (_bootGeneration != gen) return; // close()d/dispose()d mid-history
+      _bootLoadedHistory = true;
       // client.js:96-97: live_after wins over any last fired id — it is the
       // server's end mark of the history page. Pinned BEFORE the paused
       // check (review item 7): pause() during the boot must still leave the
@@ -338,6 +374,11 @@ class HfyClient {
       _reconnectAttempts = 0;
       _setState(HfyConnectionState.live);
     } catch (err) {
+      // close()d/dispose()d while this boot was parked mid-await: abandon
+      // it silently — the catch's state move would deliver into an ended
+      // client (a disposed one even throws) and the failure interests
+      // nobody anymore.
+      if (_bootGeneration != gen) return;
       if (!_closed && !_paused) _setState(HfyConnectionState.error);
       rethrow;
     }
@@ -409,10 +450,17 @@ class HfyClient {
 
   /// client.js:149-155 (P-CLIENT-014): everything stops, ends. After this no
   /// events fire, no 401 retry and no token fetch happen; the next connect()
-  /// revives the client (P-CLIENT-034).
+  /// revives the client (P-CLIENT-034) with a CLEAN boot: close() bumps the
+  /// generation so any in-flight boot or ladder chain is abandoned at its
+  /// next await check, clears the single-flight slot (a `connect();
+  /// close(); connect();` races a FRESH boot, never returns the dead one)
+  /// and closes any session the boot already opened.
   void close() {
     _closed = true;
     _wire.closed = true;
+    _bootGeneration++;
+    _connectFlight = null;
+    _bootLoadedHistory = false;
     _cancelRefresh();
     _cancelReconnectTimer();
     _closeStream();
@@ -441,19 +489,22 @@ class HfyClient {
   /// (connect() is the revival instead, P-CLIENT-034).
   ///
   /// While a connect() boot is in flight, resume() DEFERS to it (review item
-  /// 8): the boot reopens the stream on its own; the resumed `connecting`
-  /// state owns it. This also covers pause()-then-resume() DURING that boot:
-  /// the flight's paused-check re-reads the cleared flag and still pins.
+  /// 8): the boot reopens the stream on its own and re-reads the cleared
+  /// paused flag at every await; this also covers pause()-then-resume()
+  /// DURING that boot.
+  ///
+  /// If the last boot DIED before it could load history (pause() during a
+  /// boot that then failed), resume() REDOES the full history boot instead
+  /// of opening SSE directly — the direct path would go out from the
+  /// all-zero id with no history page and no viewer (own-ness false for
+  /// every turn).
   void resume() {
     if (!_paused || _closed || !_everStarted) return;
     _paused = false;
     if (_stream != null) return; // a connect() raced us; it owns the stream
-    final inFlight = _connectFlight;
-    if (inFlight != null) {
-      unawaited(inFlight.then(
-        (_) {},
-        onError: (Object e, StackTrace st) {},
-      ));
+    if (_connectFlight != null) return; // the boot owns the reopen
+    if (!_bootLoadedHistory) {
+      unawaited(_startBoot());
       return;
     }
     _setState(HfyConnectionState.reconnecting);
@@ -462,18 +513,56 @@ class HfyClient {
 
   /// Everything stops AND the client gives up its resources (review item
   /// 1/9): the event controller closes (listeners get onDone), the state
-  /// notifier disposes, and a Dio the client created ITSELF is closed
-  /// (an injected one belongs to the caller). After dispose() the client
-  /// must no longer be driven — and, unlike [close], a dispose()d client
-  /// cannot merely be revived by another connect(); every further state
-  /// move fails with a typed StateError. Build a new client instead.
+  /// notifier disposes, and a Dio the client created ITSELF is closed (an
+  /// injected one belongs to the caller). Full close()-grade teardown
+  /// included (timers, stream, generation bump) — but, unlike [close], a
+  /// dispose()d client cannot be revived by connect(): every further state
+  /// move fails with the typed StateError of [_setState]. Build a new
+  /// client instead.
+  ///
+  /// Idempotent and re-entrancy safe: dispose() called from inside an
+  /// events listener (or a state listener) reaches the entry check of the
+  /// running one only once — `_disposed` is marked FIRST, so re-entrant
+  /// calls return instead of re-running the teardown. Closing the SYNC
+  /// broadcast controller mid-dispatch throws (the SDK refuses it), so THAT
+  /// single step catches and defers one microtask past the dispatch; every
+  /// remaining step runs regardless via the finally, and a second
+  /// dispose() is a plain no-op.
   Future<void> dispose() async {
-    close(); // the final `ended` state move happens BEFORE the disposal
-    _disposed = true;
+    if (_disposed) return;
+    _disposed = true; // first: re-entrant callers find it at the entry check
+    _bootGeneration++;
+    _closed = true;
+    _wire.closed = true;
     _connectFlight = null;
-    await _events.close();
-    _state.dispose();
-    _ownedDio?.close();
+    _bootLoadedHistory = false;
+    _cancelRefresh();
+    _cancelReconnectTimer();
+    _closeStream();
+    // The final `ended` move still notifies state listeners; written raw,
+    // because _setState() refuses state moves on a dispose()d client.
+    _state.value = HfyConnectionState.ended;
+    try {
+      await _closeEventsController();
+    } finally {
+      // The notifier and the owned Dio die even when the controller close
+      // raced an event dispatch.
+      _state.dispose();
+      _ownedDio?.close();
+    }
+  }
+
+  /// _events.close() throws mid-dispatch (a SYNC broadcast controller is
+  /// closed while its dispatch is running — SDK "Cannot fire new event.
+  /// Controller is already firing an event"); the controller stays OPEN
+  /// there, so one microtask later the dispatch has unwound and the close
+  /// delivers normally (listeners get onDone).
+  Future<void> _closeEventsController() async {
+    try {
+      await _events.close();
+    } on StateError {
+      await Future<void>.microtask(() => _events.close());
+    }
   }
 
   // -- internals: state ----------------------------------------------------
@@ -728,16 +817,23 @@ class HfyClient {
   /// failure -> the reconnect ladder (unless closed).
   Future<void> _refreshStream() async {
     if (_closed || _paused) return;
+    final gen = _bootGeneration;
     _setState(HfyConnectionState.refreshing);
     try {
       await _wire.gate.fetch('expired');
-      if (_closed || _paused) return;
+      if (_bootGeneration != gen || _closed || _paused) return;
       _openStream();
       _scheduleRefresh();
       _reconnectAttempts = 0;
       _setState(HfyConnectionState.live);
     } catch (err) {
-      if (!_closed && !_paused) _scheduleReconnect();
+      // A close()/dispose() during the token fetch also bumps the
+      // generation: without the check a later connect() (which re-clears
+      // _closed) would let this zombie chain schedule ladders it does not
+      // own.
+      if (_bootGeneration == gen && !_closed && !_paused) {
+        _scheduleReconnect();
+      }
     }
   }
 
@@ -772,14 +868,19 @@ class HfyClient {
   /// resume(): a fresh token, a reopened stream, a refresh reschedule, live.
   Future<void> _runReconnect() async {
     if (_closed || _paused) return;
+    final gen = _bootGeneration;
     try {
       await _wire.gate.fetch('unauthorized');
-      if (_closed || _paused) return;
+      if (_bootGeneration != gen || _closed || _paused) return;
       _openStream();
       _scheduleRefresh();
       _setState(HfyConnectionState.live);
     } catch (err) {
-      _scheduleReconnect(); // backs off again, capped at the last step
+      // See _refreshStream: a close()/dispose() during the fetch orphans
+      // this chain; the ladder belongs to the generation, not the client.
+      if (_bootGeneration == gen) {
+        _scheduleReconnect(); // backs off again, capped at the last step
+      }
     }
   }
 }

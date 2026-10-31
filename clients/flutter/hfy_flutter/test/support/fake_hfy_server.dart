@@ -155,6 +155,13 @@ class FakeHfyServer {
   Duration? pingEvery;
   Timer Function(Duration delay, void Function() callback)? timerFactory;
 
+  /// PARKS every request's answer right after the request was RECORDed (so
+  /// tests can observe it with [requests] first) until completed — a
+  /// black-holed / wedged server for the timeouts and the mid-boot
+  /// close()/dispose() races. Completing it lets parked and later handlers
+  /// proceed through the normal routing.
+  Completer<void>? holdRequests;
+
   // -- records --------------------------------------------------------------
 
   final List<RecordedRequest> requests = [];
@@ -259,6 +266,10 @@ class FakeHfyServer {
         headers: headers,
         body: await utf8.decoder.bind(raw).join());
     requests.add(record);
+    final hold = holdRequests;
+    if (hold != null && !hold.isCompleted) {
+      await hold.future;
+    }
     final effectivePath = _effective(raw.uri.path);
 
     res.headers.set('Content-Type', 'application/json');
