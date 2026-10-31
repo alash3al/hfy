@@ -220,6 +220,10 @@ class HfyClient {
 
   String? _nextCursor; // the history `next` cursor (client.js #nextCursor)
   HfyActor? _viewer;
+
+  /// Set only while [_loadHistory] fires a page; the fire loop has no awaits,
+  /// so a listener always sees it accurately.
+  bool _deliveringHistory = false;
   Timer? _refreshTimer;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
@@ -317,6 +321,12 @@ class HfyClient {
   /// The grant's own actor, known once the first history page lands
   /// (client.js #viewer; captured before events fire, P-CLIENT-006/018).
   HfyActor? get viewer => _viewer;
+
+  /// True exactly while a history page's envelopes fire through [events]:
+  /// connect()'s first page and each loadOlder() page. Live SSE deliveries
+  /// always see false. A listener reads it to tell history from live, instead
+  /// of comparing ids; it is reset even when a page throws mid-delivery.
+  bool get deliveringHistory => _deliveringHistory;
 
   // -- promise methods -----------------------------------------------------
 
@@ -628,10 +638,15 @@ class HfyClient {
     // a malformed one keeps the previous (client.js's typeof-object guard).
     final viewer = HfyHistoryPage.viewerOf(page['viewer']);
     if (viewer != null) _viewer = viewer;
-    for (final turn in HfyHistoryPage.turnsOf(page)) {
-      for (final envelope in HfyHistoryPage.eventsOf(turn)) {
-        _fire(envelope, isHistory: true);
+    _deliveringHistory = true;
+    try {
+      for (final turn in HfyHistoryPage.turnsOf(page)) {
+        for (final envelope in HfyHistoryPage.eventsOf(turn)) {
+          _fire(envelope, isHistory: true);
+        }
       }
+    } finally {
+      _deliveringHistory = false;
     }
     return meta.liveAfter;
   }

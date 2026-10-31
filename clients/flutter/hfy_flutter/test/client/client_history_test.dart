@@ -144,4 +144,81 @@ void main() {
         (r) => Uri.parse(r.path).queryParameters.containsKey('before'));
     expect(call.path.contains('before=a%20b%2Bc'), isTrue);
   });
+
+  test('deliveringHistory is true only while history envelopes fire: the '
+      'boot page and each loadOlder page yes, live SSE frames no', () async {
+    server.historyPages[null] = historyPage(
+        turns: [
+          {
+            'id': 't1',
+            'events': [
+              wireEnv('h1', 'turn'),
+              wireEnv('h2', 'message.text', parent: 'h1'),
+            ],
+          },
+        ],
+        next: 'c1',
+        liveAfter: 'la');
+    server.historyPages['c1'] = historyPage(
+        turns: [
+          {'id': 't0', 'events': [wireEnv('h0', 'turn')]},
+        ],
+        liveAfter: 'la');
+    final seen = <String>[];
+    kit.client.events.listen((event) =>
+        seen.add('${event.id}:${kit.client.deliveringHistory}'));
+    await kit.client.connect();
+    await kit.waitLive();
+    await kit.client.loadOlder();
+    await kit.server.sseConnections.last
+        .addFrame(wireEnv('L1', 'message.text', parent: 'h1'));
+    await until(() => seen.length == 4);
+    expect(seen, ['h1:true', 'h2:true', 'h0:true', 'L1:false']);
+    expect(kit.client.deliveringHistory, isFalse);
+  });
+
+  test('deliveringHistory resets when a boot page throws mid-delivery',
+      () async {
+    final flags = <bool>[];
+    kit.client.events
+        .listen((event) => flags.add(kit.client.deliveringHistory));
+    // A non-object turn makes HfyHistoryPage.eventsOf throw a TypeError after
+    // the first envelope has fired.
+    server.historyPages[null] = historyPage(
+        turns: [
+          {'id': 't1', 'events': [wireEnv('h1', 'turn')]},
+          7,
+        ],
+        liveAfter: 'la',
+        next: 'c1');
+    await expectLater(kit.client.connect(), throwsA(isA<TypeError>()));
+    expect(flags, [true], reason: 'h1 fired while the page was delivered');
+    expect(kit.client.deliveringHistory, isFalse,
+        reason: 'the finally resets the flag');
+  });
+
+  test('deliveringHistory resets when a loadOlder page throws mid-delivery',
+      () async {
+    final flags = <bool>[];
+    kit.client.events
+        .listen((event) => flags.add(kit.client.deliveringHistory));
+    server.historyPages[null] = historyPage(
+        turns: [
+          {'id': 't2', 'events': [wireEnv('a', 'turn')]},
+        ],
+        liveAfter: 'la',
+        next: 't2');
+    server.historyPages['t2'] = historyPage(
+        turns: [
+          {'id': 't1', 'events': [wireEnv('b', 'turn')]},
+          7,
+        ],
+        liveAfter: 'la',
+        next: null);
+    await kit.client.connect();
+    await kit.waitLive();
+    await expectLater(kit.client.loadOlder(), throwsA(isA<TypeError>()));
+    expect(flags, [true, true], reason: 'a and b fired as history');
+    expect(kit.client.deliveringHistory, isFalse);
+  });
 }
