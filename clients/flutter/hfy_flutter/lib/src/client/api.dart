@@ -46,6 +46,19 @@ import 'token.dart' show HfyGrant;
 
 int _systemClock() => DateTime.now().millisecondsSinceEpoch;
 
+/// REST timeout defaults for when the caller dio's BaseOptions set none.
+///
+/// WHY EXPLICIT: `dio.fetch(RequestOptions(...))` never MERGES BaseOptions
+/// into an explicitly built RequestOptions (dio 5.11) — the timeouts must
+/// ride the options themselves or a black-holed server (a socket that
+/// accepts and never answers) would hang send()/history()/upload() forever:
+/// connect 30s, receive 60s. The SSE open is a different code path
+/// ([HfyApi.eventsOptions], untouched here): dio applies receiveTimeout
+/// BETWEEN stream chunks there, so the SSE request stays timeout-free and
+/// the HfyIdleWatchdog owns liveness (P-NAT-002).
+const Duration _kRestConnectTimeout = Duration(seconds: 30);
+const Duration _kRestReceiveTimeout = Duration(seconds: 60);
+
 /// Token state of one client: validation, the live grant and single-flight
 /// fetching (client.js #fetchToken at 175-181, P-CLIENT-017; concurrent
 /// callers share one in-flight refresh — a native hardening the browser got
@@ -266,6 +279,10 @@ class HfyApi {
   ///   beginning', events.go:144-146).
   /// - [lastEventId] always rides the `Last-Event-ID` header (events.go:133
   ///   reads the header before `?after`; either mechanism resumes).
+  /// - NO timeouts: dio applies receiveTimeout BETWEEN stream chunks, so a
+  ///   receiveTimeout would starve genuinely idle/quiet gaps; liveness on
+  ///   this stream is the HfyIdleWatchdog's job (P-NAT-002) — REST-only
+  ///   timeouts live in [_dioRequest].
   ///
   /// The client runs this on a session-owned Dio (see HfyClient's
   /// _SseSession): a cancelled stream then closes ITS OWN cloned adapter via
@@ -325,11 +342,18 @@ class HfyApi {
         responseType: ResponseType.plain);
   }
 
+  /// One dio-level request with the typed transport-error mapping. Carries
+  /// ITS OWN timeouts (see the [_kRestConnectTimeout] module note): the
+  /// caller dio's BaseOptions are never merged into an explicitly built
+  /// RequestOptions, so connectTimeout/receiveTimeout come from
+  /// `dio.options` (falling back to the documented REST defaults when the
+  /// app dio set none) and sendTimeout is copied as-is.
   Future<Response<dynamic>> _dioRequest(String method, String url,
       {Map<String, String>? headers,
       String? bodyText,
       Stream<List<int>>? bodyBytes,
       required ResponseType responseType}) {
+    final base = dio.options;
     // Transport failures lose the request-shaped DioException entirely
     // (review item 5): its toString/message carry the Authorization header
     // inside requestOptions and the raw URL — HfyNetworkException does not.
@@ -343,6 +367,9 @@ class HfyApi {
             responseType: responseType,
             followRedirects: false,
             validateStatus: (_) => true,
+            connectTimeout: base.connectTimeout ?? _kRestConnectTimeout,
+            receiveTimeout: base.receiveTimeout ?? _kRestReceiveTimeout,
+            sendTimeout: base.sendTimeout,
           ),
         )
         .onError<DioException>(

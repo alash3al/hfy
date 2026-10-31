@@ -40,12 +40,7 @@ import 'dart:async' show StreamController, StreamSubscription, Timer, unawaited;
 import 'dart:typed_data' show Uint8List;
 
 import 'package:dio/dio.dart'
-    show
-        BaseOptions,
-        Dio,
-        HttpClientAdapter,
-        RequestOptions,
-        ResponseBody;
+    show Dio, HttpClientAdapter, RequestOptions, ResponseBody;
 import 'package:dio/io.dart' show IOHttpClientAdapter;
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 
@@ -95,14 +90,26 @@ class HfyClientOptions {
   final HfyTimerFactory idleTimerFactory;
 
   /// Builds the HttpClientAdapter of EVERY SSE session's own Dio (review
-  /// item 4). The session builds its Dio from the caller Dio's BaseOptions
-  /// (timeouts, headers template, extra, queryParameters) and copies ALL its
-  /// interceptors, so proxy/TLS/test wired in Dart must see the SSE open.
-  /// The ADAPTER always stays session-owned and session-closed
-  /// (adapter.close(force: true) at cancel — the author-verified socket
-  /// teardown), so the factory must return a FRESH adapter per call;
-  /// unchanged (null): a fresh IOHttpClientAdapter copying the caller
-  /// adapter's createHttpClient/validateCertificate knobs.
+  /// item 4). The session copies ALL the caller dio's INTERCEPTORS (so
+  /// proxy/TLS/test wiring in Dart must see the SSE open) and the ADAPTER
+  /// always stays session-owned and session-closed (adapter.close(force:
+  /// true) at cancel — the author-verified socket teardown), so the factory
+  /// must return a FRESH adapter per call.
+  ///
+  /// KNOWN LIMITS when left unchanged (null): the clone path (an
+  /// IOHttpClientAdapter with the caller's createHttpClient /
+  /// validateCertificate knobs) —
+  ///   - a shared HttpClient minted by the app's createHttpClient closure
+  ///     is KILLED by every session cancel (adapter.close(force: true)
+  ///     tears down all of THAT adapter's sockets): closures that share
+  ///     sockets belong in this factory, minting a fresh adapter per call;
+  ///   - IOHttpClientAdapter's deprecated onHttpClientCreate is NOT copied
+  ///     (pass the modern createHttpClient closure per session instead);
+  ///   - a NON-io caller adapter (native Cronet/Cupertino) silently falls
+  ///     back to a default IOHttpClientAdapter.
+  /// RECOMMENDED USAGE: pass a factory returning a FRESH instance of the
+  /// app's own adapter class whenever the app runs a custom or native
+  /// adapter type for the events stream.
   final HttpClientAdapter Function()? sseAdapterFactory;
 
   const HfyClientOptions({
@@ -661,45 +668,34 @@ class HfyClient {
   }
 
   /// The SSE session's throwaway Dio built from the CALLER's dio (review
-  /// item 4): BaseOptions copied, ALL interceptors copied, and its own
-  /// HttpClientAdapter — a fresh one from [options.sseAdapterFactory] or an
-  /// IOHttpClientAdapter clone with the caller's createHttpClient /
-  /// validateCertificate knobs (TLS pinning must ride along). The session
-  /// closes its OWN adapter (safe, it shares nothing); the caller's adapter
-  /// and its keep-alive sockets are never touched.
+  /// item 4): ALL its interceptors are copied one by one — proxy/TLS/test
+  /// wiring in Dart must see the SSE open — and the adapter is its OWN, a
+  /// fresh one from [options.sseAdapterFactory] or an IOHttpClientAdapter
+  /// clone with the caller's createHttpClient/validateCertificate knobs.
+  /// BaseOptions are NOT carried over (they are dead weight: dio never
+  /// merges them into an explicitly built RequestOptions — REST timeouts
+  /// live in HfyApi._dioRequest, the SSE open here stays timeout-free by
+  /// the same rule). The session closes its OWN adapter (safe, it shares
+  /// nothing); the caller's adapter and its keep-alive sockets are never
+  /// touched.
   Dio _newSessionDio() {
     final template = _wire.dio;
-    final dio = Dio(_sessionBaseOptions(template.options));
+    final dio = Dio();
     dio.interceptors.addAll(template.interceptors);
     dio.httpClientAdapter = options.sseAdapterFactory?.call() ??
         _cloneSseAdapter(template.httpClientAdapter);
     return dio;
   }
 
-  static BaseOptions _sessionBaseOptions(BaseOptions template) => BaseOptions(
-        baseUrl: template.baseUrl,
-        connectTimeout: template.connectTimeout,
-        sendTimeout: template.sendTimeout,
-        receiveTimeout: template.receiveTimeout,
-        queryParameters: Map<String, dynamic>.of(template.queryParameters),
-        headers: Map<String, dynamic>.of(template.headers),
-        extra: Map<String, dynamic>.of(template.extra),
-        contentType: template.contentType,
-        persistentConnection: template.persistentConnection,
-        preserveHeaderCase: template.preserveHeaderCase,
-        followRedirects: template.followRedirects,
-        maxRedirects: template.maxRedirects,
-        listFormat: template.listFormat,
-        responseDecoder: template.responseDecoder,
-        requestEncoder: template.requestEncoder,
-        // The SSE open OVERRIDES base headers per request (dio merges), so an
-        // app's own 'authorization' template never clobbers the token.
-      );
-
-  // shortcut: only IOHttpClientAdapter is cloned field-wise; any other
-  // adapter type falls back to a default IOHttpClientAdapter — pass
-  // HfyClientOptions.sseAdapterFactory when the app must run a custom
-  // adapter for SSE.
+  // Clones the caller adapter's io knobs into a FRESH IOHttpClientAdapter
+  // for one SSE session. KNOWN LIMITS (documented for the recommended
+  // sseAdapterFactory usage on HfyClientOptions): a shared HttpClient
+  // minted by the app's createHttpClient closure is KILLED by the session's
+  // adapter.close(force: true) at the first cancel; the deprecated
+  // onHttpClientCreate is not copied (no modern setter); and a NON-io
+  // caller adapter (Cronet/Cupertino) silently falls back to a plain
+  // IOHttpClientAdapter — pass a factory returning a fresh instance of the
+  // app's own adapter class when any of these matters.
   static HttpClientAdapter _cloneSseAdapter(HttpClientAdapter template) {
     if (template is IOHttpClientAdapter) {
       return IOHttpClientAdapter(
@@ -890,15 +886,18 @@ class HfyClient {
 /// Stale sessions' callbacks verify `client._stream == this` before moving
 /// anything (client.js's `this.#eventSource !== es` guards).
 ///
-/// Its dio is built per open from the CALLER's dio's BaseOptions + ALL
-/// interceptors, with its own HttpClientAdapter (see HfyClientOptions
-/// .sseAdapterFactory): the app's proxy/TLS/test wiring must see the SSE
-/// request, while the force-close teardown that reliably kills THIS socket
-/// (adapter.close(force: true) — dio's shared CancelToken post-completion
-/// abort is a WeakReference that can already be gone) must NOT tear the
-/// caller's keep-alive sockets. HfyClient._newSessionDio documents exactly
-/// what is copied (BaseOptions and ALL interceptors) and how the adapter is
-/// cloned fresh per session (review item 4).
+/// Its dio is built per open from the CALLER's dio (ALL its interceptors
+/// are copied — see HfyClient._newSessionDio; BaseOptions are NOT carried:
+/// the SSE open is an explicitly built RequestOptions so dio merges
+/// nothing, and the timeouts that fail REST must never clamp stream
+/// chunks) with its own HttpClientAdapter (see
+/// HfyClientOptions.sseAdapterFactory): the app's proxy/TLS/test wiring
+/// must see the SSE request, while the force-close teardown that reliably
+/// kills THIS socket (adapter.close(force: true) — dio's shared CancelToken
+/// post-completion abort is a WeakReference that can already be gone) must
+/// NOT tear the caller's keep-alive sockets. HfyClient._newSessionDio
+/// documents exactly what is copied (interceptors and a fresh adapter) and
+/// how the adapter is cloned fresh per session (review item 4).
 class _SseSession {
   final HfyClient client;
   final HfyIdleWatchdog watchdog;
