@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,12 +105,44 @@ func TestOperationalEndpoints(t *testing.T) {
 		t.Fatalf("metrics: %d", code)
 	}
 	for _, want := range []string{
-		`hfy_http_requests_total{code="401",method="GET",route="/v1/conversation/history"} 1`,
-		`hfy_jobs{queue="maintenance",state="queued"} 1`, // the retention job
 		"go_goroutines",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics lack %q\n%s", want, body)
 		}
 	}
+	// The 401 counter is positive and only grows (the registry is process-
+	// wide, so -count=30 sees it above 1): the series just has to exist.
+	if !gauge(body, `hfy_http_requests_total{code="401",method="GET",route="/v1/conversation/history"}`) {
+		t.Fatalf("metrics lack the 401 counter\n%s", body)
+	}
+	// The retention job is enqueued at boot, but the single worker may have
+	// claimed it by now (state=running, or done and re-scheduled) while the
+	// scrape happened, so the queued gauge is not always 1: poll until the job
+	// shows up as queued or running.
+	for range 100 { // ~5s in 50ms steps
+		if gauge(body, `hfy_jobs{queue="maintenance",state="queued"}`) ||
+			gauge(body, `hfy_jobs{queue="maintenance",state="running"}`) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+		code, b := get(t, "http://"+ops+"/metrics")
+		if code == 200 {
+			body = b
+		}
+	}
+	t.Fatalf("metrics never show the retention job queued or running\n%s", body)
+}
+
+// gauge reports whether the metric (name with its full labels) is present
+// with a positive value. Works for counters and gauges alike.
+func gauge(body, metric string) bool {
+	for line := range strings.SplitSeq(body, "\n") {
+		if !strings.HasPrefix(line, metric+" ") {
+			continue
+		}
+		v, err := strconv.ParseFloat(strings.Fields(line)[1], 64)
+		return err == nil && v > 0
+	}
+	return false
 }
