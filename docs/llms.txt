@@ -371,7 +371,7 @@ The `//` comments are doc-only. Questions never live on a button: they are a top
  "questions": {"questions": [{"id": "size", "text": "Which size?", "type": "single", "options": [{"value": "s", "label": "Small"}, {"value": "l", "label": "Large"}]}]}}
 ```
 
-A carousel is `{"v": 1, "type": "carousel", "cards": [<card>, ...]}` (up to 10). If the questions part is unusable the card survives; if the whole block is unusable (wrong `v`, no title and no body, bad carousel) nothing is rendered. An ui-carrying tool that **also** needs approval cannot ask: approval pauses first, and after it the questions are dropped (log a warning). Stopping the turn while the questions are open ends it with the held tool result plus "The user stopped before answering.".
+A carousel is `{"v": 1, "type": "carousel", "cards": [<card>, ...]}` (up to 10). If the questions part is unusable the card survives; if the card part is unusable (no title and no body, bad carousel) only the questions survive — nothing renders, but the turn still pauses on their answers. Wrong `v` drops the whole block. An ui-carrying tool that **also** needs approval cannot ask: approval pauses first, and after it the questions are dropped (log a warning). Stopping the turn while the questions are open ends it with the held tool result plus "The user stopped before answering.".
 
 Host actions arrive as `{"v": 1, "type": "action", "name": "<name>", "payload": {...}, "call_id": "<call>"}` over the widget bridge (`window.HfyBridge.postMessage`, webkit messageHandlers, `chrome.webview`, ReactNativeWebView, or `postMessage` when framed); send the token the same way (`token-needed` / `hfy.receive`). Send buttons are live only on the viewer's own, current turn; link buttons always are.
 

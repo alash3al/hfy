@@ -361,7 +361,9 @@ event as stored.
   - `questions: {"questions": [...]}` — same shape as `hfy.ask_user`'s
     arguments. Questions reach the viewer only when the agent itself may ask
     (`ask_user: true`, top agents): otherwise they are dropped and the card
-    survives. An over-total (32 KiB) or v-not-1 block is dropped whole.
+    survives. A block that is only questions (no card, or a card that fails)
+    keeps the questions, so the tool just asks with nothing to render. An
+    over-total (32 KiB) or v-not-1 block is dropped whole.
   - buttons: `{send: {label}}` (label is sent verbatim as a new viewer
     message), `{link: {label, url}}` (https, opens in a new tab), or
     `{host: {label, name, payload?}}` (name `a-z0-9_.-`, payload a JSON

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 var uiHosts = []string{"cdn.example.com", "*.s3.amazonaws.com"}
@@ -167,5 +168,105 @@ func TestSanitizeQuestions(t *testing.T) {
 	bad := `{"v":1,"type":"card","title":"t","questions":{"questions":[]}}`
 	if _, qs, err := mustSanitize(t, bad, true); err != nil || qs != nil {
 		t.Fatalf("bad questions drop, card stays: %s %v", qs, err)
+	}
+}
+
+// Control and format characters never reach a viewer: bidi overrides and
+// zero-width junk (Cc/Cf) are stripped from every string; a body keeps its
+// newlines.
+func TestSanitizeStripsInvisible(t *testing.T) {
+	raw := `{"v":1,"type":"card","title":"A\u202a\u202bB\u200b","body":"line one\nline two\n\rthree","badge":"\u202e12 EUR",
+		"kv":[{"label":"Si\u200cze","value":"L"}],
+		"buttons":[{"send":{"label":"Order\u200b"}},{"link":{"label":"Men\u200du","url":"\u200dhttps://cdn.example.com/m"}}]}`
+	card, _, err := mustSanitize(t, raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c UICard
+	if json.Unmarshal(card, &c) != nil {
+		t.Fatalf("card: %s", card)
+	}
+	for name, got := range map[string]string{
+		"title": c.Title, "badge": c.Badge,
+		"kv label": c.KV[0].Label, "kv value": c.KV[0].Value,
+		"send": c.Buttons[0].Send.Label, "link": c.Buttons[1].Link.Label, "link url": c.Buttons[1].Link.URL,
+	} {
+		for _, r := range got {
+			if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+				t.Errorf("%s keeps an invisible character: %q", name, got)
+			}
+		}
+	}
+	// only the body keeps newlines (checked by equality below)
+	if c.Title != "AB" || c.Badge != "12 EUR" || c.KV[0].Label != "Size" ||
+		c.Buttons[0].Send.Label != "Order" || c.Buttons[1].Link.URL != "https://cdn.example.com/m" {
+		t.Errorf("scrubbed fields: %+v", c)
+	}
+	if c.Body != "line one\nline two\nthree" {
+		t.Errorf("body: keep newlines, drop the rest: %q", c.Body)
+	}
+}
+
+// A host button's payload is carried as it was sent: never a float64
+// round-trip, so big integers stay exact.
+func TestSanitizeHostPayloadBigInt(t *testing.T) {
+	raw := `{"v":1,"type":"card","title":"t","buttons":[{"host":{"label":"Pay",
+		"name":"payments","payload":{"amount": 9007199254740993, "id":"  padded  ","n":9007199254740991}}}]}` + "\n"
+	card, _, err := mustSanitize(t, raw, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c UICard
+	if json.Unmarshal(card, &c) != nil {
+		t.Fatalf("card: %s", card)
+	}
+	if string(c.Buttons[0].Host.Payload) != `{"amount":9007199254740993,"id":"  padded  ","n":9007199254740991}` {
+		t.Errorf("payload drifted: %s", c.Buttons[0].Host.Payload)
+	}
+}
+
+// A label that scrubs to empty drops its button; it must not render as blank.
+func TestSanitizeEmptyLabel(t *testing.T) {
+	raw := `{"v":1,"type":"card","title":"t","buttons":[
+		{"send":{"label":"\u200b\u202b"}},
+		{"link":{"label":"Menu","url":"https://cdn.example.com/m"}},
+		{"host":{"label":"\u200b","name":"payments"}},
+		{"send":{"label":"Fine"}}]}`
+	card, _, err := mustSanitize(t, raw, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c UICard
+	json.Unmarshal(card, &c)
+	if len(c.Buttons) != 2 || c.Buttons[0].Link == nil || c.Buttons[1].Send == nil || c.Buttons[1].Send.Label != "Fine" {
+		t.Fatalf("buttons: %+v", c.Buttons)
+	}
+}
+
+// A block that is only questions (no card, or a card that fails) pauses the
+// turn with no card rather than dying.
+func TestSanitizeQuestionsOnly(t *testing.T) {
+	qs := `"questions":{"questions":[{"id":"size","text":"Which size?","type":"single","options":[{"value":"s"},{"value":"l"}]}]}`
+	for _, raw := range []string{
+		`{"v":1,` + qs + `}`,               // no card at all
+		`{"v":1,"type":"card",` + qs + `}`, // titleless, bodyless
+		`{"v":1,"type":"carousel","cards":[{"subtitle":"x"}],` + qs + `}` + " ", // every card unusable
+	} {
+		card, questions, err := mustSanitize(t, raw, true)
+		if len(questions) == 0 || err != nil {
+			t.Errorf("raw %s: questions=%s err=%v", raw, questions, err)
+		}
+		if card != nil {
+			t.Errorf("raw %s: an unusable card must not survive: %s", raw, card)
+		}
+	}
+	// asking off: a questions-only block simply has nothing
+	card, questions, _ := mustSanitize(t, `{"v":1,`+qs+`}`, false)
+	if card != nil || questions != nil {
+		t.Fatalf("no asking, no questions: %s %s", card, questions)
+	}
+	// and the turn only pauses when the questions survive (agent side)
+	if _, questions, err := mustSanitize(t, `{"v":1,`+qs+`}`, true); err != nil || len(questions) == 0 {
+		t.Fatalf("questions-only pause: %v", err)
 	}
 }

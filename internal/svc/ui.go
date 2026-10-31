@@ -1,12 +1,15 @@
 package svc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"regexp"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/types"
@@ -80,9 +83,11 @@ type UICarousel struct {
 // SanitizeUI validates a tool's ui block and returns the display card(s),
 // canonical JSON, plus its tool-triggered questions as {"questions": ...},
 // repaired. A nil raw has nothing; a structurally unusable block is an error
-// (the caller drops it and warns). Unknown fields are dropped, image urls are
-// filtered against imageHosts, questions are dropped unless allowQuestions,
-// and every string is Cleaned.
+// (the caller drops it and warns) — unless valid questions survive it, in
+// which case they are kept with no card, so a tool can just ask. Unknown
+// fields are dropped, image urls are filtered against imageHosts, questions
+// are dropped unless allowQuestions, and every string is Cleaned down to its
+// visible characters.
 func SanitizeUI(raw json.RawMessage, imageHosts []string, allowQuestions bool) (card json.RawMessage, questions json.RawMessage, err error) {
 	if len(raw) == 0 {
 		return nil, nil, nil
@@ -113,19 +118,25 @@ func SanitizeUI(raw json.RawMessage, imageHosts []string, allowQuestions bool) (
 		}
 	}
 	var cards []UICard
+	var cardErr error
 	switch head.Type {
 	case "card":
 		if c, ok := sanitizeCard(raw, imageHosts); ok {
 			cards = []UICard{c}
+		} else {
+			cardErr = fmt.Errorf("ui block carries no usable card (type %q)", head.Type)
 		}
 	case "carousel":
-		cards, err = sanitizeCarousel(raw, imageHosts)
-		if err != nil {
-			return nil, nil, err
-		}
+		cards, cardErr = sanitizeCarousel(raw, imageHosts)
 	}
 	if len(cards) == 0 {
-		return nil, nil, fmt.Errorf("ui block carries no usable card (type %q)", head.Type)
+		if questions != nil { // the card part is absent or unusable; the questions still pause
+			return nil, questions, nil
+		}
+		if cardErr == nil {
+			cardErr = fmt.Errorf("ui block carries no usable card (type %q)", head.Type)
+		}
+		return nil, nil, cardErr
 	}
 	if head.Type == "carousel" {
 		if card, err = json.Marshal(UICarousel{V: 1, Type: "carousel", Cards: cards}); err != nil {
@@ -150,24 +161,24 @@ type uiCardIn struct {
 }
 
 // sanitizeCard decodes and bounds one card, dropping what does not survive: an
-// image the hosts do not allow, a malformed button, an over-long string. A
-// card with no title and no body is dropped.
+// image the hosts do not allow, an empty label after scrubbing, an over-long
+// string. A card with no title and no body is dropped.
 func sanitizeCard(raw json.RawMessage, imageHosts []string) (UICard, bool) {
 	var in uiCardIn
 	if json.Unmarshal(raw, &in) != nil {
 		return UICard{}, false
 	}
 	c := UICard{V: 1, Type: "card",
-		Title:    cleanClip(in.Title, maxUITitle),
-		Subtitle: cleanClip(in.Subtitle, maxUITitle),
-		Body:     cleanClip(in.Body, maxUIBody),
-		Badge:    cleanClip(in.Badge, maxUIBadge),
+		Title:    cleanClip(in.Title, maxUITitle, false),
+		Subtitle: cleanClip(in.Subtitle, maxUITitle, false),
+		Body:     cleanClip(in.Body, maxUIBody, true),
+		Badge:    cleanClip(in.Badge, maxUIBadge, false),
 		Image:    uiImage(in.Image, imageHosts)}
 	for _, r := range in.KV {
 		if len(c.KV) == maxUIKVRows {
 			break
 		}
-		c.KV = append(c.KV, UIKV{Label: cleanClip(r.Label, maxUIKVLabel), Value: cleanClip(r.Value, maxUIKVValue)})
+		c.KV = append(c.KV, UIKV{Label: cleanClip(r.Label, maxUIKVLabel, false), Value: cleanClip(r.Value, maxUIKVValue, false)})
 	}
 	for _, b := range in.Buttons {
 		if len(c.Buttons) == maxUIButtons {
@@ -175,10 +186,10 @@ func sanitizeCard(raw json.RawMessage, imageHosts []string) (UICard, bool) {
 		}
 		switch {
 		case b.Send != nil:
+			b.Send.Label = cleanClip(b.Send.Label, maxUIKVLabel, false)
 			if b.Send.Label == "" {
 				continue
 			}
-			b.Send.Label = cleanClip(b.Send.Label, maxUIKVLabel)
 			c.Buttons = append(c.Buttons, b)
 		case uiLink(b.Link) != nil:
 			c.Buttons = append(c.Buttons, UIButton{Link: uiLink(b.Link)})
@@ -216,27 +227,36 @@ func sanitizeCarousel(raw json.RawMessage, imageHosts []string) ([]UICard, error
 var uiHostNameRe = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
 
 func uiLink(b *UILink) *UILink {
-	if b == nil || b.Label == "" || len(b.URL) > maxUILink || !uiHTTPs(b.URL) {
+	if b == nil {
 		return nil
 	}
-	return &UILink{Label: cleanClip(b.Label, maxUIKVLabel), URL: b.URL}
+	b.Label = cleanClip(b.Label, maxUIKVLabel, false)
+	b.URL = uiScrub(b.URL, false)
+	if b.Label == "" || len(b.URL) > maxUILink || !uiHTTPs(b.URL) {
+		return nil
+	}
+	return b
 }
 
 func uiHost(b *UIHost) *UIHost {
-	if b == nil || b.Label == "" || !uiHostNameRe.MatchString(b.Name) {
+	if b == nil || !uiHostNameRe.MatchString(b.Name) {
 		return nil
 	}
-	out := &UIHost{Label: cleanClip(b.Label, maxUIKVLabel), Name: b.Name}
+	b.Label = cleanClip(b.Label, maxUIKVLabel, false)
+	if b.Label == "" {
+		return nil
+	}
+	out := &UIHost{Label: b.Label, Name: b.Name}
 	if len(b.Payload) > 0 {
-		var p map[string]any
-		if json.Unmarshal(b.Payload, &p) != nil || p == nil {
+		// Never a map: a round-trip through any would lose the precision of
+		// big integers. It must already be a JSON object; only compaction
+		// rewrites it.
+		var buf bytes.Buffer
+		if !json.Valid(b.Payload) || !bytes.HasPrefix(bytes.TrimSpace(b.Payload), []byte("{")) ||
+			json.Compact(&buf, b.Payload) != nil || buf.Len() > maxUIPayload {
 			return nil
 		}
-		pb, err := json.Marshal(p)
-		if err != nil || len(pb) > maxUIPayload {
-			return nil
-		}
-		out.Payload = pb
+		out.Payload = buf.Bytes()
 	}
 	return out
 }
@@ -244,6 +264,7 @@ func uiHost(b *UIHost) *UIHost {
 // uiImage keeps a https url whose host the config allows; anything else only
 // costs the image, never the card.
 func uiImage(s string, imageHosts []string) string {
+	s = uiScrub(s, false)
 	if s == "" || len(s) > maxUILink || !uiHTTPs(s) {
 		return ""
 	}
@@ -260,11 +281,29 @@ func uiHTTPs(s string) bool {
 	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
-// cleanClip is Clean with a rune limit.
-func cleanClip(s string, n int) string {
-	s = types.Clean(s)
+// cleanClip is a scrub with a rune limit: control characters and formatters
+// (bidi overrides, zero-width and friends) never survive; newlines only in a
+// body. The clip follows the scrub, so invisible characters cannot push
+// visible text past the limit.
+func cleanClip(s string, n int, keepNL bool) string {
+	s = uiScrub(s, keepNL)
 	if utf8.RuneCountInString(s) > n {
 		s = string([]rune(s)[:n])
 	}
 	return s
+}
+
+// uiScrub strips Unicode control (Cc) and format (Cf) characters, which
+// render invisibly or can reorder display text; newlines survive where the
+// caller says so (a card body only).
+func uiScrub(s string, keepNL bool) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' && keepNL {
+			return r
+		}
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, types.Clean(s))
 }
