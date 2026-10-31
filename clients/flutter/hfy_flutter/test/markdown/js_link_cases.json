@@ -1,0 +1,602 @@
+[
+  {
+    "kind": "href",
+    "input": "https://x.example",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "http://x.example/a b",
+    "expected": "http://x.example/a%20b"
+  },
+  {
+    "kind": "href",
+    "input": "HTTPS://X.EXAMPLE/OK",
+    "expected": "https://x.example/OK"
+  },
+  {
+    "kind": "href",
+    "input": "https://user:pa ss@x.example/",
+    "expected": "https://user:pa%20ss@x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example:443/",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example:8443/p",
+    "expected": "https://x.example:8443/p"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example:0080/",
+    "expected": "https://x.example:80/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example:65536/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example/%zz?q=a b#f g",
+    "expected": "https://x.example/%zz?q=a%20b#f%20g"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example/a/../b/./c/%2e%2E/d",
+    "expected": "https://x.example/b/d"
+  },
+  {
+    "kind": "href",
+    "input": "https://[::1]:8080/x",
+    "expected": "https://[::1]:8080/x"
+  },
+  {
+    "kind": "href",
+    "input": "https://[1:0:0:2:0:0:0:3]/",
+    "expected": "https://[1:0:0:2::3]/"
+  },
+  {
+    "kind": "href",
+    "input": "https://[::ffff:1.2.3.4]/",
+    "expected": "https://[::ffff:102:304]/"
+  },
+  {
+    "kind": "href",
+    "input": "https://[1::2::3]/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://[1.2.3.4]/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://0x7f.1/",
+    "expected": "https://127.0.0.1/"
+  },
+  {
+    "kind": "href",
+    "input": "https://1.2.3.4.5/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://4294967295/",
+    "expected": "https://255.255.255.255/"
+  },
+  {
+    "kind": "href",
+    "input": "https://4294967296/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://ab.cd.ef.gh.ij/",
+    "expected": "https://ab.cd.ef.gh.ij/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a..b/",
+    "expected": "https://a..b/"
+  },
+  {
+    "kind": "href",
+    "input": "https://./",
+    "expected": "https://./"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example./",
+    "expected": "https://x.example./"
+  },
+  {
+    "kind": "href",
+    "input": "https://ünicode.example/",
+    "expected": "https://xn--nicode-2ya.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://Ｅｘａｍｐｌｅ.com",
+    "expected": "https://example.com/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a。b/",
+    "expected": "https://a.b/"
+  },
+  {
+    "kind": "href",
+    "input": "https://😊.example/",
+    "expected": "https://xn--o28h.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ß.example/",
+    "expected": "https://xn--zca.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ẞ.example/",
+    "expected": "https://xn--zca.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ǅ.example/",
+    "expected": "https://xn--d-toa.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ǆ.example/",
+    "expected": "https://xn--d-toa.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ﬁ.example/",
+    "expected": "https://fi.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://ſ.example/",
+    "expected": "https://s.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://İ.example/",
+    "expected": "https://xn--i-9bb.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a­.example/",
+    "expected": "https://a.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://​x.example/",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://xn--ls8h.example/",
+    "expected": "https://xn--ls8h.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://xn--a.example/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://xn--Ab.example/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://x.xn--zca.example/",
+    "expected": "https://x.xn--zca.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://user:p@ss@h/",
+    "expected": "https://user:p%40ss@h/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a:@c/",
+    "expected": "https://a@c/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a%41@c/",
+    "expected": "https://a%41@c/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x/?'q'",
+    "expected": "https://x/?%27q%27"
+  },
+  {
+    "kind": "href",
+    "input": "https://x/a^b|c[d]e\\f",
+    "expected": "https://x/a%5Eb|c[d]e/f"
+  },
+  {
+    "kind": "href",
+    "input": "https://x/a/`{}",
+    "expected": "https://x/a/%60%7B%7D"
+  },
+  {
+    "kind": "href",
+    "input": "https://x/",
+    "expected": "https://x/%7F"
+  },
+  {
+    "kind": "href",
+    "input": "https://x/a􏿿",
+    "expected": "https://x/a%F4%8F%BF%BF"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:a@x.example",
+    "expected": "mailto:a@x.example"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:a b@x.example",
+    "expected": "mailto:a b@x.example"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:a ?x",
+    "expected": "mailto:a%20?x"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:a #x",
+    "expected": "mailto:a%20#x"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:",
+    "expected": "mailto:"
+  },
+  {
+    "kind": "href",
+    "input": "mailto://x@y",
+    "expected": "mailto://x@y"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:ü@x.example",
+    "expected": "mailto:%C3%BC@x.example"
+  },
+  {
+    "kind": "href",
+    "input": "mailto:/x",
+    "expected": "mailto:/x"
+  },
+  {
+    "kind": "href",
+    "input": "MAILTO:a@b",
+    "expected": "mailto:a@b"
+  },
+  {
+    "kind": "href",
+    "input": "javascript:alert(1)",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "JaVaScRiPt:alert(1)",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "data:text/html,x",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "vbscript:msgbox(1)",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "file:///etc/passwd",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "ftp://x.example/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "//evil.example/x",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "/relative/path",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "relative",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": " https://x.example",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "\thttps://x.example",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example\t\n/a",
+    "expected": "https://x.example/a"
+  },
+  {
+    "kind": "href",
+    "input": "https\t://x.example",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https:x",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "http://",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "mailto",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "hTTps://x.example",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example/ ",
+    "expected": "https://x.example/%E2%80%A8"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example/\u0001",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://x.example\u0000",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "href",
+    "input": "https://a\u0000b/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://a%20b/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://a b/",
+    "expected": null
+  },
+  {
+    "kind": "href",
+    "input": "https://a<b/",
+    "expected": null
+  },
+  {
+    "kind": "url",
+    "input": "/v1/files/a b",
+    "base": "https://embed.example/",
+    "expected": "https://embed.example/v1/files/a%20b"
+  },
+  {
+    "kind": "url",
+    "input": "/v1/files/x?sig=1#frag",
+    "base": "https://embed.example/",
+    "expected": "https://embed.example/v1/files/x?sig=1#frag"
+  },
+  {
+    "kind": "url",
+    "input": "//cdn.example/i.png",
+    "base": "https://embed.example/",
+    "expected": "https://cdn.example/i.png"
+  },
+  {
+    "kind": "url",
+    "input": "//cdn.example/i.png",
+    "base": "http://embed.example/",
+    "expected": "http://cdn.example/i.png"
+  },
+  {
+    "kind": "url",
+    "input": "javascript:alert(1)",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "JAVASCRIPT:alert(1)",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "data:image/png;base64,AAAA",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "vbscript:x",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "blob:https://embed.example/uuid",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "https://cdn.example/a.png",
+    "base": "https://embed.example/",
+    "expected": "https://cdn.example/a.png"
+  },
+  {
+    "kind": "url",
+    "input": "http://cdn.example/a.png",
+    "base": "https://embed.example/",
+    "expected": "http://cdn.example/a.png"
+  },
+  {
+    "kind": "url",
+    "input": "ftp://cdn.example/a.png",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "?q=1",
+    "base": "https://embed.example/a/b?c#d",
+    "expected": "https://embed.example/a/b?q=1"
+  },
+  {
+    "kind": "url",
+    "input": "#frag",
+    "base": "https://embed.example/a/b?c#d",
+    "expected": "https://embed.example/a/b?c#frag"
+  },
+  {
+    "kind": "url",
+    "input": "",
+    "base": "https://embed.example/",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "../../x",
+    "base": "https://embed.example/a/b/c",
+    "expected": "https://embed.example/x"
+  },
+  {
+    "kind": "url",
+    "input": "x y:z",
+    "base": "https://embed.example/",
+    "expected": "https://embed.example/x%20y:z"
+  },
+  {
+    "kind": "url",
+    "input": "https:x",
+    "base": "https://embed.example/a/b",
+    "expected": "https://embed.example/a/x"
+  },
+  {
+    "kind": "url",
+    "input": "http:x",
+    "base": "https://embed.example/a/b",
+    "expected": "http://x/"
+  },
+  {
+    "kind": "url",
+    "input": "\\\\h\\p",
+    "base": "https://embed.example/",
+    "expected": "https://h/p"
+  },
+  {
+    "kind": "url",
+    "input": "x",
+    "base": "https://u:p@embed.example/b",
+    "expected": "https://u:p@embed.example/x"
+  },
+  {
+    "kind": "url",
+    "input": "x",
+    "base": "https://embed.example:8443/b",
+    "expected": "https://embed.example:8443/x"
+  },
+  {
+    "kind": "url",
+    "input": "x",
+    "base": "http://embed.example/b",
+    "expected": "http://embed.example/x"
+  },
+  {
+    "kind": "url",
+    "input": "x",
+    "base": "mailto:a@b",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "#f",
+    "base": "mailto:a@b",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "x",
+    "base": "ftp://h/a",
+    "expected": ""
+  },
+  {
+    "kind": "url",
+    "input": "/v1/files/%E2%82%AC.png",
+    "base": "https://embed.example/",
+    "expected": "https://embed.example/v1/files/%E2%82%AC.png"
+  },
+  {
+    "kind": "url",
+    "input": "https://ünicode.example/i.png",
+    "base": "https://embed.example/",
+    "expected": "https://xn--nicode-2ya.example/i.png"
+  },
+  {
+    "kind": "url",
+    "input": "https://x.example/\u0001",
+    "base": "https://embed.example/",
+    "expected": "https://x.example/"
+  },
+  {
+    "kind": "url",
+    "input": " /v1/files/a ",
+    "base": "https://embed.example/",
+    "expected": "https://embed.example/v1/files/a"
+  }
+]

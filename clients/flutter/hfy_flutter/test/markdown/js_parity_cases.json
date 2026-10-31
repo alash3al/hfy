@@ -1,0 +1,2424 @@
+[
+  {
+    "name": "fence-longer-closer",
+    "input": "```\na\n````\nb",
+    "tree": [
+      {
+        "t": "pre",
+        "lang": "",
+        "text": "a"
+      },
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fence-shorter-not-closer",
+    "input": "````\na\n```\nb\n````",
+    "tree": [
+      {
+        "t": "pre",
+        "lang": "",
+        "text": "a\n```\nb"
+      }
+    ]
+  },
+  {
+    "name": "fence-tilde-run-closes-only-tilde",
+    "input": "~~~\na\n```\n~~~",
+    "tree": [
+      {
+        "t": "pre",
+        "lang": "",
+        "text": "a\n```"
+      }
+    ]
+  },
+  {
+    "name": "fence-backtick-after-info-no-fence",
+    "input": "```a`b\nx\n```",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "```a`b"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "x"
+          }
+        ]
+      },
+      {
+        "t": "pre",
+        "lang": "",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "fence-indent-dedent-tab",
+    "input": "  ```\n\t\tx\n  ```",
+    "tree": [
+      {
+        "t": "pre",
+        "lang": "",
+        "text": "\tx"
+      }
+    ]
+  },
+  {
+    "name": "fence-info-with-tilde",
+    "input": "```~x\ny\n```",
+    "tree": [
+      {
+        "t": "pre",
+        "lang": "~x",
+        "text": "y"
+      }
+    ]
+  },
+  {
+    "name": "fence-spaces-then-backtick-info",
+    "input": "``` a `b\n```",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "``` a `b"
+          }
+        ]
+      },
+      {
+        "t": "pre",
+        "lang": "",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "hr-underscores-spaced",
+    "input": "_ _ _",
+    "tree": [
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "name": "hr-tab-separated",
+    "input": "*\t*\t*",
+    "tree": [
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "name": "hr-four-spaces-not-rule",
+    "input": "    ***",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "***"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr-three-spaces-rule",
+    "input": "   ***",
+    "tree": [
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "name": "hr-mixed-markers-not-rule",
+    "input": "-*-",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "-*-"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr-two-markers-not-rule",
+    "input": "--",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "--"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr-trailing-text-not-rule",
+    "input": "--- x",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "--- x"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hr-long-spaced",
+    "input": "-                                                  -     -",
+    "tree": [
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "name": "hr-long-spaced-then-text",
+    "input": "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -x",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "ul",
+              "start": 1,
+              "items": [
+                [
+                  {
+                    "t": "ul",
+                    "start": 1,
+                    "items": [
+                      [
+                        {
+                          "t": "ul",
+                          "start": 1,
+                          "items": [
+                            [
+                              {
+                                "t": "ul",
+                                "start": 1,
+                                "items": [
+                                  [
+                                    {
+                                      "t": "ul",
+                                      "start": 1,
+                                      "items": [
+                                        [
+                                          {
+                                            "t": "ul",
+                                            "start": 1,
+                                            "items": [
+                                              [
+                                                {
+                                                  "t": "p",
+                                                  "c": [
+                                                    {
+                                                      "t": "text",
+                                                      "v": "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -x"
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-u2028-in-content",
+    "input": "- a b",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "- a b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-empty-u2028",
+    "input": "- ",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "-"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-ordered-u2028",
+    "input": "1. x y",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "1. x y"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-long-spaces-u2028",
+    "input": "-                                         ",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "-"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-gap-three",
+    "input": "-   x",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-gap-six-caps-to-one",
+    "input": "-      x\n       y",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x"
+                },
+                {
+                  "t": "br"
+                },
+                {
+                  "t": "text",
+                  "v": "y"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-tab-gap",
+    "input": "-\tx\n\ty",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x"
+                },
+                {
+                  "t": "br"
+                },
+                {
+                  "t": "text",
+                  "v": "y"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-start-three",
+    "input": "3. a\n4. b",
+    "tree": [
+      {
+        "t": "ol",
+        "start": 3,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-paren-marker",
+    "input": "1) a\n2) b",
+    "tree": [
+      {
+        "t": "ol",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-type-switch",
+    "input": "* a\n- b",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-loose-blank",
+    "input": "- a\n\n  b",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            },
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-two-blank-lines",
+    "input": "- x\n\n\n- y",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "y"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-lazy-after-blank",
+    "input": "- a\n\nlazy",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "lazy"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-ordered-not-interrupt",
+    "input": "para\n2. no\n3. no",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "para"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "2. no"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "3. no"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item-interrupt-with-one",
+    "input": "para\n1. yes",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "para"
+          }
+        ]
+      },
+      {
+        "t": "ol",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "yes"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-tab-after-hash",
+    "input": "#\tTitle",
+    "tree": [
+      {
+        "t": "h",
+        "level": 1,
+        "c": [
+          {
+            "t": "text",
+            "v": "Title"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-closing-run-needs-space",
+    "input": "# a#",
+    "tree": [
+      {
+        "t": "h",
+        "level": 1,
+        "c": [
+          {
+            "t": "text",
+            "v": "a#"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-empty-hashes",
+    "input": "#   #",
+    "tree": [
+      {
+        "t": "h",
+        "level": 1,
+        "c": [
+          {
+            "t": "text",
+            "v": "#"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-three-hash-closer",
+    "input": "### ###",
+    "tree": [
+      {
+        "t": "h",
+        "level": 3,
+        "c": [
+          {
+            "t": "text",
+            "v": "###"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-u2028-blocks",
+    "input": "# x",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "# x"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "heading-seven-hashes",
+    "input": "####### x",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "####### x"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote-lazy-no-space",
+    "input": ">no space\n>  two",
+    "tree": [
+      {
+        "t": "quote",
+        "c": [
+          {
+            "t": "p",
+            "c": [
+              {
+                "t": "text",
+                "v": "no space"
+              },
+              {
+                "t": "br"
+              },
+              {
+                "t": "text",
+                "v": "two"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote-three-spaces",
+    "input": ">   x",
+    "tree": [
+      {
+        "t": "quote",
+        "c": [
+          {
+            "t": "p",
+            "c": [
+              {
+                "t": "text",
+                "v": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote-paragraphs-blank",
+    "input": "> a\n>\n> b\n\nc",
+    "tree": [
+      {
+        "t": "quote",
+        "c": [
+          {
+            "t": "p",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "p",
+            "c": [
+              {
+                "t": "text",
+                "v": "b"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "c"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-angle-title",
+    "input": "[a](<b c> \"t\")",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a](<b c> \"t\")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-plain-title-single",
+    "input": "[a](b 'x y')",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a](b 'x y')"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-extra-after-title",
+    "input": "[a](https://x.example \"t\" extra)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a](https://x.example \"t\" extra)"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-spaces-around-dest",
+    "input": "[a]( https://x.example )",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-escaped-paren-dest",
+    "input": "[a](https://x.example\\))",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/)",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-query-parens",
+    "input": "[a](https://x.example?q=(1))",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/?q=(1)",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-mailto",
+    "input": "[a](mailto:x@y.z)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "mailto:x@y.z",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-mailto-upper-scheme",
+    "input": "[a](MAILTO:x@y.z)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "mailto:x@y.z",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-javascript-dest",
+    "input": "[a](javascript:alert(1))",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a](javascript:alert(1))"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-reference-style",
+    "input": "[a][b] [c]",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a][b] [c]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-code-label",
+    "input": "[`x`](https://x.example)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "code",
+                "v": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-dest-u2028",
+    "input": "[a](https://x .example)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[a](https://x .example)"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autolink-upper-scheme",
+    "input": "<HTTP://A.B>",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "http://a.b/",
+            "c": [
+              {
+                "t": "text",
+                "v": "HTTP://A.B"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autolink-mailto-plain",
+    "input": "<mailto:a@b>",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "mailto:a@b",
+            "c": [
+              {
+                "t": "text",
+                "v": "mailto:a@b"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autolink-space-inside",
+    "input": "<https://a b>",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "<"
+          },
+          {
+            "t": "a",
+            "href": "https://a/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": " b>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autolink-extra-gt",
+    "input": "<https://a>b>",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://a/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "b>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-trailing-underscore",
+    "input": "https://x.example/a_b_",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/a_b",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/a_b"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "_"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-paren-wrapped",
+    "input": "(https://x.example)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "("
+          },
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-unbalanced-paren",
+    "input": "https://x.example/a)b)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/a)b",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/a)b"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-balanced-trailing",
+    "input": "https://x.example/a(b)c)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/a(b)c",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/a(b)c"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-trailing-dot",
+    "input": "https://x.example.",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-query-fragment",
+    "input": "x https://a.b/c?d=e&f=g#h",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "x "
+          },
+          {
+            "t": "a",
+            "href": "https://a.b/c?d=e&f=g#h",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://a.b/c?d=e&f=g#h"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bare-punct-run",
+    "input": "https://x.example....................b",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example....................b/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example....................b"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-nested-strong",
+    "input": "**a *b* c**",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "b",
+            "c": [
+              {
+                "t": "text",
+                "v": "a "
+              },
+              {
+                "t": "i",
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "b"
+                  }
+                ]
+              },
+              {
+                "t": "text",
+                "v": " c"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-nested-other-way",
+    "input": "*a **b** c*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a "
+              },
+              {
+                "t": "b",
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "b"
+                  }
+                ]
+              },
+              {
+                "t": "text",
+                "v": " c"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-triple-run",
+    "input": "***a***",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "b",
+            "c": [
+              {
+                "t": "i",
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-unbalanced-tail",
+    "input": "*a**",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*a**"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-unbalanced-head",
+    "input": "**a*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "**a*"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-underscore-word",
+    "input": "_a_b_",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a_b"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-asterisk-word",
+    "input": "a*b*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "b"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-multi-line",
+    "input": "*a\nb*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              },
+              {
+                "t": "br"
+              },
+              {
+                "t": "text",
+                "v": "b"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-mixed-closers",
+    "input": "__a *b__ c*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "b",
+            "c": [
+              {
+                "t": "text",
+                "v": "a *b"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": " c*"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-code-inside",
+    "input": "*a `b*` c*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a "
+              },
+              {
+                "t": "code",
+                "v": "b*"
+              },
+              {
+                "t": "text",
+                "v": " c"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-run-split-three",
+    "input": "**a***",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "b",
+            "c": [
+              {
+                "t": "text",
+                "v": "a*"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-run-three-open-two-close",
+    "input": "***a**",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "***a**"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-deep-chain",
+    "input": "*a *b *c *d *e *f *g h* f* e* d* c* b* a*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a "
+              },
+              {
+                "t": "i",
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "b "
+                  },
+                  {
+                    "t": "i",
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "c "
+                      },
+                      {
+                        "t": "i",
+                        "c": [
+                          {
+                            "t": "text",
+                            "v": "d "
+                          },
+                          {
+                            "t": "i",
+                            "c": [
+                              {
+                                "t": "text",
+                                "v": "e "
+                              },
+                              {
+                                "t": "i",
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "f "
+                                  },
+                                  {
+                                    "t": "i",
+                                    "c": [
+                                      {
+                                        "t": "text",
+                                        "v": "g h"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "t": "text",
+                                    "v": " f"
+                                  }
+                                ]
+                              },
+                              {
+                                "t": "text",
+                                "v": " e"
+                              }
+                            ]
+                          },
+                          {
+                            "t": "text",
+                            "v": " d"
+                          }
+                        ]
+                      },
+                      {
+                        "t": "text",
+                        "v": " c"
+                      }
+                    ]
+                  },
+                  {
+                    "t": "text",
+                    "v": " b"
+                  }
+                ]
+              },
+              {
+                "t": "text",
+                "v": " a"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-spaced-openers",
+    "input": "*x **x **x **x **x **x **x **x **x",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*x **x **x **x **x **x **x **x **x"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-spaced-underscores",
+    "input": "*x _x _x _x _x _x _x _x _x",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*x _x _x _x _x _x _x _x _x"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-label-at-limit",
+    "input": "[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa](https://x.example)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "text",
+                "v": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-label-past-limit",
+    "input": "[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa](https://x.example)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]("
+          },
+          {
+            "t": "a",
+            "href": "https://x.example/",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-dest-at-limit",
+    "input": "[t](https://x.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "a",
+            "href": "https://x.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "c": [
+              {
+                "t": "text",
+                "v": "t"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link-dest-past-limit",
+    "input": "[t](https://x.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[t]("
+          },
+          {
+            "t": "a",
+            "href": "https://x.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-followed-by-space",
+    "input": "a * b * c",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "a * b * c"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-run-two-space",
+    "input": "x ** y ** z",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "x ** y ** z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-space-then-closer",
+    "input": "a * b*",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "a * b*"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-run-two-space-then-closer",
+    "input": "x ** y** z",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "x ** y** z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-tab",
+    "input": "*\tx*",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x*"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-opener-newline",
+    "input": "*\nx*",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "x*"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-closer-preceded-by-space",
+    "input": "a *b * c",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "a *b * c"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-nested-opener-space",
+    "input": "*a *b * c* d",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*a "
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "b * c"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": " d"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-triple-opener-space",
+    "input": "*** a ***",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*** a ***"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-underscore-opener-space",
+    "input": "x _ y _ z",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "x _ y _ z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-underscore-closer-word",
+    "input": "a _b _c",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "a _b _c"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "em-closer-run-three-space",
+    "input": "*a *** b",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "*a *** b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code-double-run-inside",
+    "input": "`a``b`",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "code",
+            "v": "a``b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code-single-inside-double",
+    "input": "``a`b``",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "code",
+            "v": "a`b"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code-only-spaces",
+    "input": "` `",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "code",
+            "v": " "
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code-padded",
+    "input": "`  x  `",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "code",
+            "v": " x "
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code-fence-like-run",
+    "input": "``` a ```",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "code",
+            "v": "a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "escape-double-backslash",
+    "input": "\\\\",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "\\"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "escape-letter",
+    "input": "\\a",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "\\a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "escape-backtick",
+    "input": "\\`code\\`",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "`code`"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "bracket-run",
+    "input": "[[[[[[[[[[a",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "[[[[[[[[[[a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "star-run-unclosed",
+    "input": "**a*a*a*a*a*a*a*a*a*a*a*a",
+    "tree": [
+      {
+        "t": "p",
+        "c": [
+          {
+            "t": "text",
+            "v": "**a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "i",
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ]
+          },
+          {
+            "t": "text",
+            "v": "a*a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "quote-deep-lines",
+    "input": "> > > > > > > x\n> > > > > > > y",
+    "tree": [
+      {
+        "t": "quote",
+        "c": [
+          {
+            "t": "quote",
+            "c": [
+              {
+                "t": "quote",
+                "c": [
+                  {
+                    "t": "quote",
+                    "c": [
+                      {
+                        "t": "quote",
+                        "c": [
+                          {
+                            "t": "quote",
+                            "c": [
+                              {
+                                "t": "p",
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "x"
+                                  },
+                                  {
+                                    "t": "br"
+                                  },
+                                  {
+                                    "t": "text",
+                                    "v": "y"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "list-deep-five",
+    "input": "- a\n  - b\n    - c\n      - d\n        - e",
+    "tree": [
+      {
+        "t": "ul",
+        "start": 1,
+        "items": [
+          [
+            {
+              "t": "p",
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ]
+            },
+            {
+              "t": "ul",
+              "start": 1,
+              "items": [
+                [
+                  {
+                    "t": "p",
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "b"
+                      }
+                    ]
+                  },
+                  {
+                    "t": "ul",
+                    "start": 1,
+                    "items": [
+                      [
+                        {
+                          "t": "p",
+                          "c": [
+                            {
+                              "t": "text",
+                              "v": "c"
+                            }
+                          ]
+                        },
+                        {
+                          "t": "ul",
+                          "start": 1,
+                          "items": [
+                            [
+                              {
+                                "t": "p",
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "d"
+                                  }
+                                ]
+                              },
+                              {
+                                "t": "ul",
+                                "start": 1,
+                                "items": [
+                                  [
+                                    {
+                                      "t": "p",
+                                      "c": [
+                                        {
+                                          "t": "text",
+                                          "v": "e"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        ]
+      }
+    ]
+  }
+]

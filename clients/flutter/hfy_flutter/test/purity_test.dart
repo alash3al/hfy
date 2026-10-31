@@ -14,6 +14,10 @@ const _pureFiles = [
   'lib/src/theme/accent.dart',
   'lib/src/l10n/strings.dart',
   'lib/src/l10n/l10n.dart',
+  'lib/src/markdown/nodes.dart',
+  'lib/src/markdown/parser.dart',
+  'lib/src/markdown/links.dart',
+  'lib/src/markdown/url.dart',
 ];
 
 // Each whole directive is scanned, so conditional and multi-line forms count.
