@@ -163,7 +163,9 @@ func TestEmbedCardJS(t *testing.T) {
 
 // A stop lands as a tool_result plus a terminal turn state, never as an
 // approval.decided: the pending ask settles to "Stopped", the sheet closes
-// and the pill disappears, on the live-event path and the history path alike.
+// and the pill disappears — live, while collecting a history page, when the
+// terminal state precedes the approval.requested, and when loadOlder merges
+// the state and older blocks into an already-present turn.
 func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
@@ -187,10 +189,15 @@ func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
 			return { id: id || (env.seq = (env.seq || 1000) + 1), type: type, parent: parent, actor: actor,
 				data: data, created_at: '2026-01-02T10:00:00Z' };
 		}
+		var q1 = [{id: 'a', text: 'How?', type: 'single', options: [{value: 'x', label: 'X'}]}];
 		function blockOf(c, callId) {
-			for (var i = 0; i < c.turns.length; i++) {
-				var bs = c.turns[i].blocks;
-				for (var j = 0; j < bs.length; j++) if (bs[j].kind === 'tool' && bs[j].callId === callId) return bs[j];
+			// pending asks live in this.turns or in the loader's collection bucket
+			var lists = [c.turns, c._collecting || []];
+			for (var i = 0; i < lists.length; i++) {
+				for (var j = 0; j < lists[i].length; j++) {
+					var bs = lists[i][j].blocks;
+					for (var k = 0; k < bs.length; k++) if (bs[k].kind === 'tool' && bs[k].callId === callId) return bs[k];
+				}
 			}
 			throw new Error('no tool block ' + callId);
 		}
@@ -205,33 +212,71 @@ func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
 				falsy(b.askCanOpen, m + ': no Open button');
 			}
 		}
+		// block-level bits only: the ask row is laid out after a merge lands
+		function settledRaw(b, m) {
+			falsy(b.showApproval && !b.showDecided, m + ': approval cleared');
+			truthy(b.showDecided && b.stopped, m + ': settled without a decision');
+		}
+		// loadOlder's merge as shipped for e84782a (no settling there): exactly
+		// what the collected page shares with the live turns list
+		function collect(c) {
+			var older = c._collecting; c._collecting = null;
+			var byId = {}; c.turns.forEach(function (t) { byId[t.id] = t; });
+			var prepend = [];
+			older.forEach(function (ct) {
+				var existing = byId[ct.id];
+				if (!existing) { prepend.push(ct); return; }
+				var seenBlocks = {};
+				existing.blocks.forEach(function (b) { seenBlocks[b.id] = 1; });
+				ct.blocks.forEach(function (b) { if (!seenBlocks[b.id]) { existing.blocks.push(b); seenBlocks[b.id] = 1; } });
+				if (ct.stateSeen && ct.state) existing.state = ct.state;
+				if (ct.error) existing.error = ct.error;
+			});
+			c.turns = prepend.concat(c.turns);
+			c.relayout(); c.syncDerived();
+		}
 		function drive(isH) {
 			var c = api.hfyEmbed(); api.setClient({ viewer: { uuid: 'u1' } });
+			if (isH) c._collecting = []; // the real history loader's collection bucket
 			// the wire sequence a stopped ask produces: turn, text, call,
 			// questions held (approval.requested), the one tool_result, then stopped
 			c.fold(env('turn', { agent: '' }, u1, 0, 101), isH);
 			c.fold(env('message.text', { text: 'ask me' }, u1, 101), isH);
 			c.fold(env('turn.state', { state: 'running' }, agent, 101), isH);
-			c.fold(env('tool_call', { call_id: '101-q', name: 'hfy.ask_user', arguments: {questions: [{id: 'a', text: 'How?', type: 'single', options: [{value: 'x', label: 'X'}]}]} }, agent, 101), isH);
-			c.fold(env('approval.requested', { call_id: '101-q', questions: {questions: [{id: 'a', text: 'How?', type: 'single', options: [{value: 'x', label: 'X'}]}]} }, agent, 101), isH);
-			c.relayout();
+			c.fold(env('tool_call', { call_id: '101-q', name: 'hfy.ask_user', arguments: {questions: q1} }, agent, 101), isH);
+			c.fold(env('approval.requested', { call_id: '101-q', questions: {questions: q1} }, agent, 101), isH);
 			var q = blockOf(c, '101-q');
-			truthy(q.showApproval && q.askState === 'pending', isH + ': ask is pending before the stop');
-			truthy(c.pendingOwn.length === 1 && c.sheetOpen, isH + ': sheet is open');
-			truthy(c.showActionPill || c.pendingOwn.length, isH + ': action pill armed');
+			if (isH) truthy(q.showApproval && !q.showDecided, isH + ': ask pending before the stop');
+			else {
+				c.relayout();
+				truthy(q.showApproval && q.askState === 'pending', isH + ': ask pending before the stop');
+				truthy(c.pendingOwn.length === 1 && c.sheetOpen, isH + ': sheet is open');
+			}
 			// also a plain approval in the same turn: same settle, no questions
 			c.fold(env('tool_call', { call_id: '101-p', name: 'shop.pay', arguments: '{}' }, agent, 101), isH);
 			c.fold(env('approval.requested', { call_id: '101-p' }, agent, 101), isH);
-			c.relayout();
-			truthy(c.pendingOwn.length === 2, isH + ': plain approval joins the sheet');
+			var p = blockOf(c, '101-p');
+			truthy(p.showApproval && !p.showDecided, isH + ': plain approval joins the sheet');
+			if (!isH) {
+				c.relayout();
+				truthy(c.pendingOwn.length === 2, isH + ': both calls pend');
+				// the pill asserts for real now: it only guards a minimized sheet
+				c._sheetMin = true; c.syncSheet();
+				truthy(c.showActionPill && c.pendingOwn.length === 2, isH + ': pill shows on the minimized sheet');
+			}
 			// the stop: tool_result (held text) then the terminal state
 			c.fold(env('tool_result', { call_id: '101-q', content: 'your pizza\n\nThe user stopped before answering.' }, agent, 101), isH);
-			settled(c, blockOf(c, '101-q'), isH + ': ask');
+			if (isH) settledRaw(blockOf(c, '101-q'), isH + ': ask');
+			else settled(c, blockOf(c, '101-q'), isH + ': ask');
 			// the plain approval settles with the turn state, having no result of its own
 			c.fold(env('turn.state', { state: 'stopped' }, agent, 101), isH);
-			settled(c, blockOf(c, '101-p'), isH + ': plain approval');
-			var p = blockOf(c, '101-p');
-			truthy(p.status === 'interrupted', isH + ': plain approval shows Interrupted');
+			if (isH) settledRaw(blockOf(c, '101-p'), isH + ': plain approval');
+			else settled(c, blockOf(c, '101-p'), isH + ': plain approval');
+			if (isH) collect(c); // the collected page meets this.turns as loadOlder would
+			c.relayout();
+			var pp = blockOf(c, '101-p');
+			settled(c, pp, isH + ': plain approval');
+			truthy(pp.status === 'interrupted', isH + ': plain approval shows Interrupted');
 			truthy(c.turns[0].state === 'stopped', isH + ': turn stopped');
 			falsy(c.sheetOpen, isH + ': sheet closed');
 			falsy(c.showActionPill, isH + ': pill gone');
@@ -240,12 +285,76 @@ func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
 			c.fold(env('approval.decided', { call_id: '101-q', approve: true, answers: {a: 'x'} }, agent, 101), isH);
 			var qq = blockOf(c, '101-q');
 			truthy(qq.decision === 'allowed' && qq.askState === 'answered', isH + ': late decision overrides');
+			// the reversal: a terminal state precedes the approval.requested for
+			// that turn — the late ask settles without ever pending or sheeting
+			if (isH) c._collecting = [];
+			c.fold(env('turn', { agent: '' }, u1, 0, 102), isH);
+			c.fold(env('tool_call', { call_id: '102-q', name: 'hfy.ask_user', arguments: {questions: q1} }, agent, 102), isH);
+			c.fold(env('turn.state', { state: 'cancelled' }, agent, 102), isH);
+			c.fold(env('approval.requested', { call_id: '102-q', questions: {questions: q1} }, agent, 102), isH);
+			if (isH) collect(c);
+			c.relayout();
+			var lq = blockOf(c, '102-q');
+			settled(c, lq, isH + ': late request on a done turn settles');
+			truthy(lq.status === 'interrupted', isH + ': late request row is Interrupted');
+			falsy(c.sheetOpen && c.showActionPill, isH + ': sheet closed');
+			truthy(c.pendingOwn.length === 0 && c.pendingCount === '0', isH + ': nothing pends');
 			return true;
 		}
 		truthy(drive(false), 'live path');
 		truthy(drive(true), 'history path');
+
+		async function mergedPage() {
+			// an existing running turn (folded live) meeting its terminal page
+			// through the real loadOlder: the merged-in state settles its ask
+			var fns = [], page = [];
+			api.setClient({
+				viewer: { uuid: 'u1' }, hasOlder: true,
+				onEvent: function (fn) { fns.push(fn); return function () {} },
+				loadOlder: async function () { // delivers the staged page as the client would
+					var ps = page; page = [];
+					ps.forEach(function (e) { fns.forEach(function (fn) { fn(e, true) }) });
+				}
+			});
+			var c = api.hfyEmbed();
+			fns.push(function (e, ise) { c.fold(e, ise) });
+
+			// live so far: the turn is running and one question set pends
+			c.fold(env('turn', { agent: '' }, u1, 0, 301), false);
+			c.fold(env('message.text', { text: 'still going' }, u1, 301), false);
+			c.fold(env('tool_call', { call_id: '301-q', name: 'hfy.ask_user', arguments: {questions: q1} }, agent, 301, 3010), false);
+			c.fold(env('approval.requested', { call_id: '301-q', questions: {questions: q1} }, agent, 301), false);
+			c.relayout();
+			truthy(c.pendingOwn.length === 1 && c.sheetOpen, 'merge: ask pending while running');
+			truthy(blockOf(c, '301-q').askState === 'pending', 'merge: ask row pending');
+			c._sheetMin = true; c.syncSheet();
+			truthy(c.showActionPill && c.pendingOwn.length === 1, 'merge: pill armed while minimized');
+
+			// the page loadOlder brings: the same call again (old id, must dedupe),
+			// one older text block adding to the turn, and the terminal state
+			page = [env('tool_call', { call_id: '301-q', name: 'hfy.ask_user', arguments: {questions: q1} }, agent, 301, 3010),
+				env('message.text', { text: 'older block merging in' }, u1, 301, 3011),
+				env('turn.state', { state: 'stopped' }, agent, 301, 3012)];
+			await c.loadOlder();
+
+			var t3 = c.turns[0];
+			truthy(t3.state === 'stopped', 'merge: page state restored');
+			truthy(t3.blocks.some(function (b) { return b.isText && b.text === 'older block merging in' }), 'merge: older block merged');
+			truthy(t3.blocks.filter(function (b) { return b.kind === 'tool' }).length === 1, 'merge: live call kept, page copy deduped');
+			settled(c, blockOf(c, '301-q'), 'merge: ask settled');
+			falsy(c.sheetOpen, 'merge: sheet closed');
+			falsy(c.showActionPill, 'merge: pill gone');
+			truthy(c.pendingOwn.length === 0 && c.pendingCount === '0', 'merge: nothing pending');
+			return true;
+		}
 	`
-	out, err := exec.Command("node", "-e", driver).CombinedOutput()
+	out, err := exec.Command("node", "-e", driver+`
+		truthy(drive(false), 'live path');
+		truthy(drive(true), 'history path');
+		mergedPage().then(function (r) { truthy(r, 'merge path') }, function (e) {
+			console.error(e); process.exitCode = 1; throw e;
+		});
+	`).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
 	}

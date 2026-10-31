@@ -1024,7 +1024,13 @@ window.hfyEmbed = function () {
             b.questions = hfyAskQuestions(d.questions);
           }
           if (d.ui != null) b.uiCard = d.ui;
-          if (!b.showDecided) b.showApproval = true; break;
+          // a request arriving after the turn's terminal state missed its turn:
+          // it settles at once (history can deliver the state before the request)
+          if (!b.showDecided) {
+            if (HFY_TERMINAL.indexOf(turn.state) !== -1) this.settleCall(b);
+            else b.showApproval = true;
+          }
+          break;
         case 'approval.decided':
           turn = this.ensureTurn(list, turnId);
           b = this.findTool(turn, d.call_id);
@@ -1213,6 +1219,7 @@ window.hfyEmbed = function () {
       }
       this.loadingOlder = true; this._collecting = [];
       try {
+        var self = this;
         await hfyClient.loadOlder();
         var older = this._collecting; this._collecting = null;
         var byId = {}; this.turns.forEach(function (t) { byId[t.id] = t; });
@@ -1226,6 +1233,9 @@ window.hfyEmbed = function () {
           // only a collected turn that actually saw a turn.state event may overwrite state
           if (ct.stateSeen && ct.state) existing.state = ct.state;
           if (ct.error) existing.error = ct.error;
+          // a merge can drag in untouched asks while restoring a terminal state:
+          // they settle like any other end of turn, idempotently
+          if (HFY_TERMINAL.indexOf(existing.state) !== -1) self.settleCalls(existing);
         });
         this.turns = prepend.concat(this.turns);
         this.hasOlder = hfyClient.hasOlder;
