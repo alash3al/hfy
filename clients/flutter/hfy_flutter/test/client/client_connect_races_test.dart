@@ -7,8 +7,9 @@
 //   - item 8: racing connect() callers share ONE boot future; resume()
 //     during a boot defers to it (no double history, no double stream); a
 //     failed boot shares its error and frees the slot for the next one;
-//   - item 9: pause() before the first connect() is a no-op; close() and
-//     dispose() release the client's resources.
+//   - item 9 (revised): pause() before the first connect() is an intent (see
+//     client_pause_intent_test.dart); close() and dispose() release the
+//     client's resources.
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -105,14 +106,13 @@ void main() {
     expect(kit.state, HfyConnectionState.live);
   });
 
-  test('item 9: pause() before the first connect() is a no-op and cannot '
-      'wedge the client; resume() is a no-op too; connect() still boots',
+  test('item 9 (revised): pause() before the first connect() records an '
+      'intent and moves no state; resume() clears it, so connect() boots',
       () async {
     expect(kit.state, HfyConnectionState.idle);
     kit.client.pause();
     expect(kit.state, HfyConnectionState.idle,
-        reason: 'never-started clients must not carry a paused state that '
-            'resume() could never leave');
+        reason: 'the intent waits for connect(); no state moves yet');
     kit.client.resume();
     expect(kit.state, HfyConnectionState.idle);
     server.historyPages[null] = historyPage(liveAfter: 'la-9');

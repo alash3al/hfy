@@ -5,7 +5,8 @@
 import 'dart:async' show Timer;
 
 enum HfyConnectionState {
-  /// Never connected (or never resumed after pause() while idle).
+  /// Never connected. A pause() before the first connect() is recorded and the
+  /// state stays idle until connect().
   idle,
 
   /// connect() is in flight (token + first history page).
@@ -28,7 +29,8 @@ enum HfyConnectionState {
 
   /// NEW, native-only (P-NAT-004 analog): pause() closed the stream and
   /// cancelled the timers without ending the client; resume() returns via
-  /// the reconnect path. Never produced by the web client.
+  /// the reconnect path. A connect() made while paused loads history and
+  /// stops here. Never produced by the web client.
   paused,
 }
 

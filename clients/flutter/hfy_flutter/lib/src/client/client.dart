@@ -13,8 +13,10 @@
 //     that ends `live` but never delivers; connect() after close() boots
 //     clean (close is reusable), dispose() is final;
 //   - pause()/resume(): NEW native-only lifecycle pair (P-NAT-004 analog);
-//     pause() before the first connect() is a documented no-op (review item
-//     9), resume() defers to an in-flight connect() boot (review item 8);
+//     the lifecycle table is on [HfyClient]: a pause() before the first
+//     connect() is recorded and that connect() opens no stream (review item
+//     9 revised), resume() defers to an in-flight connect() boot (review item
+//     8);
 //   - SSE via dio streams with a fresh HfySseParser per connection, the
 //     HfyIdleWatchdog fed at connect time and on EVERY byte chunk (>30s of
 //     silence = dead), end-of-stream => fresh token + reconnect resuming
@@ -177,6 +179,33 @@ class HfyUploadsConfig {
 /// The protocol unit of hfy_flutter: broadcast streams ([events], [state])
 /// plus promise methods. Construct with the api base and a token provider,
 /// then drive with connect().
+///
+/// Pause (native-only, P-NAT-004 analog). The flag `P` is set only by
+/// pause() and cleared only by resume() and close(); connect() never changes
+/// it. A paused client loads history and pins live_after, but opens no stream
+/// until resume() does. This is the state machine:
+///
+/// ```
+/// from                       call          to                  effect
+/// idle                       pause()       idle, P set         intent only; no state move
+/// idle, P set                resume()      idle, P clear       intent cleared
+/// idle, P clear              connect()     live                full boot, stream opens
+/// idle, P set                connect()     paused              history loaded, no stream
+/// connecting                 pause()       paused, P set       the boot pins, then sleeps
+/// connecting, P set          boot fails    paused              connect() rethrows; state stays paused
+/// connecting, P set          resume()      live                the boot reads P clear, opens the stream
+/// live, refreshing,          pause()       paused, P set       timers cancelled, stream closed
+///   reconnecting, error
+/// paused, history loaded     resume()      reconnecting, live  token, then open from lastEventId
+/// paused, no history         resume()      connecting, live    full boot (a paused boot that failed)
+/// paused                     connect()     paused              history loaded again, no stream
+/// any                        close()       ended, P clear      connect() after it boots clean
+/// ended                      resume()      ended               no-op; connect() revives
+/// any                        dispose()     ended, final        no transition afterwards
+/// ```
+///
+/// Two resume() calls around one pause() share one token fetch; the second
+/// reconnect chain opens nothing when the first already opened the stream.
 class HfyClient {
   /// The all-zero event id means "from the beginning" (events.go:144-146):
   /// the first SSE open sends it when the history page had no live_after.
@@ -212,10 +241,12 @@ class HfyClient {
   /// 401 retry, no token fetch; connect() resets it (P-CLIENT-034).
   bool _closed = false;
 
-  /// The native-only pause() flag (P-NAT-004 analog).
+  /// The native-only pause flag (P-NAT-004 analog): set by pause(), cleared by
+  /// resume() and close(). A boot reads it; connect() never clears it.
   bool _paused = false;
 
-  /// Whether connect() was ever started (the resume() gate).
+  /// Whether connect() was ever started. Before it, pause() only records the
+  /// intent, so no paused state can exist before a boot that could leave it.
   bool _everStarted = false;
 
   String? _nextCursor; // the history `next` cursor (client.js #nextCursor)
@@ -333,7 +364,8 @@ class HfyClient {
   /// client.js:89-106 (P-CLIENT-008): no-op when a stream is already open;
   /// otherwise the full boot with the closed-flag reset (P-CLIENT-034).
   /// Racing callers share the ONE in-flight boot (review item 8); a later
-  /// connect() after that boot simply no-ops on the open stream.
+  /// connect() after that boot simply no-ops on the open stream. A paused
+  /// client's connect() loads history and stays paused (see [HfyClient]).
   Future<void> connect() {
     if (_stream != null) return Future<void>.value();
     final inFlight = _connectFlight;
@@ -369,7 +401,6 @@ class HfyClient {
     final gen = _bootGeneration;
     _everStarted = true;
     _closed = false; // a close()d client can be driven again (P-CLIENT-034)
-    _paused = false;
     _bootLoadedHistory = false;
     _wire.closed = false;
     _setState(HfyConnectionState.connecting);
@@ -385,7 +416,12 @@ class HfyClient {
       // cursor at live_after, otherwise resume() reopens from the all-zero
       // id and replays the whole conversation.
       if (liveAfter != null) _dedupe.pinLiveAfter(liveAfter);
-      if (_paused) return; // pause() raced the token/history awaits: sleep
+      if (_paused) {
+        // Paused (before this boot or during it): the history is loaded, no
+        // stream opens until resume().
+        _setState(HfyConnectionState.paused);
+        return;
+      }
       _openStream();
       _scheduleRefresh();
       _reconnectAttempts = 0;
@@ -396,7 +432,11 @@ class HfyClient {
       // client (a disposed one even throws) and the failure interests
       // nobody anymore.
       if (_bootGeneration != gen) return;
-      if (!_closed && !_paused) _setState(HfyConnectionState.error);
+      if (!_closed) {
+        _setState(
+          _paused ? HfyConnectionState.paused : HfyConnectionState.error,
+        );
+      }
       rethrow;
     }
   }
@@ -474,6 +514,7 @@ class HfyClient {
   /// and closes any session the boot already opened.
   void close() {
     _closed = true;
+    _paused = false; // a revived client boots clean (P-CLIENT-034)
     _wire.closed = true;
     _bootGeneration++;
     _connectFlight = null;
@@ -485,15 +526,17 @@ class HfyClient {
   }
 
   /// NEW (P-NAT-004 analog): close the SSE stream and cancel the timers
-  /// WITHOUT ending the client. Idempotent; a later wave wires this to
-  /// WidgetsBindingObserver.didAppLifecycleChange(paused).
+  /// WITHOUT ending the client. Idempotent; the app-lifecycle observer calls
+  /// it on paused. See the lifecycle table on [HfyClient].
   ///
-  /// A pause() BEFORE the first connect() is a documented NO-OP (review item
-  /// 9): the client never started, so a `paused` state there could never be
-  /// left again (resume() gates on having boot-connected once).
+  /// A pause() BEFORE the first connect() records the intent and nothing
+  /// else: the state stays `idle`, and the next connect() loads history into
+  /// `paused` without opening a stream (an app started in the background must
+  /// not hold a live stream). resume() clears the intent.
   void pause() {
-    if (_paused || _closed || !_everStarted) return;
+    if (_paused || _closed) return;
     _paused = true;
+    if (!_everStarted) return;
     _cancelRefresh();
     _cancelReconnectTimer();
     _closeStream();
@@ -501,9 +544,9 @@ class HfyClient {
   }
 
   /// NEW (P-NAT-004 analog): reconnect from lastEventId through the normal
-  /// reconnect path (P-CLIENT-030). Idempotent; no-op when the client never
-  /// connected (resume() only runs resume-after-pause) or after close()
-  /// (connect() is the revival instead, P-CLIENT-034).
+  /// reconnect path (P-CLIENT-030). Idempotent. Clears a pause intent recorded
+  /// before the first connect() without starting anything. After close() it
+  /// is a no-op (connect() is the revival instead, P-CLIENT-034).
   ///
   /// While a connect() boot is in flight, resume() DEFERS to it (review item
   /// 8): the boot reopens the stream on its own and re-reads the cleared
@@ -516,8 +559,9 @@ class HfyClient {
   /// all-zero id with no history page and no viewer (own-ness false for
   /// every turn).
   void resume() {
-    if (!_paused || _closed || !_everStarted) return;
+    if (!_paused) return;
     _paused = false;
+    if (_closed || !_everStarted) return;
     if (_stream != null) return; // a connect() raced us; it owns the stream
     if (_connectFlight != null) return; // the boot owns the reopen
     if (!_bootLoadedHistory) {
@@ -641,7 +685,13 @@ class HfyClient {
     _deliveringHistory = true;
     try {
       for (final turn in HfyHistoryPage.turnsOf(page)) {
-        for (final envelope in HfyHistoryPage.eventsOf(turn)) {
+        final events = HfyHistoryPage.eventsOf(turn);
+        if (events == null) {
+          onProtocolError?.call(const HfyProtocolException(
+              'history turn is not an object with an events list'));
+          continue;
+        }
+        for (final envelope in events) {
           _fire(envelope, isHistory: true);
         }
       }
@@ -883,6 +933,9 @@ class HfyClient {
     try {
       await _wire.gate.fetch('unauthorized');
       if (_bootGeneration != gen || _closed || _paused) return;
+      // Two resume() calls around one pause() share this token fetch: the
+      // first chain to wake opens the stream, the other must not open a second.
+      if (_stream != null) return;
       _openStream();
       _scheduleRefresh();
       _setState(HfyConnectionState.live);

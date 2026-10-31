@@ -434,8 +434,11 @@ class HfyHistoryPage {
     return turns is List ? turns : const <Object?>[];
   }
 
-  static List<Object?> eventsOf(Object? turn) {
-    final events = (turn as Map?)?['events'];
-    return events is List ? events : const <Object?>[];
+  /// The events of one history turn, or null when the turn is malformed (not
+  /// an object, or no events list). client.js:193 skips such a turn silently;
+  /// the client skips it too, and reports it through onProtocolError.
+  static List<Object?>? eventsOf(Object? turn) {
+    final events = turn is Map ? turn['events'] : null;
+    return events is List ? events : null;
   }
 }

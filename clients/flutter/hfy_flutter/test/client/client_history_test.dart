@@ -5,6 +5,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hfy_flutter/src/client/connection.dart'
     show HfyConnectionState;
+import 'package:hfy_flutter/src/model/event.dart' show HfyProtocolException;
 
 import 'test_kit.dart';
 
@@ -182,19 +183,51 @@ void main() {
     final flags = <bool>[];
     kit.client.events
         .listen((event) => flags.add(kit.client.deliveringHistory));
-    // A non-object turn makes HfyHistoryPage.eventsOf throw a TypeError after
-    // the first envelope has fired.
+    // The second envelope is rejected by HfyEvent (actor not an object) and
+    // reported; the reporter throws, so the page throws after h1 fired.
+    kit.client.onProtocolError = (_) => throw StateError('reporter failed');
     server.historyPages[null] = historyPage(
         turns: [
-          {'id': 't1', 'events': [wireEnv('h1', 'turn')]},
-          7,
+          {
+            'id': 't1',
+            'events': [
+              wireEnv('h1', 'turn'),
+              <String, Object?>{...wireEnv('bad', 'turn'), 'actor': 'nobody'},
+            ],
+          },
         ],
         liveAfter: 'la',
         next: 'c1');
-    await expectLater(kit.client.connect(), throwsA(isA<TypeError>()));
+    await expectLater(kit.client.connect(), throwsA(isA<StateError>()));
     expect(flags, [true], reason: 'h1 fired while the page was delivered');
     expect(kit.client.deliveringHistory, isFalse,
         reason: 'the finally resets the flag');
+  });
+
+  test('a malformed history turn (not an object, or no events list) is '
+      'skipped and reported; the turns around it still fold', () async {
+    final reported = <HfyProtocolException>[];
+    kit.client.onProtocolError = reported.add;
+    server.historyPages[null] = historyPage(
+      turns: [
+        {'id': 't1', 'events': [wireEnv('h1', 'turn')]},
+        7,
+        'junk',
+        {'id': 't2'},
+        {'id': 't3', 'events': 'nope'},
+        {'id': 't4', 'events': [wireEnv('h4', 'turn')]},
+      ],
+      liveAfter: 'la',
+    );
+    final ids = <String>[];
+    kit.client.events.listen((event) => ids.add(event.id!));
+    await kit.client.connect();
+    await kit.waitLive();
+    expect(kit.state, HfyConnectionState.live,
+        reason: 'a malformed turn does not fail the boot');
+    expect(ids, ['h1', 'h4']);
+    expect(reported, hasLength(4),
+        reason: 'one report per skipped turn: 7, junk, no events, events "nope"');
   });
 
   test('deliveringHistory resets when a loadOlder page throws mid-delivery',
@@ -210,14 +243,20 @@ void main() {
         next: 't2');
     server.historyPages['t2'] = historyPage(
         turns: [
-          {'id': 't1', 'events': [wireEnv('b', 'turn')]},
-          7,
+          {
+            'id': 't1',
+            'events': [
+              wireEnv('b', 'turn'),
+              <String, Object?>{...wireEnv('bad', 'turn'), 'actor': 'nobody'},
+            ],
+          },
         ],
         liveAfter: 'la',
         next: null);
     await kit.client.connect();
     await kit.waitLive();
-    await expectLater(kit.client.loadOlder(), throwsA(isA<TypeError>()));
+    kit.client.onProtocolError = (_) => throw StateError('reporter failed');
+    await expectLater(kit.client.loadOlder(), throwsA(isA<StateError>()));
     expect(flags, [true, true], reason: 'a and b fired as history');
     expect(kit.client.deliveringHistory, isFalse);
   });
