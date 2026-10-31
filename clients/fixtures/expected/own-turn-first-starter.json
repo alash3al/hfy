@@ -1,0 +1,51 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-4",
+  "name": "own-turn-first-starter",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Hey everyone, what time works?"
+        },
+        {
+          "id": "ev-3",
+          "iso": "2026-01-02T10:00:03.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": false,
+          "showHead": true,
+          "streaming": false,
+          "text": "Noon is fine for me"
+        }
+      ],
+      "id": "turn-1",
+      "own": false,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

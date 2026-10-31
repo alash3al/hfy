@@ -53,9 +53,19 @@ created_at}`. Rules the test enforces on every file:
 - A `turn` event's `id` **is** the turn id; children carry it as `parent`.
 - Day separators came from the fold's **device time zone** in the browser; the
   harness fixes that choice by running node with `TZ=UTC` (set in
-  `fixtures_test.go` before spawning it), so scenarios that cross a calendar
-  midnight (`grouping-gaps`) and `expected/*.json` in general are deterministic
-  across machines. Keep that pin in any other harness.
+  `fixtures_test.go` before spawning it), and the Dart harness pins the same
+  choice by injecting `HfyTz.utc()` into the fold (its production default is
+  the device zone, `HfyTz.local()`), so scenarios that cross a calendar
+  midnight (`grouping-gaps`) and `expected/*.json` in general are
+  deterministic across machines. Keep that pin in any other harness.
+- The only sheet-manipulation hook is the header's trailing `minimize: true`
+  (it runs `minimizeSheet()` after ALL events and pages, right before the
+  final projection). A scenario needing a minimize BETWEEN deliveries — e.g.
+  minimize, then a SECOND `approval.requested` to pin the reopen rule
+  (P-FOLD-049) — cannot be expressed yet; adding a positional hook such as
+  `"minimizeAfter": "<event id>"` (or an event-level `"minimize": true`
+  honored mid-sequence) to `fixtures_test.go`'s `runScenario` and the Dart
+  `runScenario` is the required extension before such a fixture can exist.
 
 Delivery semantics: `path:"live"` folds through `fold(env, false)` — unless an
 event carries `"history": true`. History-flagged events must form one **leading

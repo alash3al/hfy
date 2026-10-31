@@ -1,0 +1,71 @@
+{
+  "name": "own-turn-first-starter",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:01Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "text": "Hey everyone, what time works?"
+      },
+      "created_at": "2026-01-02T10:00:02Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Noon is fine for me"
+      },
+      "created_at": "2026-01-02T10:00:03Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:00:04Z"
+    }
+  ]
+}
