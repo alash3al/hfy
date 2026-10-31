@@ -37,6 +37,15 @@ func TestConversationConfig(t *testing.T) {
 		t.Fatalf("stale token: %d %v", code, out)
 	}
 
+	// revocation, not just expiry: DELETE /[v1]/grants then the token is dead too
+	tok, id := a.grant(a.newConversation(), nil)
+	if code, _ := a.do("DELETE", "/v1/grants/"+id, secret, nil); code != http.StatusNoContent {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code, out := a.do("GET", client+"/config", tok, nil); code != http.StatusUnauthorized || out["error"] != "invalid or expired token" {
+		t.Fatalf("revoked token: %d %v", code, out)
+	}
+
 	code, out = a.do("POST", client+"/config", token, nil)
 	if code != http.StatusMethodNotAllowed || out["error"] != "method not allowed" {
 		t.Fatalf("wrong method: %d %v", code, out)
@@ -51,7 +60,10 @@ func TestConversationConfigUploads(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("config: %d %v", code, out)
 	}
-	up := out["uploads"].(map[string]any)
+	up, ok := out["uploads"].(map[string]any)
+	if !ok {
+		t.Fatalf("not an uploads map: %v", out)
+	}
 	if got, _ := up["types"].([]any); len(got) != 2 || got[0] != "text/plain" || got[1] != "image/png" {
 		t.Fatalf("types: %v", up)
 	}
@@ -77,7 +89,13 @@ func TestConversationConfigCORS(t *testing.T) {
 		r.Get("Access-Control-Allow-Origin") != site {
 		t.Fatalf("GET: %d %v", r.code, r.Header)
 	}
-	if v := a.browser(http.MethodGet, client+"/config", "https://evil.example.com", "Bearer "+token).Get("Access-Control-Allow-Origin"); v != "" {
+	// errors included: a page on an allowed origin reads its 401, and an
+	// unlisted origin gets no ACAO even on an error
+	if r := a.browser(http.MethodGet, client+"/config", site, ""); r.code != http.StatusUnauthorized ||
+		r.Get("Access-Control-Allow-Origin") != site {
+		t.Fatalf("401 GET: %d %v", r.code, r.Header)
+	}
+	if v := a.browser(http.MethodGet, client+"/config", "https://evil.example.com", "").Get("Access-Control-Allow-Origin"); v != "" {
 		t.Fatalf("answered an unlisted origin: %q", v)
 	}
 }
