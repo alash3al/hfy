@@ -373,7 +373,8 @@ event as stored.
     over-total (32 KiB) or v-not-1 block is dropped whole.
   - buttons: `{send: {label}}` (label is sent verbatim as a new viewer
     message), `{link: {label, url}}` (https, opens in a new tab), or
-    `{host: {label, name, payload?}}` (name `a-z0-9_.-`, payload a JSON
+    `{host: {label, name, payload?}}` (name one lowercase letter then
+    `a-z0-9_.-`, at most 64 characters, payload a JSON
     object ≤ 2 KiB; the message goes to the host app, see below).
 
   When a tool's call carries questions, the turn pauses on that same call

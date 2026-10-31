@@ -184,17 +184,31 @@ func sanitizeCard(raw json.RawMessage, imageHosts []string) (UICard, bool) {
 		if len(c.Buttons) == maxUIButtons {
 			break
 		}
-		switch {
-		case b.Send != nil:
-			b.Send.Label = cleanClip(b.Send.Label, maxUIKVLabel, false)
-			if b.Send.Label == "" {
-				continue
+		// Every button is rebuilt from its validated parts (never the
+		// decoded button); one carrying more than one kind is dropped whole.
+		var send *UISend
+		if b.Send != nil {
+			if label := cleanClip(b.Send.Label, maxUIKVLabel, false); label != "" {
+				send = &UISend{Label: label}
 			}
-			c.Buttons = append(c.Buttons, b)
-		case uiLink(b.Link) != nil:
-			c.Buttons = append(c.Buttons, UIButton{Link: uiLink(b.Link)})
-		case uiHost(b.Host) != nil:
-			c.Buttons = append(c.Buttons, UIButton{Host: uiHost(b.Host)})
+		}
+		link, host := uiLink(b.Link), uiHost(b.Host)
+		kinds := 0
+		for _, ok := range []bool{send != nil, link != nil, host != nil} {
+			if ok {
+				kinds++
+			}
+		}
+		if kinds != 1 {
+			continue
+		}
+		switch {
+		case send != nil:
+			c.Buttons = append(c.Buttons, UIButton{Send: send})
+		case link != nil:
+			c.Buttons = append(c.Buttons, UIButton{Link: link})
+		case host != nil:
+			c.Buttons = append(c.Buttons, UIButton{Host: host})
 		}
 	}
 	if c.Title == "" && c.Body == "" {
@@ -235,7 +249,7 @@ func uiLink(b *UILink) *UILink {
 	if b.Label == "" || len(b.URL) > maxUILink || !uiHTTPs(b.URL) {
 		return nil
 	}
-	return b
+	return &UILink{Label: b.Label, URL: b.URL}
 }
 
 func uiHost(b *UIHost) *UIHost {

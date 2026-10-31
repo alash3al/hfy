@@ -243,6 +243,35 @@ func TestSanitizeEmptyLabel(t *testing.T) {
 	}
 }
 
+// A button is rebuilt from its one validated kind and nothing else. Extra
+// kinds that fail validation are gone; a button validating to two kinds is
+// dropped whole.
+func TestSanitizeButtonKinds(t *testing.T) {
+	raw := `{"v":1,"type":"card","title":"t","buttons":[
+		{"send":{"label":"Keep"},"host":{"label":"\u202eevil","name":"ANY NAME","payload":{"a":1}},"link":{"label":"l","url":"http://x.example/m"}},
+		{"send":{"label":"Sendy"},"link":{"label":"OK","url":"https://cdn.example.com/m"}},
+		{"link":{"label":"OK","url":"https://cdn.example.com/m"},"host":{"label":"Pay","name":"payments","payload":{"a":1}}},
+		{"host":{"label":"Pay","name":"payments","payload":{"a":1}},"send":{"label":"Sendy"}}]}`
+	card, _, err := mustSanitize(t, raw, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c UICard
+	if err := json.Unmarshal(card, &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Buttons) != 1 || c.Buttons[0].Send == nil || c.Buttons[0].Send.Label != "Keep" {
+		t.Fatalf("buttons: %+v", c.Buttons)
+	}
+	got, err := json.Marshal(c.Buttons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(got); s != `[{"send":{"label":"Keep"}}]` {
+		t.Errorf("buttons: %s", s)
+	}
+}
+
 // A block that is only questions (no card, or a card that fails) pauses the
 // turn with no card rather than dying.
 func TestSanitizeQuestionsOnly(t *testing.T) {

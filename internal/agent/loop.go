@@ -352,8 +352,11 @@ func (l *loop) holdForQuestions(ctx context.Context, info CallInfo, res mcp.Resu
 		Held: &types.HeldResult{Content: res.Content, Structured: res.Structured}}
 	if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, req, timeout); err != nil {
 		if errors.Is(err, svc.ErrStopRequested) {
-			// The stop won the race but the tool ran: its result must still
-			// land as the one tool_result, or the model may re-run it.
+			// A stop that cancels the turn context before the request is
+			// stored falls under the same "cancelled mid-call" policy: the
+			// call is marked interrupted. Even so, the stop won the race but
+			// the tool ran: its result must land as the one tool_result, or
+			// the model may re-run it.
 			if ferr := l.finishCall(context.WithoutCancel(ctx), info, mcp.Result{
 				Content:    svc.HeldResultText(req, types.ApprovalDecided{}, false),
 				Structured: res.Structured, UI: res.UI}); ferr != nil {
