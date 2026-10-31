@@ -242,7 +242,7 @@ class HfyConversation {
   bool _showWelcome = false;
 
   // approval sheet state (ui.js:1480-1536 syncSheet)
-  List<_Row> _pendingOwn = const <_Row>[];
+  List<_Row> _pendingOwn = const <_Row>[]; // rebuilt by relayout, unmodifiable
   bool _sheetOpen = false;
   bool _showActionPill = false;
   bool _sheetMin = false;
@@ -295,6 +295,10 @@ class HfyConversation {
   /// — question sets included; the sheet separates them by hasQuestions.
   List<String> get pendingOwn => [for (final b in _pendingOwn) b.callId];
 
+  /// The same calls as blocks, in call order (the sheet's read side). Rebuilt
+  /// only by relayout, so the same instance comes back until the fold changes.
+  List<HfyBlock> get pendingOwnBlocks => _pendingOwn;
+
   /// The sheet is open while calls pend and not minimized (ui.js:1532).
   bool get sheetOpen => _sheetOpen;
 
@@ -318,6 +322,26 @@ class HfyConversation {
   void openSheet() {
     _sheetMin = false;
     syncSheet();
+  }
+
+  /// The approval sheet POSTed [callId] (ui.js:1110's `b.submitted = true`):
+  /// its blocks leave [pendingOwn] now, before the server's approval.decided
+  /// folds. Idempotent: a call already marked, or an unknown id, changes
+  /// nothing and bumps no revision.
+  void markSubmitted(String callId) {
+    var moved = false;
+    for (final turn in _turns) {
+      for (final b in turn._blocks) {
+        if (b.isTool && !b.submitted && b.callId == callId) {
+          b.submitted = true;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) return;
+    _bumpRevision();
+    relayout();
+    syncDerived();
   }
 
   /// The send() bridge (ui.js:1287's `_awaitTurn`): show Stop until the turn
@@ -563,7 +587,7 @@ class HfyConversation {
       turn.showTyping = active && firstActive && !busy;
       if (active || turn.state == 'awaiting_approval') firstActive = false;
     }
-    _pendingOwn = pending;
+    _pendingOwn = List.unmodifiable(pending);
   }
 
   /// The derived conversation state (ui.js:788-809): welcome, ownActive and

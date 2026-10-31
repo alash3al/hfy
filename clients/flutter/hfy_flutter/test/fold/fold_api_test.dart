@@ -791,6 +791,81 @@ void main() {
     });
   });
 
+  group('markSubmitted: a sheet POST leaves pendingOwn before the decision '
+      '(ui.js:1110, P-FOLD-042)', () {
+    HfyConversation twoPending() {
+      final c = foldOf();
+      c.apply(ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}));
+      c.apply(ev('b1', 'message.text', data: {'text': 'pay both'}));
+      for (final cid in ['c1', 'c2']) {
+        c.apply(ev('t$cid', 'tool_call', actor: agentActor,
+            data: {'name': 'shop.pay', 'call_id': cid}));
+        c.apply(ev('r$cid', 'approval.requested', actor: agentActor,
+            data: {'call_id': cid}));
+      }
+      expect(c.pendingOwn, ['c1', 'c2'], reason: 'prestate');
+      expect(c.sheetOpen, isTrue, reason: 'prestate');
+      return c;
+    }
+
+    test('drops the call from pendingOwn and the sheet, one revision per call',
+        () {
+      final c = twoPending();
+      final before = c.revision;
+      c.markSubmitted('c1');
+      expect(c.pendingOwn, ['c2']);
+      expect([for (final b in c.pendingOwnBlocks) b.callId], ['c2']);
+      expect(c.revision, before + 1);
+      c.markSubmitted('c2');
+      expect(c.pendingOwn, isEmpty);
+      expect(c.sheetOpen, isFalse);
+      expect(c.revision, before + 2);
+    });
+
+    test('is idempotent and ignores unknown call ids', () {
+      final c = twoPending();
+      c.markSubmitted('c1');
+      final after = c.revision;
+      c.markSubmitted('c1');
+      c.markSubmitted('ghost');
+      expect(c.revision, after, reason: 'nothing changed, nothing bumped');
+      expect(c.pendingOwn, ['c2']);
+    });
+
+    test('stays out through later folds and settles on the decision', () {
+      final c = twoPending();
+      c.markSubmitted('c1');
+      c.apply(ev('d1', 'text.delta', actor: agentActor, data: {'text': 'ok'}));
+      expect(c.pendingOwn, ['c2'], reason: 'a relayout does not resurrect it');
+      c.apply(ev('x1', 'approval.decided', actor: agentActor,
+          data: {'call_id': 'c1', 'approve': true}));
+      expect(c.pendingOwn, ['c2']);
+      final block = c.t1.blocks.firstWhere((b) => b.callId == 'c1');
+      expect(block.showDecided, isTrue);
+      expect(block.decision, 'allowed');
+    });
+
+    test('a minimized sheet stays minimized while the marked call leaves', () {
+      final c = twoPending();
+      c.minimizeSheet();
+      c.markSubmitted('c1');
+      expect(c.sheetOpen, isFalse);
+      expect(c.showActionPill, isTrue, reason: 'c2 still pends');
+      c.markSubmitted('c2');
+      expect(c.showActionPill, isFalse);
+    });
+
+    test('pendingOwnBlocks keeps its instance until the fold changes and '
+        'cannot be mutated', () {
+      final c = twoPending();
+      final list = c.pendingOwnBlocks;
+      c.apply(ev('k', 'model.usage', data: {'tokens': 1}));
+      expect(identical(c.pendingOwnBlocks, list), isTrue,
+          reason: 'an unhandled event relayouts nothing');
+      expect(() => c.pendingOwnBlocks.clear(), throwsUnsupportedError);
+    });
+  });
+
   group('smoke: 10k-event history folds in a batch (NOT a benchmark)', () {
     test('applyAll under the generous bound with sanity checks', () {
       final events = tenKEvents();
