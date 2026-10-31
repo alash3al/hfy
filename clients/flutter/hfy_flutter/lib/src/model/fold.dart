@@ -250,11 +250,14 @@ class HfyConversation {
   String?
   _awaitTurn; // ui.js:799: bridges send() and the turn's first user text
 
-  /// One-up counter of folded state changes (monotonic, never resets): every
-  /// state-changing [apply] / [applyAll] batch / [mergeOlderPage] bumps it
-  /// once. Setup calls ([markLoaded], the sheet/await bridges) do NOT — they
-  /// move derived outlets, never turns/blocks. Watchers compare [revision]
-  /// to notice conversation content; [turns] caches until it changes.
+  /// One-up counter of folded state (monotonic, never resets): every handled
+  /// [apply] bumps it — a handled event always moves the view's ground even
+  /// when no row changed (an unknown call_id's decided still seats its turn)
+  /// — every [applyAll] batch at most once, every [mergeOlderPage] when its
+  /// merge moved anything. Setup calls ([markLoaded], the sheet/await
+  /// bridges) do NOT — they move derived outlets, never turns/blocks.
+  /// Watchers compare [revision] to notice conversation content; [turns]
+  /// caches until it changes.
   int _revision = 0;
   int get revision => _revision;
 
@@ -334,33 +337,36 @@ class HfyConversation {
   // ---- the fold (ui.js:958-1050) ----------------------------------------------
 
   /// One envelope through `fold(env, isHistory)` (ui.js:961-1049). Returns
-  /// true when the event ACTED on the conversation — a turn/block was created
-  /// or a block settled something — and false when the fold dropped it
-  /// entirely (ui.js's `return` on unknown types, P-FOLD-057) or found
-  /// nothing to act on (an approval.decided / tool_call.interrupted for a
-  /// call_id the fold never saw). A re-applied event whose row only has its
+  /// true when the event was HANDLED — the fold ran a type branch at all —
+  /// and false only when the fold dropped it entirely (ui.js's `return` on
+  /// unknown types, P-FOLD-057). A re-applied event whose row only has its
   /// settled values set again still returns true — replay/dup detection is
   /// the caller's (HfyDedupe); the fold never compares values.
   ///
-  /// Live deliveries lay out and sync after every event, as ui.js does;
-  /// history pages belong to [mergeOlderPage] (one layout per page, which is
-  /// the only caller that ever needs a collector).
+  /// Every handled event relayouts and syncs like ui.js:1044-1046, changed
+  /// rows or not: the fold's `_ensureTurn` can create the turn the event
+  /// names (an approval.decided / tool_call.interrupted for a call_id the
+  /// fold never saw), and the queued turn must seat NOW — visible in [turns],
+  /// revision moved, typing dots per ui.js — never a fold that drifted apart
+  /// from its record of turns.
+  ///
+  /// History events belong to [mergeOlderPage] (one layout per page — the
+  /// only caller that ever needs a collector).
   bool apply(HfyEvent e, {bool history = false}) {
     final r = _foldInto(_turns, e);
-    if (!r.changed) return false; // dropped/unknown — no layout, no revision
+    if (!r.hands) return false; // dropped/unknown type — no layout, no revision
     _bumpRevision();
-    if (r.layout) relayout();
+    if (r.layout) relayout(); // ui.js:1044 — a handled event gets a relayout
     syncDerived();
     return true;
   }
 
-  /// A WHOLE batch (a history page, a replay backlog) through `fold()` with
-  /// ONE trailing [relayout] + [syncDerived] instead of one per event —
-  /// the O(n²) of replaying n events each with a full layout drops to
-  /// relayout's own O(n).
+  /// A WHOLE batch (a replay backlog) through `fold()` with ONE trailing
+  /// [relayout] + [syncDerived] instead of one per event — the O(n²) of
+  /// replaying n events each with a full layout drops to relayout's own O(n).
   /// Safe because relayout() is a full recompute from the folded blocks
   /// alone: grouping, typing dots, ask states and tool visibility depend on
-  /// nothing but folds. The ONE state they do derive that a later fold reads
+  /// nothing but folds. The one relayout-derived state a later fold reads
   /// (a terminal turn's streaming flags) is applied inline by [_foldInto],
   /// so a batch's folds see exactly what event-at-a-time folding saw.
   /// Asserted identical to per-event [apply] for every fixture plus
@@ -368,19 +374,25 @@ class HfyConversation {
   /// flag exists for call-site symmetry with [apply]; both fold the same
   /// list — pages arrive as data in [mergeOlderPage], not streamed through
   /// here. Returns whether ANY event changed state (revision bumped at most
-  /// once per batch).
+  /// once per batch, once when any event was handled).
   bool applyAll(Iterable<HfyEvent> events, {bool history = false}) {
+    var hands = false;
+    var layout = false;
     var changed = false;
     for (final e in events) {
-      if (_foldInto(_turns, e).changed) changed = true;
+      final r = _foldInto(_turns, e);
+      if (!r.hands) continue; // dropped/unknown — the batch never saw it
+      hands = true;
+      if (r.changed) changed = true;
+      if (r.layout) layout = true;
     }
-    if (changed) _bumpRevision();
-    relayout();
-    syncDerived();
+    if (hands) _bumpRevision();
+    if (layout) relayout(); // a batch is laid out once, like a page
+    if (hands) syncDerived();
     return changed;
   }
 
-  /// `loadOlder()` in ONE call (ui.js:1220-1244): fold [page] into a fresh
+  /// loadOlder() in ONE call (ui.js:1220-1244): fold [page] into a fresh
   /// collector with NO layout, merge it into the turns (unseen block ids
   /// appended, state overwritten only by a collected stateSeen turn, older
   /// turns prepended), then one relayout + syncDerived and
@@ -388,22 +400,14 @@ class HfyConversation {
   ///
   /// The collector is scoped to this call — ui.js keeps `_collecting` open
   /// across an await and nulls it in its catch (ui.js:1245); folding into a
-  /// local list does that housekeeping structurally, so a page that throws
-  /// mid-fold can no longer strand state: nothing is merged,
-  /// `_hasOlder`/turns stand exactly as before, and the next page's call
-  /// starts from a clean slate (the old applyHistoryPage/mergeOlder two-step
-  /// could leave the collector open and swallow later pages). DEDUPE stays
-  /// client-side — the caller applies HfyDedupe#claim before handing
-  /// envelopes here.
+  /// local list does that housekeeping structurally: if the fold throws
+  /// mid-page the local list is simply dropped, nothing is merged, and
+  /// `_hasOlder`/turns stand exactly as before. DEDUPE stays client-side —
+  /// the caller applies HfyDedupe#claim before handing envelopes here.
   void mergeOlderPage(List<HfyEvent> page, {required bool hasMore}) {
     final collected = <_Turn>[];
-    try {
-      for (final e in page) {
-        _foldInto(collected, e);
-      }
-    } finally {
-      // `collected` is call-local: on a throw it is simply dropped, the
-      // merge never runs and no open-collector state survives anywhere.
+    for (final e in page) {
+      _foldInto(collected, e);
     }
     _mergeCollected(collected, hasMore: hasMore);
   }
@@ -598,22 +602,20 @@ class HfyConversation {
 
   // ---- fold internals ---------------------------------------------------------
 
-  /// The switch under ui.js:963-1044 into one target list. Returns whether
-  /// the type is handled at all (`hands`) and whether relayout must run
-  /// (`layout` — pure delta appends skip it, ui.js:985/991).
   /// The switch under ui.js:963-1044 into one target list. `hands` says the
   /// type is handled at all (ui.js:1043's default-return, zero for unknown
   /// leaves like summary/model.usage, P-FOLD-057), `layout` whether relayout
-  /// must run (pure delta appends skip it, ui.js:985/991) and `changed`
-  /// whether anything on the conversation was created or settled ([apply]
-  /// folds this into its bool and the revision; an approval.decided /
-  /// tool_call.interrupted whose call id looks at nothing reports
-  /// hands-but-unchanged, exactly like ui.js, which still runs relayout).
-  ({bool hands, bool layout, bool changed}) _foldInto(
+  /// must run (pure delta appends skip it, ui.js:985/991 — everything else,
+  /// including a decided/interrupted whose call id matches nothing, keeps the
+  /// default true, because ui.js still relayouts for those), `changed`
+  /// whether the fold moved a row/block at all, and [turn] the turn the fold
+  /// acted on (null for unknown types).
+  ({bool hands, bool layout, bool changed, _Turn? turn}) _foldInto(
     List<_Turn> list,
     HfyEvent e,
   ) {
     var layout = true;
+    _Turn? turn;
     final d = e.data;
     // Turn ids: `env.id` for type `turn`, else `env.parent ‖ env.id` (ui.js:961).
     final turnId = e.type == 'turn'
@@ -621,11 +623,11 @@ class HfyConversation {
         : (hfyTruthy(e.parent) ? e.parent! : (e.id ?? ''));
     switch (e.type) {
       case 'turn':
-        final turn = _ensureTurn(list, turnId);
+        turn = _ensureTurn(list, turnId);
         turn.agent = hfyOr(d['agent'], turn.agent);
         break;
       case 'turn.state':
-        final turn = _ensureTurn(list, turnId);
+        turn = _ensureTurn(list, turnId);
         turn.stateSeen = true;
         turn.state = _wireText(hfyOr(d['state'], turn.state), turn.state);
         final err = d['error'];
@@ -644,7 +646,7 @@ class HfyConversation {
         }
         break;
       case 'message.text':
-        final turn = _ensureTurn(list, turnId);
+        turn = _ensureTurn(list, turnId);
         final isAgent = e.actor?.type == 'agent';
         final streaming = isAgent ? _findStreamingBlock(turn, 'text') : null;
         if (streaming != null) {
@@ -664,7 +666,7 @@ class HfyConversation {
         }
         break;
       case 'text.delta':
-        final turn = _ensureTurn(list, turnId);
+        turn = _ensureTurn(list, turnId);
         final b = _findStreamingBlock(turn, 'text');
         if (b == null) {
           final fresh = _newTextBlock(e, true, const <String, Object?>{});
@@ -683,9 +685,9 @@ class HfyConversation {
         }
         break;
       case 'reasoning.delta':
-        final turn = _ensureTurn(list, turnId);
-        final b = _findStreamingBlock(turn, 'reasoning');
-        if (b == null) {
+        turn = _ensureTurn(list, turnId);
+        final b2 = _findStreamingBlock(turn, 'reasoning');
+        if (b2 == null) {
           final fresh = _baseBlock(e, 'reasoning');
           fresh.id = '$turnId:rstream'; // ui.js:992
           // as in text.delta: born dead on a terminal turn (ui.js:1100)
@@ -694,13 +696,13 @@ class HfyConversation {
           turn.addBlock(fresh);
         } else {
           layout = false;
-          b.text = '${hfyString(b.text)}${hfyString(hfyOr(d['text'], ''))}';
+          b2.text = '${hfyString(b2.text)}${hfyString(hfyOr(d['text'], ''))}';
         }
         break;
       case 'reasoning':
-        final turn = _ensureTurn(list, turnId);
-        final b = _findStreamingBlock(turn, 'reasoning');
-        if (b != null) {
+        turn = _ensureTurn(list, turnId);
+        final b3 = _findStreamingBlock(turn, 'reasoning');
+        if (b3 != null) {
           // P-FOLD-058: the durable reasoning event replaces text/streaming/id
           // but NOT ts/iso/dayKey — ui.js:997 only, unlike message.text:977.
           // ui.js:997 assigns `b.id = env.id` even when the envelope carried
@@ -709,9 +711,9 @@ class HfyConversation {
           // event KEEPS the block's prior id (the stream-synthetic one) here —
           // documented in test/fold/fold_api_test.dart ("id-less durable
           // reasoning keeps the prior id").
-          b.text = hfyOr(d['text'], '');
-          b.streaming = false;
-          if (e.id != null) b.id = e.id!;
+          b3.text = hfyOr(d['text'], '');
+          b3.streaming = false;
+          if (e.id != null) b3.id = e.id!;
         } else {
           final fresh = _baseBlock(e, 'reasoning');
           fresh.text = hfyOr(d['text'], '');
@@ -719,10 +721,11 @@ class HfyConversation {
         }
         break;
       case 'tool_call':
-        _ensureTurn(list, turnId).addBlock(_newToolBlock(e, d));
+        turn = _ensureTurn(list, turnId);
+        turn.addBlock(_newToolBlock(e, d));
         break;
       case 'tool_result':
-        final turn = _ensureTurn(list, turnId);
+        turn = _ensureTurn(list, turnId);
         var row = _findTool(turn, d['call_id']);
         if (row == null) {
           // a tool_result for a call the fold never saw (ui.js:1006) — and a
@@ -750,20 +753,25 @@ class HfyConversation {
         if (row.showApproval && !row.showDecided) _settleCall(row);
         break;
       case 'tool_call.interrupted':
-        final turn = _ensureTurn(list, turnId);
-        final b = _findTool(turn, d['call_id']);
-        if (b == null) return (hands: true, layout: false, changed: false);
-        _setToolStatus(b, 'interrupted');
+        turn = _ensureTurn(list, turnId);
+        final row2 = _findTool(turn, d['call_id']);
+        if (row2 == null) {
+          // ui.js's find-then-maybe-set: layout stays true here (only a found
+          // streaming-block append falsifies it), and the turn just seated by
+          // _ensureTurn still counts as the fold acting on the conversation.
+          return (hands: true, layout: true, changed: false, turn: turn);
+        }
+        _setToolStatus(row2, 'interrupted');
         break;
       case 'approval.requested':
-        final turn = _ensureTurn(list, turnId);
-        final b = _findTool(turn, d['call_id']);
+        turn = _ensureTurn(list, turnId);
+        final row3 = _findTool(turn, d['call_id']);
         _Row row;
-        if (b == null) {
+        if (row3 == null) {
           row = _newToolBlock(e, {'call_id': d['call_id']});
           turn.addBlock(row);
         } else {
-          row = b;
+          row = row3;
         }
         // design B: the request carries the tool's question set (ui.js:1023)
         final rq = d['questions'];
@@ -782,25 +790,30 @@ class HfyConversation {
         }
         break;
       case 'approval.decided':
-        final turn = _ensureTurn(list, turnId);
-        final b = _findTool(turn, d['call_id']);
-        if (b == null) return (hands: true, layout: false, changed: false);
-        b.showApproval = false;
-        b.showDecided = true;
-        b.decision = hfyTruthy(d['approve']) ? 'allowed' : 'denied';
+        turn = _ensureTurn(list, turnId);
+        final row4 = _findTool(turn, d['call_id']);
+        if (row4 == null) {
+          // an unknown call id — but the turn was still ensured just now, so
+          // like ui.js (which relayouts and syncs at fold's tail) the fold
+          // acted: the queued turn seats in the view this very apply.
+          return (hands: true, layout: true, changed: false, turn: turn);
+        }
+        row4.showApproval = false;
+        row4.showDecided = true;
+        row4.decision = hfyTruthy(d['approve']) ? 'allowed' : 'denied';
         final answered = d['answers'];
         if (hfyTruthy(answered) && (answered is Map || answered is List)) {
-          b.answers = answered;
+          row4.answers = answered;
         }
-        b.declineReason = _wireText(hfyOr(d['reason'], ''), '');
+        row4.declineReason = _wireText(hfyOr(d['reason'], ''), '');
         break;
       default:
         // P-FOLD-057: summary/model.usage (and unknown types) drop here — no
         // block, no layout. Envelopes reach the app through the controller's
         // event stream, never through the fold.
-        return (hands: false, layout: false, changed: false);
+        return (hands: false, layout: false, changed: false, turn: null);
     }
-    return (hands: true, layout: layout, changed: true);
+    return (hands: true, layout: layout, changed: true, turn: turn);
   }
 
   _Turn _ensureTurn(List<_Turn> list, String id) {

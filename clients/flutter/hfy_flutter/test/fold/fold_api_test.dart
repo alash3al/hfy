@@ -198,8 +198,7 @@ void main() {
   });
 
   group('controller API: apply booleans, revision, encapsulated hasOlder/fileLabel', () {
-    test('apply() is true exactly when something acted, false when dropped/no-op',
-        () {
+    test('apply() is true when the fold acted, false only for dropped types', () {
       final c = foldOf();
       c.markLoaded();
       var revision = c.revision;
@@ -364,6 +363,12 @@ void main() {
       final fixtures = fixtureFiles();
       expect(fixtures, isNotEmpty);
       for (final def in fixtures) {
+        // minimizeAfter is a USER action delivered at a position in the
+        // event stream: the applyAll variant cannot interleave it (see
+        // fixture_harness.dart), and a shuffled order also changes which
+        // pending calls re-open the sheet afterwards. The canonical
+        // projection of such scenarios is pinned by test/fixtures_test.dart.
+        if (def['minimizeAfter'] != null) continue;
         final perEvent = runScenario(def);
         final batch = runScenario(def, batch: true);
         final diff = firstJsonDifference(batch, perEvent);
@@ -380,11 +385,17 @@ void main() {
       final rng = Random(2026); // deterministic: a failure reproduces exactly
       final fixtures = fixtureFiles();
       for (final fixture in fixtures) {
+        // a shuffled minimizeAfter changes where the sheet is closed, see the
+        // skip reason in the test above
+        if (fixture['minimizeAfter'] != null) continue;
         for (var attempt = 0; attempt < 8; attempt++) {
           final def = jsonDecode(jsonEncode(fixture))
               as Map<String, dynamic>; // deep copy, then shuffle its events
           shuffleEvents(def, rng);
-          final diff = firstJsonDifference(runScenario(def, batch: true), runScenario(def));
+          final diff = firstJsonDifference(
+            runScenario(def, batch: true),
+            runScenario(def),
+          );
           expect(
             diff,
             isNull,

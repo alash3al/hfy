@@ -367,10 +367,11 @@ void main() {
         c.apply(
           ev('ad2', 'approval.decided', actor: agentActor, data: {'call_id': 'zz'}),
         ),
-        isFalse,
-        reason: 'no row to act on — ui.js mines it silently',
+        isTrue,
+        reason: 'handled, like ui.js — the fold relayouts+syncs for it '
+            '(ui.js:1044-1046); the turn seat is the change it acts on',
       );
-      expect(c.t1.blocks.length, before);
+      expect(c.t1.blocks.length, before, reason: 'no row appears for it');
     });
 
     test("a missing/null call_id NEVER matches an orphan row — every miss gets "
@@ -397,11 +398,12 @@ void main() {
       expect(rows, hasLength(2), reason: 'ui.js makes a fresh row per miss');
       expect(rows[0].content, 'two');
       expect(rows[1].content, 'three');
-      // a decided for a MISSING call id does not even create a row
+      // a decided for a MISSING call id creates no row, but the fold still
+      // acts (ensureTurn seated the turn; ui.js relayouts+syncs for it)
       final before = c.t1.blocks.length;
       expect(
         c.apply(ev('ad', 'approval.decided', actor: agentActor, data: {'approve': true})),
-        isFalse,
+        isTrue,
       );
       expect(c.t1.blocks.length, before);
     });
