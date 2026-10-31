@@ -134,6 +134,38 @@ void main() {
     );
 
     test(
+      'P-FOLD-017: a history event without an id is history, never a live pill',
+      () async {
+        server.historyPages[null] = historyPage(
+          turns: [
+            pageTurn([
+              wire('t1', 'turn'),
+              userText('m1', 't1', 'question'),
+              withoutId(agentText('m2', 't1', 'answer')),
+              agentText('m3', 't1', 'follow-up'),
+            ]),
+          ],
+          liveAfter: 'la-0',
+          viewer: kViewer,
+        );
+        await openWith(server);
+        final c = kit.controller;
+        c.stickToBottom.value = false;
+        await c.connect();
+        expect(
+          [for (final b in c.turns.single.blocks) b.text],
+          ['question', 'answer', 'follow-up'],
+        );
+        expect(
+          c.newMessagesPending.value,
+          isFalse,
+          reason: 'history never raises the pill',
+        );
+        expect(c.liveEventSeq, 0, reason: 'no history event counts as live');
+      },
+    );
+
+    test(
       'P-FOLD-022: a send made before connect keeps Stop armed through the boot',
       () async {
         server.historyPages[null] = emptyPage();
@@ -279,6 +311,28 @@ void main() {
         expect(c.newMessagesPending.value, isFalse);
         hold.complete();
         await pending;
+      },
+    );
+
+    test(
+      'PARITY §10a #7: a send the server never echoes keeps Stop armed until stop()',
+      () async {
+        final c = kit.controller;
+        c.setDraft('lost');
+        await c.submitDraft();
+        await kit.frame(wire('t9', 'turn'));
+        await kit.frame(turnState('s1', 't9', 'completed'));
+        await until(
+          () => c.turns.any((t) => t.id == 't9' && t.state == 'completed'),
+        );
+        expect(c.ownActive, isTrue, reason: 'no user text landed for t9');
+        expect(c.canStop, isTrue);
+        c.setDraft('again');
+        expect(c.canSend, isFalse, reason: 'Send waits on the bridge');
+        await c.stop();
+        expect(c.ownActive, isFalse);
+        expect(c.canSend, isTrue);
+        expect(kit.requestsTo('/v1/conversation/stop'), hasLength(1));
       },
     );
   });
@@ -628,6 +682,134 @@ void main() {
       },
     );
 
+    test(
+      'P-FOLD-042: draft keystrokes leave the sheet view as it was',
+      () async {
+        await askAndPlain();
+        final c = kit.controller;
+        final pending = c.pendingOwn;
+        final revision = c.revision;
+        for (final text in ['a', 'ab', 'abc']) {
+          c.setDraft(text);
+        }
+        expect(
+          identical(c.pendingOwn, pending),
+          isTrue,
+          reason: 'the fold did not relayout',
+        );
+        expect(c.revision, revision);
+        expect(c.sheetOpen, isTrue);
+        expect(() => c.pendingOwn.clear(), throwsUnsupportedError);
+      },
+    );
+
+    test(
+      'P-SH-014: a decision made while a submit is in flight posts nothing',
+      () async {
+        await askAndPlain();
+        final c = kit.controller;
+        final hold = Completer<void>();
+        server.holdRequests = hold;
+        addTearDown(() {
+          if (!hold.isCompleted) hold.complete();
+        });
+        final first = c.decide(const <HfyDecision>[
+          HfyDecision(callId: 'c2', approve: true),
+        ]);
+        await until(
+          () => server.requests.any((r) => r.path.endsWith('/approvals')),
+        );
+        expect(c.sheetBusy, isTrue);
+        // c1 is still open, so only the busy guard can stop this one. It must
+        // return at once, while the first submit is still held.
+        final second = c.decide([
+          const HfyDecision(callId: 'c1', approve: true, answers: {}),
+        ]);
+        await second.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => fail('a busy sheet ignores a second submit at once'),
+        );
+        expect(
+          kit.requestsTo('/v1/conversation/approvals'),
+          hasLength(1),
+          reason: 'the busy sheet posted nothing for the second submit',
+        );
+        hold.complete();
+        await first;
+        expect(c.sheetBusy, isFalse);
+      },
+    );
+
+    test(
+      'P-FOLD-042: a decision for a call already submitted posts nothing',
+      () async {
+        await askAndPlain();
+        final c = kit.controller;
+        await c.decide(const <HfyDecision>[
+          HfyDecision(callId: 'c2', approve: true),
+        ]);
+        await c.decide(const <HfyDecision>[
+          HfyDecision(callId: 'c2', approve: false),
+        ]);
+        await c.skipQuestions('c2');
+        expect(kit.requestsTo('/v1/conversation/approvals'), hasLength(1));
+        expect([for (final b in c.pendingOwn) b.callId], ['c1']);
+      },
+    );
+
+    test(
+      'P-SH-014: an ask sent without question ids fails on the question the server names, else its first',
+      () async {
+        await askAndPlain();
+        final c = kit.controller;
+        server.scriptedErrors.add((
+          '/v1/conversation/approvals',
+          400,
+          'q2 is not an option',
+        ));
+        await c.decide(const <HfyDecision>[
+          HfyDecision(callId: 'c1', approve: true, answers: {'q1': 'x'}),
+        ]);
+        expect(c.sheetErrorKey, 'c1:q2');
+        server.scriptedErrors.add((
+          '/v1/conversation/approvals',
+          400,
+          'nope',
+        ));
+        await c.decide(const <HfyDecision>[
+          HfyDecision(callId: 'c1', approve: true, answers: {'q1': 'x'}),
+        ]);
+        expect(c.sheetErrorKey, 'c1:q1', reason: 'no name: the first question');
+      },
+    );
+
+    test(
+      'P-SH-014: a failed landing is dropped once its calls are all gone',
+      () async {
+        await askAndPlain();
+        final c = kit.controller;
+        server.scriptedErrors.add((
+          '/v1/conversation/approvals',
+          400,
+          'q2 bad',
+        ));
+        await c.decide(const <HfyDecision>[
+          HfyDecision(
+            callId: 'c1',
+            approve: true,
+            answers: {},
+            questionIds: ['q1', 'q2'],
+          ),
+        ]);
+        expect(c.sheetErrorKey, 'c1:q2');
+        await kit.frame(approvalDecided('d1', 't1', 'c1', approve: false));
+        await kit.frame(approvalDecided('d2', 't1', 'c2', approve: false));
+        await until(() => c.pendingOwn.isEmpty);
+        expect(c.sheetErrorKey, isNull);
+        expect(c.sheetError, isNull);
+      },
+    );
+
     test('P-SH-014: clearSheetError drops only an active landing', () async {
       await askAndPlain();
       final c = kit.controller;
@@ -739,6 +921,86 @@ void main() {
         );
       },
     );
+
+    test(
+      'P-FOLD-043: an id-less event in an older page merges at the front, with no pill',
+      () async {
+        server.historyPages[null] = historyPage(
+          turns: [
+            pageTurn([wire('t2', 'turn'), agentText('m3', 't2', 'newest')]),
+          ],
+          next: 'c1',
+          liveAfter: 'la-0',
+          viewer: kViewer,
+        );
+        server.historyPages['c1'] = historyPage(
+          turns: [
+            pageTurn([
+              wire('t1', 'turn'),
+              withoutId(agentText('m1', 't1', 'oldest')),
+            ]),
+          ],
+          viewer: kViewer,
+        );
+        await openWith(server);
+        final c = kit.controller;
+        await kit.connectLive();
+        c.stickToBottom.value = false;
+        await c.loadOlder();
+        expect([for (final t in c.turns) t.id], ['t1', 't2']);
+        expect([for (final b in c.turns.first.blocks) b.text], ['oldest']);
+        expect(c.newMessagesPending.value, isFalse);
+        expect(c.liveEventSeq, 0);
+      },
+    );
+
+    test(
+      'P-CFG-021: connect() waits for an in-flight loadOlder before it boots',
+      () async {
+        server.historyPages[null] = historyPage(
+          turns: [
+            pageTurn([wire('t2', 'turn'), agentText('m3', 't2', 'newest')]),
+          ],
+          next: 'c1',
+          liveAfter: 'la-0',
+          viewer: kViewer,
+        );
+        server.historyPages['c1'] = historyPage(
+          turns: [
+            pageTurn([wire('t1', 'turn'), agentText('m1', 't1', 'oldest')]),
+          ],
+          viewer: kViewer,
+        );
+        await openWith(server);
+        final c = kit.controller;
+        await kit.connectLive();
+        // A paused client's connect() is a real boot, not a no-op on the open
+        // stream.
+        c.pause();
+        final hold = Completer<void>();
+        server.holdRequests = hold;
+        addTearDown(() {
+          if (!hold.isCompleted) hold.complete();
+        });
+        final older = c.loadOlder();
+        await until(
+          () => server.requests.any((r) => r.path.contains('before=c1')),
+        );
+        final boot = c.connect();
+        // A boot that started would already show `connecting`: the client sets
+        // it synchronously, before its first request.
+        expect(
+          c.connection,
+          HfyConnectionState.paused,
+          reason: 'the boot has not started: it waits for the older page',
+        );
+        hold.complete();
+        await older;
+        await boot;
+        expect(c.connection, HfyConnectionState.live);
+        expect([for (final t in c.turns) t.id], ['t1', 't2']);
+      },
+    );
   });
 
   group('retry', () {
@@ -827,9 +1089,11 @@ void main() {
         await kit.frame(
           wire('mu1', 'model.usage', data: <String, Object?>{'tokens': 3}),
         );
-        await settle(30);
-        expect(notes, 0);
-        expect(c.revision, revision);
+        // The stream is ordered: once this marker folds, mu1 has been handled.
+        await kit.frame(wire('t1', 'turn'));
+        await until(() => c.revision != revision);
+        expect(notes, 1, reason: 'only the marker notified');
+        expect(c.revision, revision + 1, reason: 'mu1 changed nothing');
       },
     );
 
@@ -964,9 +1228,18 @@ void main() {
       await openWith(server);
       final c = kit.controller;
       c.addListener(() => c.dispose());
+      var notified = false;
+      c.addListener(() => notified = true);
       c.setDraft('x');
-      await settle();
+      await until(() => notified);
       expect(c.draft, 'x');
+      // dispose() inside the notification defers the base dispose until the
+      // notification ends, so the base class is disposed by now.
+      expect(
+        () => c.addListener(() {}),
+        throwsFlutterError,
+        reason: 'the deferred base dispose ran',
+      );
     });
 
     test('open() owns and disposes its client', () async {
@@ -989,6 +1262,10 @@ void main() {
     });
   });
 }
+
+/// The same envelope without its id (a history page may carry one).
+Map<String, Object?> withoutId(Map<String, Object?> envelope) =>
+    Map<String, Object?>.of(envelope)..remove('id');
 
 /// One SSE frame's wire text (the same shape FakeSseConnection.addFrame writes).
 String _frameText(Map<String, Object?> envelope) =>

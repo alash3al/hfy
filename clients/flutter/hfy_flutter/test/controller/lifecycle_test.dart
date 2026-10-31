@@ -1,7 +1,8 @@
 // P-NAT-004: the app lifecycle pauses and resumes the stream through the
-// controller. Each edge fires once, inactive changes nothing, a resume
-// reconnects from lastEventId, and dispose detaches the observer. The mapping
-// is driven directly; the registration is driven through the real binding.
+// controller. Paused, hidden and detached pause, resumed resumes, inactive
+// changes nothing, a resume reconnects from lastEventId, and dispose detaches
+// the observer. The mapping is driven directly; the registration is driven
+// through the real binding.
 import 'dart:io' show HttpOverrides;
 
 import 'package:flutter/foundation.dart'
@@ -23,6 +24,7 @@ void main() {
   late FakeHfyServer server;
   final reported = <FlutterErrorDetails>[];
   FlutterExceptionHandler? previousOnError;
+  HttpOverrides? previousOverrides;
 
   setUp(() async {
     reported.clear();
@@ -30,7 +32,11 @@ void main() {
     FlutterError.onError = reported.add;
     // The test binding swaps in an HttpClient that answers 400 to everything;
     // these tests talk to the real fake server over a socket.
+    previousOverrides = HttpOverrides.current;
     HttpOverrides.global = null;
+    // The binding keeps the last state it was handed: every test starts in
+    // the foreground instead of inheriting one.
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     server = await FakeHfyServer.start();
     server.historyPages[null] = historyPage(
       turns: const <Object?>[],
@@ -43,6 +49,8 @@ void main() {
     _kit?.controller.dispose();
     _kit = null;
     await server.destroy();
+    HttpOverrides.global = previousOverrides;
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     FlutterError.onError = previousOnError;
     expect(
       reported,
@@ -52,38 +60,29 @@ void main() {
   });
 
   test(
-    'P-NAT-004: the mapping pauses on paused, hidden and detached, resumes on resumed, and each edge fires once',
+    'P-NAT-004: the mapping pauses on paused, hidden and detached, resumes on resumed, and inactive is ignored',
     () {
-      var pauses = 0;
-      var resumes = 0;
+      final edges = <String>[];
       final b = HfyLifecycleBinder(
-        onPause: () => pauses++,
-        onResume: () => resumes++,
+        onPause: () => edges.add('pause'),
+        onResume: () => edges.add('resume'),
       );
-      b.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      for (final state in [
+        AppLifecycleState.resumed,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.detached,
+        AppLifecycleState.resumed,
+        AppLifecycleState.inactive,
+      ]) {
+        b.didChangeAppLifecycleState(state);
+      }
       expect(
-        (pauses, resumes),
-        (0, 0),
-        reason: 'a resume before any pause does nothing',
-      );
-      b.didChangeAppLifecycleState(AppLifecycleState.paused);
-      b.didChangeAppLifecycleState(AppLifecycleState.hidden);
-      b.didChangeAppLifecycleState(AppLifecycleState.detached);
-      expect(
-        (pauses, resumes),
-        (1, 0),
-        reason: 'the second and third pause are no-ops',
-      );
-      b.didChangeAppLifecycleState(AppLifecycleState.resumed);
-      b.didChangeAppLifecycleState(AppLifecycleState.resumed);
-      expect((pauses, resumes), (1, 1));
-      b.didChangeAppLifecycleState(AppLifecycleState.inactive);
-      expect((pauses, resumes), (1, 1), reason: 'inactive changes nothing');
-      b.didChangeAppLifecycleState(AppLifecycleState.hidden);
-      expect(
-        (pauses, resumes),
-        (2, 1),
-        reason: 'a fresh background edge pauses again',
+        edges,
+        ['resume', 'pause', 'pause', 'pause', 'resume'],
+        reason:
+            'every edge is forwarded; the client ignores the repeats, and '
+            'inactive forwards nothing',
       );
     },
   );
@@ -108,6 +107,21 @@ void main() {
   );
 
   test(
+    'P-NAT-004: attach while the app is already hidden pauses at once; attach while resumed does nothing',
+    () {
+      var pauses = 0;
+      final b = HfyLifecycleBinder(onPause: () => pauses++, onResume: () {});
+      b.attach(binding);
+      expect(pauses, 0, reason: 'the app is in the foreground');
+      b.detach();
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      b.attach(binding);
+      expect(pauses, 1, reason: 'the state the binding already holds');
+      b.detach();
+    },
+  );
+
+  test(
     'P-NAT-004: paused stops delivery and resumed reconnects from lastEventId',
     () async {
       _kit = await ChatKit.open(server);
@@ -116,17 +130,13 @@ void main() {
       await _kit!.connectLive();
       await _kit!.frame(wire('t1', 'turn'));
       await _kit!.frame(agentText('l2', 't1', 'before the background'));
-      await settle();
+      await until(
+        () => c.turns.isNotEmpty && c.turns.single.blocks.isNotEmpty,
+      );
 
       binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       expect(c.connection, HfyConnectionState.paused);
       await _kit!.frame(agentText('l3', 't1', 'sent while paused'));
-      await settle();
-      expect(
-        [for (final b in c.turns.single.blocks) b.text],
-        ['before the background'],
-        reason: 'a paused stream delivers nothing to the controller',
-      );
 
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await until(
@@ -137,6 +147,37 @@ void main() {
       final reopened = server.sseConnections.last.request;
       expect(reopened.lastEventId, 'l2');
       expect(reopened.after, 'l2');
+
+      // The paused frame went to the dropped socket. The marker, written on
+      // the resumed stream, shows the stream folds again without it.
+      await _kit!.frame(agentText('l4', 't1', 'marker'));
+      await until(
+        () => c.turns.single.blocks.any((b) => b.text == 'marker'),
+      );
+      expect(
+        [for (final b in c.turns.single.blocks) b.text],
+        ['before the background', 'marker'],
+        reason: 'the frame sent while paused never reached the controller',
+      );
+    },
+  );
+
+  test(
+    'P-NAT-004: attachLifecycle while the app is already backgrounded pauses the stream at once',
+    () async {
+      _kit = await ChatKit.open(server);
+      final c = _kit!.controller;
+      await _kit!.connectLive();
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      c.attachLifecycle(binding);
+      expect(c.connection, HfyConnectionState.paused);
+      expect(server.sseConnections.length, 1);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await until(
+        () =>
+            c.connection == HfyConnectionState.live &&
+            server.sseConnections.length == 2,
+      );
     },
   );
 

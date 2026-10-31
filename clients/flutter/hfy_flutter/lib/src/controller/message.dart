@@ -25,7 +25,8 @@ class HfyMessage {
 
 /// One approval or answer set to submit (P-FOLD-055). [answers] is set for an
 /// ask and is sent with `approve: true`; [questionIds] lists the set's
-/// questions in order, so a failure can land on the one the server names.
+/// questions in order, so a failure can land on the one the server names. An
+/// ask sent without them takes them from its pending block.
 class HfyDecision {
   const HfyDecision({
     required this.callId,

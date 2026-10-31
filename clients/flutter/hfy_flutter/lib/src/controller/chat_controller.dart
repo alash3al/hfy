@@ -3,12 +3,11 @@
 // sendDecisions and the syncDerived outlets) over one HfyClient and one
 // HfyConversation. Flutter foundation only: ChangeNotifier and ValueNotifier.
 //
-// History vs live: the client fires both through `events` without a tag. A
-// delivery is LIVE when it moved the cursor, i.e. `event.id == lastEventId`
-// while the listener runs (HfyDedupe.claim never moves it for history). Null
-// ids count as live. History outside loadOlder folds per microtask burst with
-// applyAll (one relayout, like connect()); loadOlder collects its page and
-// merges it once with mergeOlderPage (ui.js:1220-1244).
+// History vs live: the client fires both through `events`, and tags each
+// delivery with HfyClient.deliveringHistory (true only while a history page
+// fires). History outside loadOlder folds per microtask burst with applyAll
+// (one relayout, like connect()); loadOlder collects its page and merges it
+// once with mergeOlderPage (ui.js:1220-1244).
 //
 // Notifications coalesce: each change marks the controller dirty and one
 // microtask notifies, so a burst of events costs one rebuild. Nothing notifies
@@ -23,7 +22,7 @@ import 'dart:async'
 
 import 'package:dio/dio.dart' show Dio;
 import 'package:flutter/foundation.dart'
-    show ChangeNotifier, ValueNotifier, visibleForTesting;
+    show ChangeNotifier, ValueListenable, ValueNotifier, visibleForTesting;
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 import '../client/client.dart'
@@ -114,7 +113,7 @@ class HfyChatController extends ChangeNotifier {
          tz: options.tz,
        ),
        stickToBottom = ValueNotifier<bool>(true),
-       newMessagesPending = ValueNotifier<bool>(false) {
+       _newMessagesPending = ValueNotifier<bool>(false) {
     _previousProtocolError = _client.onProtocolError;
     _client.onProtocolError = _onProtocolError;
     stickToBottom.addListener(_onStickChanged);
@@ -133,7 +132,8 @@ class HfyChatController extends ChangeNotifier {
   final ValueNotifier<bool> stickToBottom;
 
   /// Set by a live event folded while detached (P-FOLD-018); never by history.
-  final ValueNotifier<bool> newMessagesPending;
+  ValueListenable<bool> get newMessagesPending => _newMessagesPending;
+  final ValueNotifier<bool> _newMessagesPending;
 
   late final StreamSubscription<HfyEvent> _eventSub;
   void Function(HfyProtocolException error)? _previousProtocolError;
@@ -159,13 +159,6 @@ class HfyChatController extends ChangeNotifier {
   HfyMessage? _composerError;
   HfyMessage? _connectionError;
 
-  /// Calls whose approval POST succeeded; hidden from the sheet until the
-  /// fold drops them (the `submitted` flag of ui.js:1110, held here because
-  /// the fold has no setter for it).
-  final Set<String> _submitted = <String>{};
-  List<HfyBlock> _pending = const <HfyBlock>[];
-  bool _sheetOpen = false;
-  bool _actionPill = false;
   bool _sheetBusy = false;
   HfyMessage? _sheetError;
   String? _sheetErrorKey;
@@ -201,6 +194,10 @@ class HfyChatController extends ChangeNotifier {
 
   /// The viewer's own turn is queued, running or awaiting approval, or a send
   /// bridge still waits for its turn (P-FOLD-022). Drives Stop mode.
+  ///
+  /// Known web bug, kept for parity (PARITY §10a #7): the bridge clears only
+  /// when the server echoes the turn's user text (ui.js:799-800). If the echo
+  /// never lands, this stays true until [stop] drops the bridge.
   bool get ownActive {
     final conv = _conv;
     return conv != null ? conv.ownActive : _pendingBridge != null;
@@ -222,15 +219,17 @@ class HfyChatController extends ChangeNotifier {
   HfyMessage? get composerError => _composerError;
 
   /// The viewer's open approvals in call order, minus the ones already
-  /// submitted (P-FOLD-042).
-  List<HfyBlock> get pendingOwn => _pending;
+  /// submitted (P-FOLD-042). Read from the fold: the same list instance until
+  /// the fold changes.
+  List<HfyBlock> get pendingOwn =>
+      _conv?.pendingOwnBlocks ?? const <HfyBlock>[];
 
   /// The approval sheet is open while calls pend and it is not minimized
   /// (P-FOLD-049).
-  bool get sheetOpen => _sheetOpen;
+  bool get sheetOpen => _conv?.sheetOpen ?? false;
 
   /// The "Action needed" pill while the sheet is minimized (P-SH-015).
-  bool get showActionPill => _actionPill;
+  bool get showActionPill => _conv?.showActionPill ?? false;
 
   bool get sheetBusy => _sheetBusy;
   HfyMessage? get sheetError => _sheetError;
@@ -296,7 +295,7 @@ class HfyChatController extends ChangeNotifier {
       _loadingOlder = false;
       _olderFlight = null;
       done.complete();
-      _markDirty();
+      _syncSheet();
     }
   }
 
@@ -373,7 +372,9 @@ class HfyChatController extends ChangeNotifier {
   }
 
   /// ui.js sendDecisions (1635-1658, P-FOLD-055): posts in list order, stops
-  /// at the first failure, and lands the sheet on the failing step.
+  /// at the first failure, and lands the sheet on the failing step. A call
+  /// made while a submit is in flight returns at once (ui.js:1636), and a
+  /// decision whose call is no longer in [pendingOwn] posts nothing.
   Future<void> decide(List<HfyDecision> decisions) =>
       _runDecisions(decisions, landOnFailure: true);
 
@@ -436,11 +437,9 @@ class HfyChatController extends ChangeNotifier {
     _client.onProtocolError = _previousProtocolError;
     _pendingHistory.clear();
     _olderPage = null;
-    _pending = const <HfyBlock>[];
-    _submitted.clear();
     unawaited(_protocol.close());
     stickToBottom.dispose();
-    newMessagesPending.dispose();
+    _newMessagesPending.dispose();
     if (_ownsClient) {
       unawaited(_disposeOwnedClient());
     } else {
@@ -459,11 +458,10 @@ class HfyChatController extends ChangeNotifier {
 
   void _onClientEvent(HfyEvent event) {
     if (_disposed) return;
-    final id = event.id;
-    if (id == null || id == _client.lastEventId) {
-      _onLive(event);
-    } else {
+    if (_client.deliveringHistory) {
       _onHistory(event);
+    } else {
+      _onLive(event);
     }
   }
 
@@ -471,8 +469,8 @@ class HfyChatController extends ChangeNotifier {
     _flushHistory();
     if (!_ensureConv().apply(event)) return;
     _liveSeq++;
-    if (!stickToBottom.value) newMessagesPending.value = true;
-    _markDirty();
+    if (!stickToBottom.value) _newMessagesPending.value = true;
+    _syncSheet();
   }
 
   void _onHistory(HfyEvent event) {
@@ -496,11 +494,11 @@ class HfyChatController extends ChangeNotifier {
     final conv = _ensureConv();
     final before = conv.revision;
     conv.applyAll(batch);
-    if (conv.revision != before) _markDirty();
+    if (conv.revision != before) _syncSheet();
   }
 
   void _onStickChanged() {
-    if (stickToBottom.value) newMessagesPending.value = false;
+    if (stickToBottom.value) _newMessagesPending.value = false;
   }
 
   void _onConnectionChanged() => _markDirty();
@@ -552,6 +550,9 @@ class HfyChatController extends ChangeNotifier {
     _markDirty();
     String? failKey;
     for (final decision in decisions) {
+      // ui.js sends only open calls; a submitted or gone one posts nothing.
+      final block = _pendingBlock(decision.callId);
+      if (block == null) continue;
       try {
         await _client.approve(
           decision.callId,
@@ -559,30 +560,44 @@ class HfyChatController extends ChangeNotifier {
           answers: decision.answers,
         );
         if (_disposed) return;
-        _submitted.add(decision.callId);
+        _conv?.markSubmitted(decision.callId);
       } on Object catch (error) {
         final message = _messageFor(error);
         _sheetError = message;
-        if (landOnFailure) failKey = _failKey(decision, message);
+        if (landOnFailure) {
+          final ids = decision.questionIds.isNotEmpty
+              ? decision.questionIds
+              : <String>[for (final q in block.questions) q.id];
+          failKey = _failKey(decision.callId, ids, message);
+        }
         break;
       }
     }
     _sheetBusy = false;
     _sheetErrorKey = failKey;
-    _markDirty();
+    _syncSheet();
+  }
+
+  HfyBlock? _pendingBlock(String callId) {
+    for (final block in pendingOwn) {
+      if (block.callId == callId) return block;
+    }
+    return null;
   }
 
   /// A failure lands on the question the server names, else the first
   /// question of the set, else on the call (ui.js:1648-1649).
-  String _failKey(HfyDecision decision, HfyMessage message) {
-    if (decision.questionIds.isEmpty) return decision.callId;
-    final named = _namedQuestion(message.text ?? '', decision.questionIds);
-    return '${decision.callId}:${named ?? decision.questionIds.first}';
+  String _failKey(String callId, List<String> questionIds, HfyMessage message) {
+    if (questionIds.isEmpty) return callId;
+    final named = _namedQuestion(message.text ?? '', questionIds);
+    return '$callId:${named ?? questionIds.first}';
   }
 
   /// The first question id (in set order) that appears in [text] as a whole
   /// word. A plain search, not a regex built from the id (ui.js:1648 builds
   /// one, which breaks on special characters). An empty id never names one.
+  /// Word edges follow Unicode letter and number rules ([_isWordAt]), while
+  /// ui.js's `\b` is ASCII-only: a non-ASCII id matches here, intentionally.
   String? _namedQuestion(String text, List<String> questionIds) {
     for (final id in questionIds) {
       if (id.isEmpty) continue;
@@ -603,14 +618,24 @@ class HfyChatController extends ChangeNotifier {
     return const HfyMessage.key('error');
   }
 
-  /// Recomputes the sheet view from the fold and the submitted set, then
-  /// schedules one notification. Every state change goes through here.
+  /// Schedules one notification per microtask burst; every state change goes
+  /// through here. The sheet view is read from the fold, so it costs nothing.
   void _markDirty() {
-    if (_disposed) return;
-    _refreshPending();
-    if (_dirty) return;
+    if (_disposed || _dirty) return;
     _dirty = true;
     scheduleMicrotask(_flush);
+  }
+
+  /// Settles the sheet's error against the fold, then schedules a
+  /// notification: a landing whose calls are all gone is dropped (ui.js
+  /// syncSheet's reset when no step is left). Called where the fold may have
+  /// moved, never on a draft change.
+  void _syncSheet() {
+    if (pendingOwn.isEmpty) {
+      _sheetError = null;
+      _sheetErrorKey = null;
+    }
+    _markDirty();
   }
 
   void _flush() {
@@ -627,36 +652,6 @@ class HfyChatController extends ChangeNotifier {
       _superDisposeDeferred = false;
       super.dispose();
     }
-  }
-
-  void _refreshPending() {
-    final conv = _conv;
-    if (conv == null) {
-      _pending = const <HfyBlock>[];
-      _submitted.clear();
-    } else {
-      final open = conv.pendingOwn.toSet();
-      _submitted.removeWhere((callId) => !open.contains(callId));
-      final list = <HfyBlock>[];
-      for (final turn in conv.turns) {
-        if (!turn.own) continue;
-        for (final block in turn.blocks) {
-          if (block.isTool &&
-              block.showApproval &&
-              !_submitted.contains(block.callId)) {
-            list.add(block);
-          }
-        }
-      }
-      _pending = list;
-    }
-    if (_pending.isEmpty) {
-      _sheetError = null;
-      _sheetErrorKey = null;
-    }
-    final minimized = _conv?.showActionPill ?? false;
-    _sheetOpen = _pending.isNotEmpty && !minimized;
-    _actionPill = _pending.isNotEmpty && minimized;
   }
 
   Future<void> _disposeOwnedClient() async {

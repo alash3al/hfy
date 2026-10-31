@@ -3,8 +3,8 @@
 // reconnect path from lastEventId (resume). The web client has no equivalent.
 //
 // Mapping: paused, hidden and detached pause; resumed resumes; inactive (a
-// transient overlay, a call prompt) changes nothing. Each edge fires once: a
-// second pause while paused, or a resume while not paused, is a no-op.
+// transient overlay, a call prompt) changes nothing. Repeated edges are passed
+// on as they come: HfyClient.pause() and resume() already ignore a repeat.
 import 'package:flutter/widgets.dart'
     show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 
@@ -15,15 +15,17 @@ class HfyLifecycleBinder with WidgetsBindingObserver {
   final void Function() onResume;
 
   WidgetsBinding? _binding;
-  bool _paused = false;
 
   bool get attached => _binding != null;
 
-  /// Registers this observer with [binding]; a second attach is a no-op.
+  /// Registers this observer with [binding]; a second attach is a no-op. An
+  /// app already in the background pauses at once, since the observer only
+  /// hears edges from here on.
   void attach(WidgetsBinding binding) {
     if (_binding != null) return;
     _binding = binding;
     binding.addObserver(this);
+    if (_backgrounded(binding.lifecycleState)) onPause();
   }
 
   /// Unregisters from the binding it attached to; idempotent.
@@ -36,19 +38,15 @@ class HfyLifecycleBinder with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
-      case AppLifecycleState.detached:
-        if (_paused) return;
-        _paused = true;
-        onPause();
-      case AppLifecycleState.resumed:
-        if (!_paused) return;
-        _paused = false;
-        onResume();
-      case AppLifecycleState.inactive:
-        return;
+    if (_backgrounded(state)) {
+      onPause();
+    } else if (state == AppLifecycleState.resumed) {
+      onResume();
     }
   }
+
+  static bool _backgrounded(AppLifecycleState? state) =>
+      state == AppLifecycleState.paused ||
+      state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.detached;
 }
