@@ -1,0 +1,26 @@
+name: hfy_flutter
+description: >-
+  Native Flutter SDK for the hfy conversation embed: client + UI in one
+  package, in parity with the embedded web UI (internal/httpapi/embed).
+publish_to: none
+
+version: 0.0.1
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # HTTP client for /v1/** and the SSE stream (wired from phase 2 on; the
+  # parser/dedupe/model layers of phase 1 stay pure Dart and never import it).
+  dio: ^5.11.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  # No assets/fonts: typography uses platform defaults (PARITY.md P-DIFF-008).

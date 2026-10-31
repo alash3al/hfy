@@ -1,0 +1,11 @@
+# fvm-managed SDK checkout
+.fvm/
+
+# Dart/Flutter build artifacts
+.dart_tool/
+build/
+pubspec.lock
+
+# Editor/IDE noise
+.idea/
+*.iml
