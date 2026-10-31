@@ -1,6 +1,8 @@
 // Purity guard for the shareable core (PARITY.md Phase 1-2): the model, the SSE
 // framing, the dedupe, the colour math and the string tables must not import
 // dart:io, dart:ui or package:flutter, so they can compile to JS later.
+// tokens.dart is not guarded: it imports dart:ui and package:flutter, see its
+// doc comment.
 
 import 'dart:io' show Directory, File;
 
@@ -14,20 +16,21 @@ const _pureFiles = [
   'lib/src/l10n/l10n.dart',
 ];
 
-final _import = RegExp(
-  r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''',
-  multiLine: true,
-);
+// Each whole directive is scanned, so conditional and multi-line forms count.
+final _directive = RegExp(r'^\s*(?:import|export)\s([^;]*);', multiLine: true);
+final _uri = RegExp(r'''['"]([^'"]+)['"]''');
 
 bool _banned(String uri) =>
     uri == 'dart:io' ||
     uri == 'dart:ui' ||
     uri == 'package:flutter' ||
-    uri.startsWith('package:flutter/');
+    uri.startsWith('package:flutter/') ||
+    uri.startsWith('package:flutter_');
 
 List<String> _bannedImports(String source) => [
-  for (final m in _import.allMatches(source))
-    if (_banned(m.group(1)!)) m.group(1)!,
+  for (final d in _directive.allMatches(source))
+    for (final u in _uri.allMatches(d.group(1)!))
+      if (_banned(u.group(1)!)) u.group(1)!,
 ];
 
 void main() {
@@ -71,6 +74,23 @@ void main() {
       ['package:flutter/foundation.dart'],
     );
     expect(_bannedImports("// import 'dart:io';"), isEmpty);
+    expect(_bannedImports("/// export 'dart:ui';"), isEmpty);
     expect(_bannedImports("import 'dart:convert' show jsonDecode;"), isEmpty);
+  });
+
+  test('the matcher catches conditional, multi-line and flutter_* forms', () {
+    expect(_bannedImports("import 'a.dart' if (dart.library.io) 'dart:io';"), [
+      'dart:io',
+    ]);
+    expect(_bannedImports("import\n    'dart:ui'\n    as ui;"), ['dart:ui']);
+    expect(
+      _bannedImports("export 'package:flutter/material.dart' show Color;"),
+      ['package:flutter/material.dart'],
+    );
+    expect(_bannedImports("export 'package:flutter';"), ['package:flutter']);
+    expect(_bannedImports("import 'package:flutter_test/flutter_test.dart';"), [
+      'package:flutter_test/flutter_test.dart',
+    ]);
+    expect(_bannedImports("import 'package:hfy_flutter/x.dart';"), isEmpty);
   });
 }

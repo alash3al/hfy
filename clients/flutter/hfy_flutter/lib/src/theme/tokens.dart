@@ -6,12 +6,18 @@
 import 'dart:math' as math;
 import 'dart:ui' show Brightness;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/painting.dart' show BoxShadow, Color, Offset;
 
 import 'accent.dart';
 
 enum HfyDensity { comfortable, compact }
 
+/// The token set. It imports dart:ui and package:flutter (Color, BoxShadow), so
+/// it cannot compile to JS, and test/purity_test.dart does not guard it. If the
+/// tokens must be shared with the JS core, the route is a Flutter-free token
+/// map (names to HfyColor and sizes) that this file turns into Color and
+/// BoxShadow.
 class HfyTokens {
   HfyTokens._({
     required HfyColor accent,
@@ -136,6 +142,62 @@ class HfyTokens {
 
   double sheetGutterFor(double width) =>
       math.max(sheetGutterMin, (width - sheetMaxWidth) / 2);
+
+  List<Object> get _values => [
+    accent,
+    onAccent,
+    bg,
+    surface,
+    surface2,
+    surface3,
+    border,
+    text,
+    muted,
+    accentSoft,
+    accentText,
+    ring,
+    own,
+    wall,
+    wallDot,
+    ok,
+    okSoft,
+    err,
+    errSoft,
+    warn,
+    warnSoft,
+    tickRead,
+    scrim,
+    fontSize,
+    lineHeight,
+    gap,
+    gapTight,
+    padY,
+    padX,
+    avatar,
+    maxWidth,
+    footWidth,
+    footWidthOwn,
+    gutterMin,
+    sheetGutterMin,
+    sheetMaxWidth,
+  ];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HfyTokens &&
+          listEquals(_values, other._values) &&
+          listEquals(shadow1, other.shadow1) &&
+          listEquals(shadow2, other.shadow2) &&
+          listEquals(senderHues, other.senderHues);
+
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(_values),
+    Object.hashAll(shadow1),
+    Object.hashAll(shadow2),
+    Object.hashAll(senderHues),
+  );
 
   factory HfyTokens.build({
     required HfyColor accent,

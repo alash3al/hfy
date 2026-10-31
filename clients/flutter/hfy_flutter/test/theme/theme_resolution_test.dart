@@ -40,6 +40,34 @@ Future<void> _pump(
   );
 }
 
+// The locale sits above a stable child, so only the Localizations change
+// rebuilds the scope.
+Future<void> _pumpLocalized(
+  WidgetTester tester,
+  ValueNotifier<Locale> locale,
+  void Function(BuildContext context) seen,
+) => tester.pumpWidget(
+  MediaQuery(
+    data: const MediaQueryData(),
+    child: ValueListenableBuilder<Locale>(
+      valueListenable: locale,
+      builder: (context, value, child) => Localizations(
+        locale: value,
+        delegates: const [DefaultWidgetsLocalizations.delegate],
+        child: child,
+      ),
+      child: HfyThemeScope(
+        child: Builder(
+          builder: (context) {
+            seen(context);
+            return const SizedBox();
+          },
+        ),
+      ),
+    ),
+  ),
+);
+
 void main() {
   group('P-CFG-010 theme mode', () {
     testWidgets('auto follows the platform brightness', (tester) async {
@@ -163,6 +191,37 @@ void main() {
       await _pump(tester, (c) => t = HfyTheme.of(c), lang: 'en');
       expect(t.lang, 'en');
       expect(t.isRtl, isFalse);
+    });
+
+    testWidgets('the app Localizations locale beats the device locale', (
+      tester,
+    ) async {
+      tester.platformDispatcher.localeTestValue = const Locale('ar');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      final locale = ValueNotifier(const Locale('en'));
+      addTearDown(locale.dispose);
+      late HfyTheme t;
+      await _pumpLocalized(tester, locale, (c) => t = HfyTheme.of(c));
+      expect(t.lang, 'en');
+      expect(t.isRtl, isFalse);
+    });
+
+    testWidgets('a Localizations locale change rebuilds the theme: en to ar', (
+      tester,
+    ) async {
+      final locale = ValueNotifier(const Locale('en'));
+      addTearDown(locale.dispose);
+      late HfyTheme t;
+      late TextDirection direction;
+      await _pumpLocalized(tester, locale, (c) {
+        t = HfyTheme.of(c);
+        direction = Directionality.of(c);
+      });
+      expect([t.lang, t.lineHeight, direction], ['en', 1.5, TextDirection.ltr]);
+
+      locale.value = const Locale('ar');
+      await tester.pump();
+      expect([t.lang, t.lineHeight, direction], ['ar', 1.7, TextDirection.rtl]);
     });
   });
 

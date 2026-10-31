@@ -119,11 +119,54 @@ class HfyTheme extends ThemeExtension<HfyTheme> {
   }
 
   @override
-  HfyTheme copyWith() => this;
+  HfyTheme copyWith({
+    HfyTokens? tokens,
+    Brightness? brightness,
+    HfyDensity? density,
+    HfyLayout? layout,
+    String? lang,
+    TextDirection? textDirection,
+    bool? reduceMotion,
+  }) => HfyTheme(
+    tokens: tokens ?? this.tokens,
+    brightness: brightness ?? this.brightness,
+    density: density ?? this.density,
+    layout: layout ?? this.layout,
+    lang: lang ?? this.lang,
+    textDirection: textDirection ?? this.textDirection,
+    reduceMotion: reduceMotion ?? this.reduceMotion,
+  );
 
+  /// Switches to [other] at t = 0.5 and keeps this theme before that.
+  // shortcut: no colour blending between themes, the switch is instant at t = 0.5; upgrade when a theme change has to animate.
   @override
   HfyTheme lerp(ThemeExtension<HfyTheme>? other, double t) =>
       other is HfyTheme && t >= 0.5 ? other : this;
+
+  /// Value equality. ThemeData compares its extensions with ==, so a rebuild
+  /// with the same config leaves the theme unchanged for its dependants.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HfyTheme &&
+          tokens == other.tokens &&
+          brightness == other.brightness &&
+          density == other.density &&
+          layout == other.layout &&
+          lang == other.lang &&
+          textDirection == other.textDirection &&
+          reduceMotion == other.reduceMotion;
+
+  @override
+  int get hashCode => Object.hash(
+    tokens,
+    brightness,
+    density,
+    layout,
+    lang,
+    textDirection,
+    reduceMotion,
+  );
 }
 
 /// Resolves [HfyTheme] from the host config and the platform, and provides it
@@ -150,12 +193,17 @@ class HfyThemeScope extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Localizations registers a dependency, so an app locale change rebuilds
+    // this scope. With no Localizations above, the view's platform locale is
+    // read at build time, so a bare platform change shows on the next rebuild.
+    final locale =
+        Localizations.maybeLocaleOf(context) ??
+        View.of(context).platformDispatcher.locale;
     final resolved = HfyTheme.resolve(
       platformBrightness: MediaQuery.platformBrightnessOf(context),
       reduceMotion: MediaQuery.disableAnimationsOf(context),
       lang: lang,
-      deviceLang: WidgetsBinding.instance.platformDispatcher.locale
-          .toLanguageTag(),
+      deviceLang: locale.toLanguageTag(),
       dir: dir,
       theme: theme,
       accent: accent,
