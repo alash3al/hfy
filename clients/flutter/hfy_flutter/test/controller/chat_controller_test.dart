@@ -893,7 +893,7 @@ void main() {
     );
 
     test(
-      'P-CLIENT-015: a rejected envelope surfaces through protocolErrors and later frames still deliver',
+      'client review item 3 (no matrix row): a rejected envelope surfaces through protocolErrors and later frames still deliver',
       () async {
         server.historyPages[null] = emptyPage();
         await openWith(server);

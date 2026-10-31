@@ -325,7 +325,7 @@ class HfyChatController extends ChangeNotifier {
   /// ui.js post(): forces stick-to-bottom, sends, and on success clears the
   /// composer error and arms the send bridge on the returned turn (P-FOLD-056,
   /// P-CMP-016). Returns null on success, else the message to show. It never
-  /// sets [composerError] itself, so the preview path can route the error.
+  /// sets [composerError] to an error, so the preview path can route its own.
   Future<HfyMessage?> send(
     String text, {
     List<HfyAttachmentRef>? attachments,
