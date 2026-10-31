@@ -1,0 +1,102 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-12",
+  "name": "approval-own-other",
+  "path": "live",
+  "pendingOwn": [
+    "t1-c1"
+  ],
+  "sheetOpen": true,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Pay EUR 9"
+        },
+        {
+          "args": {
+            "amount": 9
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:12.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "streaming": false,
+          "text": "Refund EUR 12"
+        },
+        {
+          "args": {
+            "amount": 12
+          },
+          "callId": "t2-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-10",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:14.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": true,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-2",
+      "own": false,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

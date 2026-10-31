@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-9",
   "name": "multi-viewer",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {

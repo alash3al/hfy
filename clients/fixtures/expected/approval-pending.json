@@ -1,10 +1,16 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-11",
   "name": "approval-pending",
   "path": "live",
   "pendingOwn": [
     "t1-c1"
   ],
+  "sheetOpen": true,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -26,6 +32,7 @@
           "callId": "t1-c1",
           "cardButtonsLive": false,
           "content": "",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": false,
           "iso": "2026-01-02T10:01:10.000Z",
@@ -33,8 +40,10 @@
           "name": "shop.book",
           "showApproval": true,
           "showDecided": false,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": true,
+          "showSummary": false,
           "status": "running",
           "stopped": false
         }
@@ -63,6 +72,7 @@
           "callId": "t2-c1",
           "cardButtonsLive": false,
           "content": "",
+          "hidden": false,
           "id": "ev-9",
           "isAsk": false,
           "iso": "2026-01-02T10:01:16.000Z",
@@ -70,8 +80,10 @@
           "name": "shop.book",
           "showApproval": true,
           "showDecided": false,
+          "showDetails": false,
           "showPendingOther": true,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "running",
           "stopped": false
         }

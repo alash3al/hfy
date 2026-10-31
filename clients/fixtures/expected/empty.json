@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": null,
   "name": "empty",
   "path": "history",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": true,
   "turns": [],
   "viewer": {

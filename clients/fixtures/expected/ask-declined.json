@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-10",
   "name": "ask-declined",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -71,6 +77,7 @@
           "cardButtonsLive": false,
           "content": "The user declined to answer.",
           "decision": "denied",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": true,
           "iso": "2026-01-02T10:01:34.000Z",
@@ -130,8 +137,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "done",
           "stopped": false
         },

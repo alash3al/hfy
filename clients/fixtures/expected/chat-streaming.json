@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-7",
   "name": "chat-streaming",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {

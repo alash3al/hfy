@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-12",
   "name": "ask-answered",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -80,6 +86,7 @@
           "cardButtonsLive": false,
           "content": "{\"answers\":{\"qs1\":\"l\",\"qm1\":[\"olives\",\"cheese\"],\"qt1\":\"after 6pm\",\"qc1\":true}}",
           "decision": "allowed",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": true,
           "iso": "2026-01-02T10:01:22.000Z",
@@ -139,8 +146,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "done",
           "stopped": false
         },
@@ -151,6 +160,7 @@
           "callId": "t1-c1",
           "cardButtonsLive": false,
           "content": "ok",
+          "hidden": false,
           "id": "ev-9",
           "isAsk": false,
           "iso": "2026-01-02T10:01:27.000Z",
@@ -158,8 +168,10 @@
           "name": "shop.pay",
           "showApproval": false,
           "showDecided": false,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": true,
           "status": "done",
           "stopped": false
         },

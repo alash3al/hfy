@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-10",
   "name": "tool-ask-held",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -69,6 +75,7 @@
           "cardButtonsLive": true,
           "content": "Order staged: Margherita. Waiting for the size confirmation.\n{\"answers\":{\"qs1\":\"m\"}}",
           "decision": "allowed",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": false,
           "iso": "2026-01-02T10:01:52.000Z",
@@ -95,8 +102,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "done",
           "stopped": false,
           "structured": {

@@ -8,17 +8,20 @@ package httpapi_test
 //   - runs the real window.hfyEmbed() fold in node over every
 //     clients/fixtures/events/*.json sequence and compares it with
 //     clients/fixtures/expected/<name>.json;
-//   - runs the real hfyMdParse over every markdown.json case;
+//   - runs the real hfyMdParse over every markdown.json case (each case also
+//     carries the sha256 of its input, so hand edits cannot slip through);
 //   - compares strings.json with the real HFY_STRINGS;
 //   - sanity-checks tokens.json's shape (its values are browser-measured, so
 //     they are never regenerated here — see README.md).
 //
 // -update-fixtures rewrites the files generated from ui.js: expected/*.json,
-// strings.json and markdown.json (markdown inputs stay hand-authored; only the
-// trees are regenerated).
+// strings.json and markdown.json (markdown inputs stay hand-authored; only
+// their hashes and trees are regenerated).
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -35,7 +38,9 @@ import (
 var updateFixtures = flag.Bool("update-fixtures", false, "regenerate clients/fixtures generated files (expected/*.json, strings.json, markdown.json) from the real embed/ui.js")
 
 // The JS half of the fixture test: it loads the REAL embed/ui.js under node with
-// the same window/document stubs embed_test.go uses, then
+// the same window/document stubs embed_test.go uses (plus a page `location`,
+// because hfySafeUrl resolves the server's relative /v1/files/... download urls
+// against it), then
 //   - folds every clients/fixtures/events/*.json sequence through the real
 //     window.hfyEmbed() fold and projects the folded state;
 //   - parses every markdown.json case with the real hfyMdParse;
@@ -47,7 +52,7 @@ var updateFixtures = flag.Bool("update-fixtures", false, "regenerate clients/fix
 // Env: HFY_UIJS = path to embed/ui.js, HFY_FIXTURES = path to clients/fixtures.
 const fixturesHarnessJS = `
 'use strict';
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const FIX = process.env.HFY_FIXTURES;
 const ui = fs.readFileSync(process.env.HFY_UIJS, 'utf8');
 const update = (() => { try { return JSON.parse(process.argv[2] || '{}').update === true; } catch (e) { return false; } })();
@@ -59,8 +64,11 @@ function loadUI() {
   win.parent = win;
   const docs = { addEventListener: function () {}, querySelector: function () { return null },
     querySelectorAll: function () { return [] } };
-  const f = new Function('window', 'document', 'navigator', 'requestAnimationFrame', ui + RUN);
-  return f(win, docs, { language: 'en' }, function () {});
+  // The page origin: location.href is what hfySafeUrl resolves attach
+  // download urls against (uploads.go serves them as relative /v1/files/...).
+  const loc = { href: 'https://embed.example/', origin: 'https://embed.example' };
+  const f = new Function('window', 'document', 'navigator', 'requestAnimationFrame', 'location', ui + RUN);
+  return f(win, docs, { language: 'en' }, function () {}, loc);
 }
 
 // Canonical form: object keys sorted at every level, everything else as-is.
@@ -71,20 +79,9 @@ function canon(x) {
 }
 const pretty = v => JSON.stringify(canon(v), null, 2) + '\n';
 
-function attachments(wire, blockId) {
-  const list = wire[blockId] || [];
-  if (!list.length) return undefined;
-  return list.map(a => ({
-    name: (a && (a.name || a.file || a.mime)) || '',
-    mime: (a && a.mime) || '',
-    hasUrl: !!(a && typeof a.url === 'string' && a.url),
-    isImage: !!(a && a.url && /^image\//i.test(String((a && a.mime) || '')))
-  }));
-}
-
 // The projection: every field the fold actually settles, none of the
 // presentation-only ones (see clients/fixtures/README.md for the schema).
-function projection(def, c, wireAtts, wireStructured, hasOlder) {
+function projection(def, c, wireStructured, hasOlder, lastEventId) {
   const turns = c.turns.map(t => ({
     id: t.id,
     agent: t.agent,
@@ -99,7 +96,9 @@ function projection(def, c, wireAtts, wireStructured, hasOlder) {
         base.ref = b.ref || '';
         base.text = b.text;
         base.streaming = b.streaming;
-        base.attachments = attachments(wireAtts, b.id);
+        // the fold's own attachment split (setAtts -> mapAtts): every field the
+        // template reads, urls resolved by hfySafeUrl against the page origin
+        if (b.images.length || b.files.length) base.attachments = { images: b.images, files: b.files };
         return base;
       }
       if (b.kind === 'reasoning') {
@@ -121,6 +120,11 @@ function projection(def, c, wireAtts, wireStructured, hasOlder) {
       base.declineReason = b.declineReason || undefined;
       base.stopped = b.stopped;
       base.showApproval = b.showApproval;
+      // tool visibility (P-FOLD-024): hidden mirrors the row's is-hidden, which
+      // relayout derives from these very fields, so any drift shows up here
+      base.showSummary = b.showSummary;
+      base.showDetails = b.showDetails;
+      base.hidden = b.rowCls.indexOf('is-hidden') !== -1;
       base.showDecided = b.showDecided;
       base.showPendingOwn = b.showPendingOwn;
       base.showPendingOther = b.showPendingOther;
@@ -131,28 +135,47 @@ function projection(def, c, wireAtts, wireStructured, hasOlder) {
   }));
   return {
     name: def.name, path: def.path, viewer: def.viewer || null,
+    config: { tool_calls: c.config.tool_calls },
+    lastEventId: lastEventId,
     hasOlder: hasOlder, showWelcome: c.showWelcome,
-    pendingOwn: c.pendingOwn.map(b => b.callId), turns: turns
+    pendingOwn: c.pendingOwn.map(b => b.callId),
+    sheetOpen: c.sheetOpen, showActionPill: c.showActionPill,
+    turns: turns
   };
 }
 
 // One wire sequence through the real fold. path 'live' folds with isHistory
-// false (SSE frames); anything else folds as connect() delivers history.
+// false (SSE frames) unless an event carries history:true — the leading history
+// run of a scenario that connects over a history page and then continues with
+// live SSE events; path 'history' folds everything as connect()'s page.
 // pages[] (newest first) are delivered through the component's REAL loadOlder,
 // exactly as HfyClient#loadHistory fires them while the loader collects.
 async function runScenario(def) {
   const api = loadUI();
   const comp = api.hfyEmbed();
   comp._loaded = true; // the real client has connected by the time events arrive
+  if (def.config && def.config.tool_calls != null) comp.config.tool_calls = def.config.tool_calls;
   const all = (def.events || []).concat(...(def.pages || []).map(p => p.events || []));
-  // The fold keeps only derived attachment fields; the projection records the
-  // wire's mime/structured for data the fold drops.
-  const wireAtts = {}, wireStructured = {};
+  // The fold keeps only a pretty-printed copy of a tool result's structured
+  // data; the projection records the wire's JSON for it.
+  const wireStructured = {};
   all.forEach(e => {
     const d = e.data || {};
-    if (e.type === 'message.text' && d.attachments) wireAtts[e.id] = d.attachments;
     if (e.type === 'tool_result' && d.structured != null) wireStructured[d.call_id] = d.structured;
   });
+  // Client-like delivery for every event, mirroring client.js #fire: an
+  // envelope id is delivered once (a seen-set), and only live deliveries
+  // move lastEventId — see clients/fixtures/README.md, "duplicate delivery".
+  let lastEventId = null;
+  const seen = {};
+  const fire = function (env, isHistory) {
+    if (env && env.id != null) {
+      if (seen[env.id]) return;
+      seen[env.id] = 1;
+      if (!isHistory) lastEventId = env.id;
+    }
+    comp.fold(env, isHistory);
+  };
   const listeners = [];
   const client = {
     viewer: def.viewer || null,
@@ -165,14 +188,24 @@ async function runScenario(def) {
     }
   };
   api.setClient(client);
-  const isH = def.path !== 'live';
-  (def.events || []).forEach(e => comp.fold(e, isH));
+  const events = def.events || [];
+  events.forEach((e, i) => {
+    const isH = def.path === 'history' ? true : !!e.history;
+    fire(e, isH);
+    // connect() pins the page's end mark as the stream cursor right after the
+    // history page, so live events move lastEventId onward from there
+    const nextIsH = i + 1 < events.length && (def.path === 'history' || !!events[i + 1].history);
+    if (isH && !nextIsH && def.liveAfter != null) lastEventId = def.liveAfter;
+  });
   if (def.pages && def.pages.length) {
-    listeners.push(function (e, isHistory) { comp.fold(e, isHistory); }); // as hfyClient.init does
+    listeners.push(function (e, isHistory) { fire(e, isHistory); }); // as hfyClient.init does
     await comp.loadOlder();
   }
+  // minimize is the user dragging the sheet down: run the REAL UI action so the
+  // fixture can pin the minimized sheet (closed, action pill visible)
+  if (def.minimize) { comp.minimizeSheet(); comp.relayout(); comp.syncDerived(); }
   comp.relayout(); comp.syncDerived();
-  return projection(def, comp, wireAtts, wireStructured, client.hasOlder);
+  return projection(def, comp, wireStructured, client.hasOlder, lastEventId);
 }
 
 (async function () {
@@ -189,11 +222,12 @@ async function runScenario(def) {
   const strings = loadUI().HFY_STRINGS;
 
   // markdown: inputs are the hand-authored cases in markdown.json; trees come
-  // from the real parser.
+  // from the real parser; sha256 pins each input so a hand edit without a
+  // regeneration is caught even though the harness reads the same file.
   const mdPath = path.join(FIX, 'markdown.json');
   const cases = JSON.parse(fs.readFileSync(mdPath, 'utf8'));
   const mdApi = loadUI();
-  const md = cases.map(c => ({ name: c.name, input: c.input, tree: mdApi.hfyMdParse(c.input) }));
+  const md = cases.map(c => ({ name: c.name, input: c.input, sha256: crypto.createHash('sha256').update(c.input, 'utf8').digest('hex'), tree: mdApi.hfyMdParse(c.input) }));
 
   if (update) {
     for (const name of Object.keys(events).sort()) fs.writeFileSync(path.join(FIX, 'expected', name + '.json'), pretty(events[name]));
@@ -205,9 +239,10 @@ async function runScenario(def) {
 `
 
 type fixtureCase struct {
-	Name  string `json:"name"`
-	Input string `json:"input"`
-	Tree  any    `json:"tree"`
+	Name   string `json:"name"`
+	Input  string `json:"input"`
+	SHA256 string `json:"sha256"`
+	Tree   any    `json:"tree"`
 }
 
 func readJSON(t *testing.T, path string, v any) {
@@ -309,11 +344,17 @@ func TestFixturesMatchJS(t *testing.T) {
 			Name   string           `json:"name"`
 			Path   string           `json:"path"`
 			Viewer *json.RawMessage `json:"viewer"`
-			Events []struct {
+			Config *struct {
+				ToolCalls string `json:"tool_calls"`
+			} `json:"config"`
+			LiveAfter string `json:"liveAfter"`
+			Minimize  bool   `json:"minimize"`
+			Events    []struct {
 				ID        string `json:"id"`
 				Type      string `json:"type"`
 				CreatedAt string `json:"created_at"`
 				V         *int   `json:"v"`
+				History   *bool  `json:"history"`
 			} `json:"events"`
 			Pages []struct {
 				Events []struct {
@@ -321,6 +362,7 @@ func TestFixturesMatchJS(t *testing.T) {
 					Type      string `json:"type"`
 					CreatedAt string `json:"created_at"`
 					V         *int   `json:"v"`
+					History   *bool  `json:"history"`
 				} `json:"events"`
 			} `json:"pages"`
 		}
@@ -334,11 +376,47 @@ func TestFixturesMatchJS(t *testing.T) {
 		if def.Viewer == nil {
 			t.Errorf("%s: missing viewer", name)
 		}
+		if def.Config != nil && def.Config.ToolCalls != "" {
+			switch def.Config.ToolCalls {
+			case "hidden", "summary", "details":
+			default:
+				t.Errorf("%s: config.tool_calls %q is not hidden|summary|details", name, def.Config.ToolCalls)
+			}
+		}
+		// history:true events are one leading connect() page within a live file;
+		// a page that carries them needs the live_after cursor connect pins.
+		historyRun := false
+		historyCount := 0
+		for i, e := range def.Events {
+			flaged := e.History != nil && *e.History
+			if def.Path == "history" && flaged {
+				t.Errorf("%s: event %s sets history:true, redundant under path:\"history\"", name, e.ID)
+			}
+			if e.Type == "text.delta" || e.Type == "reasoning.delta" {
+				if flaged {
+					t.Errorf("%s: event %s is an ephemeral delta, it can never be history:true", name, e.ID)
+				}
+			} else if flaged {
+				if historyRun && i != historyCount {
+					t.Errorf("%s: event %s breaks the leading history:true run", name, e.ID)
+				}
+				historyRun = true
+				historyCount++
+			}
+		}
+		needsLiveAfter := historyCount > 0 || (def.Path == "history" && len(def.Events) > 0)
+		if needsLiveAfter && def.LiveAfter == "" {
+			t.Errorf("%s: history content without liveAfter (connect pins the stream cursor at it)", name)
+		}
+		if !needsLiveAfter && def.LiveAfter != "" {
+			t.Errorf("%s: liveAfter on a scenario that delivers no history content", name)
+		}
 		var checkEnvs []struct {
 			ID        string `json:"id"`
 			Type      string `json:"type"`
 			CreatedAt string `json:"created_at"`
 			V         *int   `json:"v"`
+			History   *bool  `json:"history"`
 		}
 		checkEnvs = append(checkEnvs, def.Events...)
 		for _, p := range def.Pages {
@@ -435,13 +513,19 @@ func TestFixturesMatchJS(t *testing.T) {
 			for i, wc := range want {
 				gc, _ := mdGot[i].(map[string]any)
 				gName, _ := gc["name"].(string)
-				gInput, _ := gc["input"].(string)
 				if gName != wc.Name {
 					t.Errorf("markdown case %d: name %q, file has %q", i, gName, wc.Name)
 					continue
 				}
-				if gInput != wc.Input {
-					t.Errorf("markdown case %s: input was edited without regenerating", wc.Name)
+				// The harness reads markdown.json's own inputs, so input drift
+				// can never show on its own: each case carries the sha256 of its
+				// input, which only -update-fixtures rewrites.
+				sum := sha256.Sum256([]byte(wc.Input))
+				if got := hex.EncodeToString(sum[:]); got != wc.SHA256 {
+					if *updateFixtures {
+						continue // rewritten wholesale below (with the real hash)
+					}
+					t.Errorf("markdown case %s: input was edited without regenerating (sha256 %q, want %q)", wc.Name, got, wc.SHA256)
 					continue
 				}
 				if !reflect.DeepEqual(gc["tree"], wc.Tree) {

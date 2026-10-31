@@ -1,0 +1,253 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-14",
+  "name": "ask-states",
+  "path": "live",
+  "pendingOwn": [
+    "t1-a1"
+  ],
+  "sheetOpen": true,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Size please"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Small",
+                    "value": "s"
+                  },
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              }
+            ]
+          },
+          "askState": "pending",
+          "callId": "t1-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": true,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Small",
+                  "value": "s"
+                },
+                {
+                  "label": "Medium",
+                  "value": "m"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            }
+          ],
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:08.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "One more question set"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs2",
+                "options": [
+                  {
+                    "label": "Thin",
+                    "value": "thin"
+                  },
+                  {
+                    "label": "Deep dish",
+                    "value": "deep"
+                  }
+                ],
+                "required": true,
+                "text": "Which crust?",
+                "type": "single"
+              }
+            ]
+          },
+          "askState": "asking",
+          "callId": "t2-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": true,
+          "id": "ev-9",
+          "isAsk": true,
+          "iso": "2026-01-02T10:00:09.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs2",
+              "options": [
+                {
+                  "label": "Thin",
+                  "value": "thin"
+                },
+                {
+                  "label": "Deep dish",
+                  "value": "deep"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which crust?",
+              "type": "single"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "queued"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-10",
+          "iso": "2026-01-02T10:00:12.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "streaming": false,
+          "text": "From another viewer"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs3",
+                "options": [
+                  {
+                    "label": "6pm",
+                    "value": "18"
+                  },
+                  {
+                    "label": "8pm",
+                    "value": "20"
+                  }
+                ],
+                "required": true,
+                "text": "Which time?",
+                "type": "single"
+              }
+            ]
+          },
+          "askState": "other",
+          "callId": "t3-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-12",
+          "isAsk": true,
+          "iso": "2026-01-02T10:00:14.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs3",
+              "options": [
+                {
+                  "label": "6pm",
+                  "value": "18"
+                },
+                {
+                  "label": "8pm",
+                  "value": "20"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which time?",
+              "type": "single"
+            }
+          ],
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-3",
+      "own": false,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

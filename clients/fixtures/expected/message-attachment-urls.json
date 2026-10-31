@@ -1,0 +1,85 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-5",
+  "name": "message-attachment-urls",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "attachments": {
+            "files": [
+              {
+                "isImage": false,
+                "isLink": false,
+                "isPlain": true,
+                "k": "javascript:alert(1):1",
+                "label": "evil.png",
+                "url": ""
+              },
+              {
+                "isImage": false,
+                "isLink": true,
+                "isPlain": false,
+                "k": "conversations/c1/receipt.pdf:3",
+                "label": "receipt.pdf",
+                "url": "https://embed.example/v1/files/conversations/c1/receipt.pdf?exp=1800000001&sig=def"
+              }
+            ],
+            "images": [
+              {
+                "isImage": true,
+                "isLink": false,
+                "isPlain": false,
+                "k": "conversations/c1/logo.png:0",
+                "label": "logo.png",
+                "url": "https://embed.example/v1/files/conversations/c1/logo.png?exp=1800000000&sig=abc"
+              },
+              {
+                "isImage": true,
+                "isLink": false,
+                "isPlain": false,
+                "k": "https://cdn.shop.example/menu.png:2",
+                "label": "menu.png",
+                "url": "https://cdn.shop.example/menu.png"
+              }
+            ]
+          },
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:14.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Here are more files"
+        },
+        {
+          "id": "ev-4",
+          "iso": "2026-01-02T10:02:16.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Reading them now."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

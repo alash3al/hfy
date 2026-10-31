@@ -2,6 +2,7 @@
   {
     "input": "# one\n## two\n### three\n#### four\n##### five\n###### six\n####### seven",
     "name": "heading-levels",
+    "sha256": "7767eb21dd03720939f78ec8accb644fbf6d2de2a034e809d825ef628e1bd32d",
     "tree": [
       {
         "c": [
@@ -77,6 +78,7 @@
   {
     "input": "## Heading ##\n### no ###\n#### deep ####",
     "name": "heading-trailing-hashes",
+    "sha256": "82013ceb937bcc665e312b5c434e36e3d7bf7ec80aa1b717070939b66be7b03b",
     "tree": [
       {
         "c": [
@@ -113,6 +115,7 @@
   {
     "input": "##nospace\nText\n### stillno",
     "name": "heading-not-heading",
+    "sha256": "50010ef832dc5485ea9f2d8e394fec68a35739b89e105e4176664fcb95b6e1a2",
     "tree": [
       {
         "c": [
@@ -145,6 +148,7 @@
   {
     "input": "## *ed* and `code` and [x](https://y.example)",
     "name": "heading-inline-markup",
+    "sha256": "53eb14b143f2b73d3e68d0adade2d72ccee8b1a1f26089102888966870dfe9e7",
     "tree": [
       {
         "c": [
@@ -188,6 +192,7 @@
   {
     "input": "Title\n=====\nnot a heading",
     "name": "setext-not-supported",
+    "sha256": "cfdd954a7aa2bd1765c659a7c6096c3864ed4f351182ec78025da88ebb05e79e",
     "tree": [
       {
         "c": [
@@ -217,6 +222,7 @@
   {
     "input": "# 🎉 Launch day",
     "name": "heading-emoji",
+    "sha256": "24a24356309f7cbc13ec26440f4f56b1c806fc4afb2b514ffb48bca890fbe3dd",
     "tree": [
       {
         "c": [
@@ -233,6 +239,7 @@
   {
     "input": "#\n## ",
     "name": "heading-empty",
+    "sha256": "172c5b43d5ec0d94fb514125e7917641297b9ae8b3d7b10d74fb1f08bd193946",
     "tree": [
       {
         "c": [
@@ -253,6 +260,7 @@
   {
     "input": "```js\nvar x = 1;\nvar y = 2;\n```",
     "name": "fence-lang",
+    "sha256": "5079c4920f55706ad486c5e47cf78ff552d61d38202d8f624d1a5969e5757abd",
     "tree": [
       {
         "lang": "js",
@@ -264,6 +272,7 @@
   {
     "input": "~~~\nplain\n~~~",
     "name": "fence-tilde",
+    "sha256": "1611d0284172cda9fc971e102e930bd5464ed26b78c94402aa78c5a3fedbf388",
     "tree": [
       {
         "lang": "",
@@ -275,6 +284,7 @@
   {
     "input": "```py\nprint('streaming')",
     "name": "fence-unterminated",
+    "sha256": "4e849e3fd37a12af978ee3320daa5e8f35e2f0bd7080693613b2ca7be08ee4c0",
     "tree": [
       {
         "lang": "py",
@@ -286,6 +296,7 @@
   {
     "input": "   ```\n    four spaces stay-in\n   ```",
     "name": "fence-indented",
+    "sha256": "3457b76a111f397da47eb7be0f757a3464f755e17ccbdcee422f751b70dd3cec",
     "tree": [
       {
         "lang": "",
@@ -297,6 +308,7 @@
   {
     "input": "```js\nx\n``` not a close",
     "name": "fence-close-with-text",
+    "sha256": "0849bfb8a16367b73150e490c48610f34a0c8e1136884e83da1c1c0a5045cf77",
     "tree": [
       {
         "lang": "js",
@@ -308,6 +320,7 @@
   {
     "input": "~~~python3\nx = 1\n~~~",
     "name": "fence-lang-and-q",
+    "sha256": "b80d4744aa562b9a183b21c2b1dc4ebfdd305a54226af2b6812fb52aea007140",
     "tree": [
       {
         "lang": "python3",
@@ -319,6 +332,7 @@
   {
     "input": "a `code` b and ``two words`` c",
     "name": "code-inline-basic",
+    "sha256": "e93c3a2f82176180ddaa188c76b9564a83d01e5b333d0603799ca26d451551f2",
     "tree": [
       {
         "c": [
@@ -350,6 +364,7 @@
   {
     "input": "x `no close",
     "name": "code-inline-unterminated",
+    "sha256": "1d14dc0e2436019e21579312d67c89a39d5af4c3b49d820013e6b1fbd42a8249",
     "tree": [
       {
         "c": [
@@ -365,6 +380,7 @@
   {
     "input": "x ``` y",
     "name": "code-inline-unmatched-run",
+    "sha256": "516c296dfddf62d1f4b140aba5a7c3ec79785c100e92cb43b20d2c3b77b04921",
     "tree": [
       {
         "c": [
@@ -380,6 +396,7 @@
   {
     "input": "a``b``c",
     "name": "code-inline-two-run",
+    "sha256": "97f4830a44e3fad3a473945666baf42c974beef67d78cf2f922ced01418a2bdb",
     "tree": [
       {
         "c": [
@@ -403,6 +420,7 @@
   {
     "input": "` a ` and `   ` and ` `",
     "name": "code-inline-padding",
+    "sha256": "9e4f1e4ff68238c726c1ea1c85ded30c8351cf8895f9e105ac5a8f45e7798b47",
     "tree": [
       {
         "c": [
@@ -434,6 +452,7 @@
   {
     "input": "`\\n stays` and \\* outside",
     "name": "code-inline-escapes",
+    "sha256": "dd178a736367aa9859638d9f9646849948877bb7e966bd4f0a4a0b28f6b1ea08",
     "tree": [
       {
         "c": [
@@ -453,6 +472,7 @@
   {
     "input": "### `cmd` title",
     "name": "code-inline-in-heading",
+    "sha256": "fefc897b5a296b27f94a41e1bc99bc0df63112dfe11329803e9f643a0a7e946c",
     "tree": [
       {
         "c": [
@@ -473,6 +493,7 @@
   {
     "input": "*em* **strong** ***both*** and _u_ and __uu__",
     "name": "em-basic",
+    "sha256": "e1939af781fa8625010e1488e299e1baa88fce0cfb5db21057c380fa4fbdae53",
     "tree": [
       {
         "c": [
@@ -550,6 +571,7 @@
   {
     "input": "a_b_c and snake_case_word stays",
     "name": "em-underscore-intraword",
+    "sha256": "120c6c5844e35bb922d79fad04640b07ff38627ed062e6a95263962f6b6ff847",
     "tree": [
       {
         "c": [
@@ -565,6 +587,7 @@
   {
     "input": "a*b*c",
     "name": "em-asterisk-intraword",
+    "sha256": "dc2d556bdd581b391a4da6b794aeb1061dcfa6d15d8367543f89c72a0d624436",
     "tree": [
       {
         "c": [
@@ -593,6 +616,7 @@
   {
     "input": "(*em*) and **it.** and *trailing.* end",
     "name": "em-flanking",
+    "sha256": "73fe820438645626bb8c712f6d8d7b6410c28ed025ed86b6f47f642d599de7e3",
     "tree": [
       {
         "c": [
@@ -647,6 +671,7 @@
   {
     "input": "never **closes",
     "name": "em-unterminated",
+    "sha256": "663daa3896c9bc2015d5f0ff2f7919b140299d57fe9cef5f558cb506fabd1caa",
     "tree": [
       {
         "c": [
@@ -662,6 +687,7 @@
   {
     "input": "**** four stays",
     "name": "em-run-four",
+    "sha256": "cbffea5d9479a4a141273b0d7ab9f1ae4b6db22d20e77b028cb6c7a03226b52c",
     "tree": [
       {
         "c": [
@@ -677,6 +703,7 @@
   {
     "input": "one *spanning\nlines* two",
     "name": "em-multiline",
+    "sha256": "89a064deb768547a57f075af35bfa0439dfa3f4283430ada4b81513f40d7fe45",
     "tree": [
       {
         "c": [
@@ -712,6 +739,7 @@
   {
     "input": "*not em* in `*code*`",
     "name": "em-in-code",
+    "sha256": "d9054cb40b7e4df410f0c5025b0cc9e50829efdd494a8d40cc4c0a9d56900c0e",
     "tree": [
       {
         "c": [
@@ -740,6 +768,7 @@
   {
     "input": "**bold with *italic* inside**",
     "name": "em-nested",
+    "sha256": "dab005681ae7f260d9a3bfedaba3a36e784d42f40ad9233d033c1f4a8f29e680",
     "tree": [
       {
         "c": [
@@ -773,6 +802,7 @@
   {
     "input": "*[linked](https://x.example) emphasis*",
     "name": "em-with-link",
+    "sha256": "5d83e86655a838a7e4f679c56968364da5c439ea5abca7e2dfdf210b1d0cbdb2",
     "tree": [
       {
         "c": [
@@ -803,6 +833,7 @@
   {
     "input": "in_word_ no and out _word_ yes",
     "name": "em-underscore-close-word",
+    "sha256": "d5f8569d3bc834c9e30e5bfafd32497bf82695250d8c05dce9576ef083a880c2",
     "tree": [
       {
         "c": [
@@ -831,6 +862,7 @@
   {
     "input": "\\*not em\\*",
     "name": "escape-emphasis",
+    "sha256": "b836c56b9f3c6d7344296a52bdf0265f64601c05ab2d7cecf8137c9c2d53d9b5",
     "tree": [
       {
         "c": [
@@ -846,6 +878,7 @@
   {
     "input": "\\! \\# \\(done\\) robot \\@you",
     "name": "escape-bang",
+    "sha256": "b96e01fda0c460d6e06137ed195ee7734ff02ecfa8b605ab03bc51be441f01e3",
     "tree": [
       {
         "c": [
@@ -861,6 +894,7 @@
   {
     "input": "\\[not a link\\](https://x.example)",
     "name": "escape-link",
+    "sha256": "65721e1a353883150758253f77668945cea9aef00ef257aea66a5a24768032e1",
     "tree": [
       {
         "c": [
@@ -890,6 +924,7 @@
   {
     "input": "backslash stays before a: \\a and \\end\\",
     "name": "escape-non-punct",
+    "sha256": "7c05ee411adfad064c04fc0370f29cc8b5732ebae827ee4d875232501728d3ce",
     "tree": [
       {
         "c": [
@@ -905,6 +940,7 @@
   {
     "input": "```\n\\# \\* glyph hunters\n```",
     "name": "escape-in-fence",
+    "sha256": "e7962b52836c57a54e95a544d16d063901c4cf5a8b15e8ade44065c7069e7a4f",
     "tree": [
       {
         "lang": "",
@@ -916,6 +952,7 @@
   {
     "input": "[label](https://x.example/a?b=1)",
     "name": "link-basic",
+    "sha256": "21e605ff28c6ecbc2ff9a1445f30c57733b62ae8bf89416fc86141c54dad25dd",
     "tree": [
       {
         "c": [
@@ -937,6 +974,7 @@
   {
     "input": "[t](https://x.example \"title\") and [t2](https://x.example 'sq')",
     "name": "link-title",
+    "sha256": "059a0a59a8eb2dbb100dc7eb90d6ea1815de284826a776441ea9690765aa53dc",
     "tree": [
       {
         "c": [
@@ -972,6 +1010,7 @@
   {
     "input": "[t](<https://x.example/a b>)",
     "name": "link-angle-dest",
+    "sha256": "3877df2c5175283708a78812096cc7ca35641f88a2953d249e0744bdd7248638",
     "tree": [
       {
         "c": [
@@ -993,6 +1032,7 @@
   {
     "input": "[t](/relative) [t2](javascript:alert(1)) [t3](data:text/html,x) [t4](//evil) [t5](https://ok.example)",
     "name": "link-unsafe-dests",
+    "sha256": "4ccc4939216003e1a8eca7d640362e0cf5330af027db7714768cef07e3f2f0e4",
     "tree": [
       {
         "c": [
@@ -1046,6 +1086,7 @@
   {
     "input": "[outer [inner] tail](https://x.example)",
     "name": "link-nested-brackets",
+    "sha256": "6a16b8e02406ebe21fe15c2fb3672597f20e9e4699b76883d7395861002a4693",
     "tree": [
       {
         "c": [
@@ -1067,6 +1108,7 @@
   {
     "input": "[t](https://x.example/(unbalanced",
     "name": "link-unbalanced-paren",
+    "sha256": "86389e0c6453cfd03ed818b6d5ec996903907ebf8464d3e7a406e3b3c33aad15",
     "tree": [
       {
         "c": [
@@ -1092,6 +1134,7 @@
   {
     "input": "[t](https://x.example/a(b)c)",
     "name": "link-balanced-parens",
+    "sha256": "274d933ffd488cf22c842c27e1f90a035bb8afb25bf8850f2a15b6e5ce314367",
     "tree": [
       {
         "c": [
@@ -1113,6 +1156,7 @@
   {
     "input": "[ref][x] and [only] stay text",
     "name": "link-ref-style-text",
+    "sha256": "f25fe2c7dc04fe8ea0575a4d9ab2c740f4a9faf4e95cebe1d10caea3f06d5137",
     "tree": [
       {
         "c": [
@@ -1128,6 +1172,7 @@
   {
     "input": "[](https://x.example)",
     "name": "link-empty-label",
+    "sha256": "1af358563b8532b56aab2d9fba0c0c1e4f1d937c3c321571bd632f6069c9daab",
     "tree": [
       {
         "c": [
@@ -1144,6 +1189,7 @@
   {
     "input": "[`code`](https://x.example)",
     "name": "link-label-code",
+    "sha256": "7c34ec04c59b59c4bbee7a0e5a2c9596bdf6baa74989b719e66ce8e9dcf33de2",
     "tree": [
       {
         "c": [
@@ -1165,6 +1211,7 @@
   {
     "input": "[t](https://x.\nexample)",
     "name": "link-dest-newline",
+    "sha256": "e827057c15253088d48f9fc45be41a51cad688c2b2302a8b8813993f573b5829",
     "tree": [
       {
         "c": [
@@ -1201,6 +1248,7 @@
   {
     "input": "see *[this](https://x.example/ok) now*",
     "name": "link-in-em",
+    "sha256": "a0d3877e8413d5c7642cc4de94876e058a7004c945c0812ebb16a69558d4d736",
     "tree": [
       {
         "c": [
@@ -1235,6 +1283,7 @@
   {
     "input": "[t\nx](https://x.example)",
     "name": "link-label-multiline-no",
+    "sha256": "c8e6417b5d111ee1c2e62d01b818bcbf080a9ce62060c0d430ca86a025be28dc",
     "tree": [
       {
         "c": [
@@ -1263,6 +1312,7 @@
   {
     "input": "go <https://x.example> now",
     "name": "autolink-basic",
+    "sha256": "88833ab4bd2b7f0eff90ca821fddccd71594188ef3d92f662e66138cc15dd8c9",
     "tree": [
       {
         "c": [
@@ -1292,6 +1342,7 @@
   {
     "input": "<mailto:a@x.example>",
     "name": "autolink-mailto",
+    "sha256": "447d77ad591716c0b734cbdad5e1cc2e14bd0750cf3854ebaa3b6e20cb9beebb",
     "tree": [
       {
         "c": [
@@ -1313,6 +1364,7 @@
   {
     "input": "<javascript:alert(1)> <ftp://x> stay text",
     "name": "autolink-unsafe",
+    "sha256": "a6a06f9bbf6f5ed3c1c2ccea2e5c4fd76950516b6907bdc25f25623e389e893c",
     "tree": [
       {
         "c": [
@@ -1328,6 +1380,7 @@
   {
     "input": "<HTTPS://X.EXAMPLE/OK>",
     "name": "autolink-uppercase",
+    "sha256": "ae5be1be2c9b6b6328fad30d002136e0187d77db4b6d44a0b76fd87c54ba6646",
     "tree": [
       {
         "c": [
@@ -1349,6 +1402,7 @@
   {
     "input": "<https://x.example",
     "name": "autolink-unterminated",
+    "sha256": "a453bad40680538f4cb05f34f814b2aa8935839635beced3a8e10594f575341c",
     "tree": [
       {
         "c": [
@@ -1374,6 +1428,7 @@
   {
     "input": "visit https://x.example/docs?v=1 today",
     "name": "bare-basic",
+    "sha256": "47d7fc2607f3fe7afe67a4562f1177af6cc843ad6c179e9fd98fae494159cd8b",
     "tree": [
       {
         "c": [
@@ -1403,6 +1458,7 @@
   {
     "input": "go https://x.example/a,b,c. and https://x.example/q! and https://x.org/r*\"",
     "name": "bare-trailing-punct",
+    "sha256": "e799a1f2f5ea2e591f0d3a77216037975f3273cfdc7cd3f6a85f4ef07647b1dd",
     "tree": [
       {
         "c": [
@@ -1460,6 +1516,7 @@
   {
     "input": "(see https://x.example/a_(b)) and https://x.example/closed)",
     "name": "bare-trailing-paren",
+    "sha256": "25ebbda0b53ed8ca62e67ff20f48155254b932e1620ace300c35d90ec82e4801",
     "tree": [
       {
         "c": [
@@ -1503,6 +1560,7 @@
   {
     "input": "prefixhttp://x.example stays and httpsok stays, but https://x.example/real works",
     "name": "bare-midword",
+    "sha256": "5323f49706d4e8cac544807cb073961957dba356d287ecdabfdd514b849a98db",
     "tree": [
       {
         "c": [
@@ -1532,6 +1590,7 @@
   {
     "input": "HTTP://X.EXAMPLE/OK and https://X.example",
     "name": "bare-uppercase",
+    "sha256": "e9a20b23adde06849e94602c971728a199fb780802a6ad084f1e0a1586d07d75",
     "tree": [
       {
         "c": [
@@ -1567,6 +1626,7 @@
   {
     "input": "ssh://host and ws://x and javascript:alert(2) are text",
     "name": "unstable-schemes-text",
+    "sha256": "98bb2098567ef0a5cbd30e0eb92c6e194ebbd3f5f04906bf62444c2014d70949",
     "tree": [
       {
         "c": [
@@ -1582,6 +1642,7 @@
   {
     "input": "https://x.example/p?a=1#frag",
     "name": "bare-with-query-hash",
+    "sha256": "f828ecef690c2e56b9cd39a71c5ab8a298fea1383657789a583c8224a26aa11f",
     "tree": [
       {
         "c": [
@@ -1603,6 +1664,7 @@
   {
     "input": "> quoted\n> more lines",
     "name": "quote-basic",
+    "sha256": "5e34b1086e01df2d3fe039048f3abc692813a0b54e4d7948700120ae818470b8",
     "tree": [
       {
         "c": [
@@ -1630,6 +1692,7 @@
   {
     "input": "> p1\n>\n> p2",
     "name": "quote-paragraphs",
+    "sha256": "d3209bda44af4f5f804659e882f062f0b8751f08ee931c6081669140ba15f09c",
     "tree": [
       {
         "c": [
@@ -1659,6 +1722,7 @@
   {
     "input": "> a\n> > b\n> > > c",
     "name": "quote-nested",
+    "sha256": "6127c0cbe663b1ab9b45c3591d1bd7fae0436b0243e12e45aac0ac06b0d2ea50",
     "tree": [
       {
         "c": [
@@ -1707,6 +1771,7 @@
   {
     "input": "> quoted\ncontinuation line",
     "name": "quote-lazy-continuation",
+    "sha256": "e6dfdd001478ececddc23fcf9cdd8e32562a05a3426c8a2aa7cc97ab785a6ede",
     "tree": [
       {
         "c": [
@@ -1736,6 +1801,7 @@
   {
     "input": "> l1\n> > l2\n> > > l3\n> > > > l4\n> > > > > l5\n> > > > > > l6\n> > > > > > > l7\n> > > > > > > > l8",
     "name": "quote-depth-limit",
+    "sha256": "17af8c1307626e92e73d1d3fcb839b0068bab79c5a39727b35a3645add85e738",
     "tree": [
       {
         "c": [
@@ -1842,6 +1908,7 @@
   {
     "input": "> **bold** and *em* in quote",
     "name": "quote-inline-markup",
+    "sha256": "43f700618cd726981850ee391c70bc911f42b96e84c30d7f1413b14607efe801",
     "tree": [
       {
         "c": [
@@ -1884,6 +1951,7 @@
   {
     "input": "---\n***\n___",
     "name": "hr-forms",
+    "sha256": "d06f453d2e1f451214fa8198401ec0a49823833a24c2f4d1161c3a0ce3b233dc",
     "tree": [
       {
         "t": "hr"
@@ -1899,6 +1967,7 @@
   {
     "input": "- - -\n*  *  *",
     "name": "hr-spaces",
+    "sha256": "c917c570ae3a9d732cbba8cc1f2f5538c6a66441439055e7bbcf7d034920cdbd",
     "tree": [
       {
         "t": "hr"
@@ -1911,6 +1980,7 @@
   {
     "input": "- item\n***\n- next",
     "name": "hr-sets-off-list",
+    "sha256": "251429cef2761f43ea14abeabf37a23a7d7fa53355c4120dc27fe7cc5fc4a05c",
     "tree": [
       {
         "items": [
@@ -1954,6 +2024,7 @@
   {
     "input": "- one\n- two\n* star\n+ plus",
     "name": "ul-basic",
+    "sha256": "087ed2b6b0cffdb3dd1b25dc414dca37a4a8701c4eacc97653b8bdefb312bff2",
     "tree": [
       {
         "items": [
@@ -2010,6 +2081,7 @@
   {
     "input": "1. one\n2. two\n3. three",
     "name": "ol-basic",
+    "sha256": "53d9b0249db25d698987c88b7389f2727327bed3f15e56d443e7c9b41d21cde1",
     "tree": [
       {
         "items": [
@@ -2055,6 +2127,7 @@
   {
     "input": "1) one\n2) two",
     "name": "ol-paren-marker",
+    "sha256": "b175fa5fd90ffc99d9991126540994c23103c80981e7c0960283077c27c0341a",
     "tree": [
       {
         "items": [
@@ -2089,6 +2162,7 @@
   {
     "input": "5. five\n6. six",
     "name": "ol-start",
+    "sha256": "8773a2639c5751a26dbb2f77fbe84b8e8bb3bd96d804e434709fe7e6afe14579",
     "tree": [
       {
         "items": [
@@ -2123,6 +2197,7 @@
   {
     "input": "123456789. big start is 123456789",
     "name": "ol-start-computed",
+    "sha256": "96e419e121e9da719d44e979c609b8914da202634df579aadbc30dc0d154ddbd",
     "tree": [
       {
         "items": [
@@ -2146,6 +2221,7 @@
   {
     "input": "1234567890. stays text",
     "name": "ol-too-many-digits",
+    "sha256": "710f3ef5ecfb7cf80f7cd01c14f24a8759a4faf7dcfab0c538e69839390614af",
     "tree": [
       {
         "c": [
@@ -2161,6 +2237,7 @@
   {
     "input": "- a\n  - a1\n  - a2\n- b",
     "name": "ul-nested",
+    "sha256": "f04c18ec8e9f0a713336e24d4295c9f2f240c772ef73d9e507a53cc824798ed2",
     "tree": [
       {
         "items": [
@@ -2223,6 +2300,7 @@
   {
     "input": "- 1\n  - 2\n    - 3\n      - 4\n        - 5\n          - 6\n            - 7",
     "name": "ul-nested-deep",
+    "sha256": "45b22b59d20777e05d23572de7bbfc2d8bce00bfc7897cee0a5cae261b30cc21",
     "tree": [
       {
         "items": [
@@ -2348,6 +2426,7 @@
   {
     "input": "- a\n\n- b",
     "name": "ul-loose-blank-lines",
+    "sha256": "f7ca833ebd55a716240a65181ace03d320d1cfd629ec8b6655c13c5e206afa9d",
     "tree": [
       {
         "items": [
@@ -2382,6 +2461,7 @@
   {
     "input": "- item one\ncontinues here\n- item two",
     "name": "ul-lazy-continuation",
+    "sha256": "3991da83ec297ec4465ddfc5fd72c27e02cd99ff2302097de90207c78d4b9eae",
     "tree": [
       {
         "items": [
@@ -2423,6 +2503,7 @@
   {
     "input": "-\n- two",
     "name": "ul-empty-item",
+    "sha256": "5284714c0c6aa7858895038304c2b0de6b43665eb306cf6d4aecf914c7b8c791",
     "tree": [
       {
         "items": [
@@ -2447,6 +2528,7 @@
   {
     "input": "text then\n- bullet (interrupts)\nmore text",
     "name": "ul-interrupts-paragraph",
+    "sha256": "59975c3895b5a4246468e3baea68d1966bad9c0032fb2f62f18c3c169f89fd81",
     "tree": [
       {
         "c": [
@@ -2486,6 +2568,7 @@
   {
     "input": "para one\n2. not an interruption\n- but this is",
     "name": "ol-cannot-interrupt-paragraph",
+    "sha256": "70b7f4cdabb1df995021b2474117def88403bf50d3d6ef1a0923fbf8861759ff",
     "tree": [
       {
         "c": [
@@ -2525,6 +2608,7 @@
   {
     "input": "- item\n  ```\n  inside fence\n  ```\n- next",
     "name": "ul-fence-in-item",
+    "sha256": "e41fda4ce53b87f247b252694c5bdb48c70b23cac661f746a737e3027359e1b7",
     "tree": [
       {
         "items": [
@@ -2564,6 +2648,7 @@
   {
     "input": "- a\n\nnot indented enough",
     "name": "ul-blank-then-content",
+    "sha256": "b363c600c60b8899f9498493bdc91509f78aa859c4228f1a5f809176d8802898",
     "tree": [
       {
         "items": [
@@ -2596,6 +2681,7 @@
   {
     "input": "- *one* and `two`\n- **three**",
     "name": "ul-with-inline-markup",
+    "sha256": "d116e35ed592fdb77737ed49d1777aecf98936653f77ba685d208c79bc493110",
     "tree": [
       {
         "items": [
@@ -2648,6 +2734,7 @@
   {
     "input": "one line\nsecond line\nthird",
     "name": "paragraph-multiline",
+    "sha256": "5008036085dea8e9815f9573632bfec12b2dc9ac9c331e5e046154bdc7f169ba",
     "tree": [
       {
         "c": [
@@ -2677,6 +2764,7 @@
   {
     "input": "a **b** `c` [d](https://x.example) tail",
     "name": "paragraph-mixed-inline",
+    "sha256": "7bf138c46b04c9894890d0bd2f3ea8214cfdfdeae1cb097ead661b848f29c39a",
     "tree": [
       {
         "c": [
@@ -2727,6 +2815,7 @@
   {
     "input": "Pre text\n\n```\nfenced\n```\n\nPost text",
     "name": "paragraph-code-then-text",
+    "sha256": "bc3f522b0c7b335883ba0a41299ba5a08e341dcd3731620f0c6423b275fe3d46",
     "tree": [
       {
         "c": [
@@ -2756,6 +2845,7 @@
   {
     "input": "intro text\n# Head\n\n- l1\n- l2\n\n> quote line\n\n1. num",
     "name": "mixed-blocks",
+    "sha256": "e72092449f0eab9812426a5b9d7844b9f52de726f7d404bdede2b909895aaf49",
     "tree": [
       {
         "c": [
@@ -2840,6 +2930,7 @@
   {
     "input": "<script>alert(1)</script> and <div> stay characters",
     "name": "html-stays-text",
+    "sha256": "6059f5659e3f0d34e255258195a63d3ec1f1dc2f447fa5f59429a1609d4b18ea",
     "tree": [
       {
         "c": [
@@ -2855,6 +2946,7 @@
   {
     "input": "~~strike~~ stays literal",
     "name": "strike-not-supported",
+    "sha256": "05408a3f1e762f49138001a2d8d1e265cb264d32dadbfd0843d5feec206e7e1f",
     "tree": [
       {
         "c": [
@@ -2870,6 +2962,7 @@
   {
     "input": "- [ ] todo stays bracket text",
     "name": "task-list-not-special",
+    "sha256": "1b60c842032565790642b284cd1b76d08a1a5f87437e1ac05dacf207165f2b63",
     "tree": [
       {
         "items": [
@@ -2893,16 +2986,19 @@
   {
     "input": "",
     "name": "empty-input",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tree": []
   },
   {
     "input": " \n  \n\t\n",
     "name": "blank-lines-only",
+    "sha256": "8fa678823e72959ee99c25efdef7d5ae7fa7b4198cdeb1f88c9ae224766aa5b2",
     "tree": []
   },
   {
     "input": "a\r\nb\r\n2. ok",
     "name": "crlf-normalized",
+    "sha256": "8419772bf461f083e2e992e188923213c02a1c65223f60062a833c72c6cb3651",
     "tree": [
       {
         "c": [
@@ -2932,6 +3028,7 @@
   {
     "input": "para with trailing   \nstill one para",
     "name": "trailing-whitespace",
+    "sha256": "488a462c86e7fcbd2cab2b06b6b46189398a3af8e5f9103bc4b52e9f5da9f7ad",
     "tree": [
       {
         "c": [
@@ -2954,6 +3051,7 @@
   {
     "input": "مرحبا بالعالم، هذه نص عربي طويل",
     "name": "ar-paragraph",
+    "sha256": "90940c27943aa530eb53d0de55d52803c829f219ec2185a4de78704c2a465130",
     "tree": [
       {
         "c": [
@@ -2969,6 +3067,7 @@
   {
     "input": "نص *أهمية* مع `كود` و**غامق**",
     "name": "ar-inline-markup",
+    "sha256": "8d663c6300fa4621635fa9dc7b8c754b60bc26c6ccd64c2c2b40d298ebff285e",
     "tree": [
       {
         "c": [
@@ -3014,6 +3113,7 @@
   {
     "input": "نص مع رابط https://x.example/PATH و*توكيد* بعده",
     "name": "ar-mixed-url",
+    "sha256": "70a0dcf544ece2cf5356653e1a73e560099ba01fcdeed15ac4fc98721f33e7a5",
     "tree": [
       {
         "c": [
@@ -3056,6 +3156,7 @@
   {
     "input": "```json\n{\"مفتاح\": \"قيمة\"}\n```",
     "name": "ar-fence",
+    "sha256": "276d094b599f7e0bbf61856dffa0bd7bbbc697d6c2279c7c023c2a0ffce33d1c",
     "tree": [
       {
         "lang": "json",
@@ -3067,6 +3168,7 @@
   {
     "input": "- البند الأول\n- البند الثاني\n2. والثالث",
     "name": "ar-list",
+    "sha256": "74c446bb472c880e1ab2d3141c571637652cc5e773366879174628a76aad3822",
     "tree": [
       {
         "items": [
@@ -3108,6 +3210,7 @@
   {
     "input": "[عمل الطلب](https://x.example/order) عبر الويب",
     "name": "ar-link-label",
+    "sha256": "8c89327205ea63f123619bb7d827b781de1d3b65d77c2512410b1f42f44d0a79",
     "tree": [
       {
         "c": [
@@ -3133,6 +3236,7 @@
   {
     "input": "- 🍕 pizza item\n## 😊 head\n**🎉 party** with 🥳 inline",
     "name": "emoji-everywhere",
+    "sha256": "1fd165652fdcaba00b04d4d85c7decb6bcb226c4feee418013792e1e6b45dada",
     "tree": [
       {
         "items": [
@@ -3184,6 +3288,7 @@
   {
     "input": "🚀🔥✨",
     "name": "emoji-only-para",
+    "sha256": "67f5ab0c9429f3c3d3a135807fa347ea0abb24c8dd506fdcf9663d4cb87575a7",
     "tree": [
       {
         "c": [

@@ -1,0 +1,146 @@
+{
+  "name": "dedupe-duplicate",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:01Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Say hello"
+      },
+      "created_at": "2026-01-02T10:00:02Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:00:03Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "text.delta",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "He"
+      },
+      "created_at": "2026-01-02T10:00:04Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "text.delta",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "He"
+      },
+      "created_at": "2026-01-02T10:00:04Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "text.delta",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "llo"
+      },
+      "created_at": "2026-01-02T10:00:05Z"
+    },
+    {
+      "id": "turn-2",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:07Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Durable once"
+      },
+      "created_at": "2026-01-02T10:00:08Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Durable once"
+      },
+      "created_at": "2026-01-02T10:00:08Z"
+    }
+  ]
+}

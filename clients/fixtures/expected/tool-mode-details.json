@@ -1,0 +1,131 @@
+{
+  "config": {
+    "tool_calls": "details"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-13",
+  "name": "tool-mode-details",
+  "path": "live",
+  "pendingOwn": [
+    "t1-cA"
+  ],
+  "sheetOpen": true,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Work the pizza list"
+        },
+        {
+          "args": {
+            "amount": 9
+          },
+          "callId": "t1-cA",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        },
+        {
+          "args": {
+            "q": "pizza"
+          },
+          "callId": "t1-cB",
+          "cardButtonsLive": false,
+          "content": "3 results",
+          "hidden": false,
+          "id": "ev-6",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:06.000Z",
+          "kind": "tool",
+          "name": "shop.search",
+          "showApproval": false,
+          "showDecided": false,
+          "showDetails": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "args": {},
+          "callId": "t1-cC",
+          "cardButtonsLive": false,
+          "content": "bought",
+          "decision": "allowed",
+          "hidden": false,
+          "id": "ev-8",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:08.000Z",
+          "kind": "tool",
+          "name": "shop.buy",
+          "showApproval": false,
+          "showDecided": true,
+          "showDetails": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "args": {},
+          "callId": "t1-cD",
+          "card": {
+            "body": "Pizza list",
+            "title": "Menu",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": false,
+          "content": "menus",
+          "hidden": false,
+          "id": "ev-11",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:11.000Z",
+          "kind": "tool",
+          "name": "shop.menu",
+          "showApproval": false,
+          "showDecided": false,
+          "showDetails": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

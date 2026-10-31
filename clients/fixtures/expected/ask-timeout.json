@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-8",
   "name": "ask-timeout",
   "path": "history",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -72,6 +78,7 @@
           "content": "The user did not answer in time.",
           "decision": "denied",
           "declineReason": "timeout",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": true,
           "iso": "2026-01-02T10:01:44.000Z",
@@ -131,8 +138,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "done",
           "stopped": false
         }

@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-305",
   "name": "history-loadolder",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -60,6 +66,7 @@
           "callId": "t301-a1",
           "cardButtonsLive": false,
           "content": "",
+          "hidden": false,
           "id": "ev-304",
           "isAsk": true,
           "iso": "2026-01-02T10:02:58.000Z",
@@ -86,8 +93,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "interrupted",
           "stopped": true
         },

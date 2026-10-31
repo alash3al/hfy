@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-9",
   "name": "ask-stopped",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -70,6 +76,7 @@
           "callId": "t1-a1",
           "cardButtonsLive": false,
           "content": "your pizza\n\nThe user stopped before answering.",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": true,
           "iso": "2026-01-02T10:02:02.000Z",
@@ -129,8 +136,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "done",
           "stopped": true
         },
@@ -141,6 +150,7 @@
           "callId": "t1-c1",
           "cardButtonsLive": false,
           "content": "",
+          "hidden": false,
           "id": "ev-6",
           "isAsk": false,
           "iso": "2026-01-02T10:02:04.000Z",
@@ -148,8 +158,10 @@
           "name": "shop.pay",
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": true,
           "status": "interrupted",
           "stopped": true
         }

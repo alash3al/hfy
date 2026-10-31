@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-5",
   "name": "late-approval",
   "path": "history",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -70,6 +76,7 @@
           "callId": "t2-a1",
           "cardButtonsLive": false,
           "content": "",
+          "hidden": false,
           "id": "ev-3",
           "isAsk": true,
           "iso": "2026-01-02T10:02:10.000Z",
@@ -129,8 +136,10 @@
           ],
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": false,
           "status": "interrupted",
           "stopped": true
         }

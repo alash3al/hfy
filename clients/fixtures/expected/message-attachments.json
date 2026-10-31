@@ -1,34 +1,50 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-5",
   "name": "message-attachments",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
       "agent": "main",
       "blocks": [
         {
-          "attachments": [
-            {
-              "hasUrl": true,
-              "isImage": true,
-              "mime": "image/png",
-              "name": "menu.png"
-            },
-            {
-              "hasUrl": true,
-              "isImage": false,
-              "mime": "application/pdf",
-              "name": "allergens.pdf"
-            },
-            {
-              "hasUrl": false,
-              "isImage": false,
-              "mime": "text/csv",
-              "name": "receipt.csv"
-            }
-          ],
+          "attachments": {
+            "files": [
+              {
+                "isImage": false,
+                "isLink": true,
+                "isPlain": false,
+                "k": "conversations/c1/allergens.pdf:1",
+                "label": "allergens.pdf",
+                "url": "https://embed.example/files/s1/allergens.pdf"
+              },
+              {
+                "isImage": false,
+                "isLink": false,
+                "isPlain": true,
+                "k": "conversations/c1/receipt.csv:2",
+                "label": "receipt.csv",
+                "url": ""
+              }
+            ],
+            "images": [
+              {
+                "isImage": true,
+                "isLink": false,
+                "isPlain": false,
+                "k": "conversations/c1/menu.png:0",
+                "label": "menu.png",
+                "url": "https://embed.example/files/s1/menu.png"
+              }
+            ]
+          },
           "id": "ev-2",
           "iso": "2026-01-02T10:02:14.000Z",
           "kind": "text",

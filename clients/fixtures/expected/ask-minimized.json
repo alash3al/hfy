@@ -1,0 +1,99 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-6",
+  "name": "ask-minimized",
+  "path": "live",
+  "pendingOwn": [
+    "t1-a1"
+  ],
+  "sheetOpen": false,
+  "showActionPill": true,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Size please"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Small",
+                    "value": "s"
+                  },
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              }
+            ]
+          },
+          "askState": "pending",
+          "callId": "t1-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-4",
+          "isAsk": true,
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Small",
+                  "value": "s"
+                },
+                {
+                  "label": "Medium",
+                  "value": "m"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            }
+          ],
+          "showApproval": true,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

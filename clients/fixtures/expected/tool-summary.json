@@ -1,8 +1,14 @@
 {
+  "config": {
+    "tool_calls": "summary"
+  },
   "hasOlder": false,
+  "lastEventId": "ev-9",
   "name": "tool-summary",
   "path": "live",
   "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
   "showWelcome": false,
   "turns": [
     {
@@ -26,6 +32,7 @@
           "cardButtonsLive": false,
           "content": "Payment accepted.",
           "decision": "allowed",
+          "hidden": false,
           "id": "ev-4",
           "isAsk": false,
           "iso": "2026-01-02T10:00:32.000Z",
@@ -33,8 +40,10 @@
           "name": "shop.pay",
           "showApproval": false,
           "showDecided": true,
+          "showDetails": false,
           "showPendingOther": false,
           "showPendingOwn": false,
+          "showSummary": true,
           "status": "done",
           "stopped": false,
           "structured": {

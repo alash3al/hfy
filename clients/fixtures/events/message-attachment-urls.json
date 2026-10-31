@@ -1,0 +1,110 @@
+{
+  "name": "message-attachment-urls",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:13Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Here are more files",
+        "attachments": [
+          {
+            "file": "conversations/c1/logo.png",
+            "mime": "image/png",
+            "name": "logo.png",
+            "url": "/v1/files/conversations/c1/logo.png?exp=1800000000&sig=abc"
+          },
+          {
+            "mime": "image/png",
+            "name": "evil.png",
+            "url": "javascript:alert(1)"
+          },
+          {
+            "mime": "image/png",
+            "name": "menu.png",
+            "url": "https://cdn.shop.example/menu.png"
+          },
+          {
+            "file": "conversations/c1/receipt.pdf",
+            "mime": "application/pdf",
+            "name": "receipt.pdf",
+            "url": "/v1/files/conversations/c1/receipt.pdf?exp=1800000001&sig=def"
+          }
+        ]
+      },
+      "created_at": "2026-01-02T10:02:14Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:02:15Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Reading them now."
+      },
+      "created_at": "2026-01-02T10:02:16Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:02:17Z"
+    }
+  ]
+}

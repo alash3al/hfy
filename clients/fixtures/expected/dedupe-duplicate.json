@@ -1,0 +1,65 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-7",
+  "name": "dedupe-duplicate",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Say hello"
+        },
+        {
+          "id": "turn-1:stream",
+          "iso": "2026-01-02T10:00:04.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": true,
+          "text": "Hello"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "running"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-7",
+          "iso": "2026-01-02T10:00:08.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Durable once"
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "queued"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

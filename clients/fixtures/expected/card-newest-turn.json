@@ -1,0 +1,82 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-8",
+  "name": "card-newest-turn",
+  "path": "live",
+  "pendingOwn": [],
+  "sheetOpen": false,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "buy pizza"
+        },
+        {
+          "args": {},
+          "callId": "t1-c1",
+          "card": {
+            "body": "EUR 9 to Pizza Place",
+            "title": "Payment",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": false,
+          "content": "ok",
+          "hidden": false,
+          "id": "ev-3",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:03.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "showSummary": true,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-7",
+          "iso": "2026-01-02T10:00:07.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "another one"
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}
