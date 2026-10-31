@@ -3,16 +3,20 @@
 // inline rules and the same forward-scan emphasis. Output is the immutable
 // tree in nodes.dart; the rendering half (hfyMdBuild) is not ported here.
 //
-// Departures, none of which changes an output (the golden, parity and fuzz
-// runs agree with ui.js on every line):
-//   - the emphasis closer scan is memoised per position (ui.js walks it
+// Departures from ui.js. The first four change no output (the golden, parity
+// and fuzz runs agree with ui.js on every line); the last two are bounds,
+// documented where they apply and tested in limits_test.dart:
+//   - the emphasis closer scan is memoised per delimiter (ui.js walks it
 //     afresh for every candidate, which is exponential on `*x` + ` **x`*N);
 //   - the fence and list-item regexes are written so a failing line does not
 //     backtrack quadratically (see [_fence] and [_item]);
 //   - the thematic-break regex is a single pass ([_isRule]): ui.js's backref
 //     loop overflows the regex engine on a long rule;
 //   - trailing-punctuation trims in link destinations and bare URLs are plain
-//     loops (the ui.js regexes are quadratic on runs of punctuation).
+//     loops (the ui.js regexes are quadratic on runs of punctuation);
+//   - a bare URL longer than 2048 characters after its scheme stays plain text
+//     (ui.js links it whole): each candidate's scan is bounded ([_bare]);
+//   - an input longer than [hfyMdMaxInput] is not parsed, see [hfyMdParse].
 // Every character test works on UTF-16 code units, as the JS does.
 
 import 'dart:math' show min;
@@ -45,8 +49,11 @@ final RegExp _auto = RegExp(
   r'<((?:https?:\/\/|mailto:)[^\s<>]+)>',
   caseSensitive: false,
 );
+// shortcut: at most 2048 characters after the scheme, the same cap as a link
+// destination; the lookahead makes a longer run fail instead of truncating.
+// Upgrade with a linear URL scan if long bare links must link.
 final RegExp _bare = RegExp(
-  r'''https?:\/\/[^\s<>"'`]+''',
+  r'''https?:\/\/[^\s<>"'`]{1,2048}(?![^\s<>"'`])''',
   caseSensitive: false,
 );
 final RegExp _destAngle = RegExp(
@@ -69,11 +76,52 @@ const int _rparen = 0x29;
 const int _h = 0x68;
 const int _upperH = 0x48;
 
+/// Largest input (UTF-16 code units) that [hfyMdParse] parses in full. Longer
+/// text is not parsed: see [hfyMdParse]. A documented deviation from ui.js,
+/// which parses any length. It bounds the parser's memory: the emphasis memo
+/// holds about 84 bytes per `*` or `_` in the scanned text (see [_Inline]).
+const int hfyMdMaxInput = 262144;
+
+/// Input size from which the widget phase should run [hfyMdParse] off the main
+/// isolate (`compute` or `Isolate.run`). The parser stays synchronous and pure;
+/// the caller decides where it runs.
+const int hfyMdIsolateThreshold = 32768;
+
 /// Parses markdown the way `hfyMdParse` does (ui.js:459): CRLF and CR become
 /// LF, then blocks. Pure: no I/O, no rendering. Never throws on any string.
+///
+/// Text longer than [hfyMdMaxInput] comes back as plain paragraphs, one per run
+/// of non-blank lines, with no inline or block syntax (see [_plainParagraphs]).
+/// The cap bounds memory, not time: the UI should still run this off the main
+/// isolate (`compute` or `Isolate.run`) for text over [hfyMdIsolateThreshold]
+/// characters (32 KiB).
 List<HfyMdBlock> hfyMdParse(String text) {
+  if (text.length > hfyMdMaxInput) return _plainParagraphs(text);
   final lines = text.replaceAll(_crlf, '\n').split('\n');
   return _blocks(lines, 0);
+}
+
+// Past the cap: each run of non-blank lines (trimmed as paragraph lines are)
+// becomes one paragraph of plain text, line breaks kept.
+List<HfyMdBlock> _plainParagraphs(String text) {
+  final out = <HfyMdBlock>[];
+  final para = <String>[];
+  void flush() {
+    if (para.isEmpty) return;
+    out.add(HfyMdParagraph([HfyMdText(para.join('\n'))]));
+    para.clear();
+  }
+
+  for (final line in text.replaceAll(_crlf, '\n').split('\n')) {
+    final trimmed = _jsTrim(line);
+    if (trimmed.isEmpty) {
+      flush();
+    } else {
+      para.add(trimmed);
+    }
+  }
+  flush();
+  return out;
 }
 
 // ---- blocks (ui.js:429-519) ----
@@ -405,22 +453,28 @@ int _trimPunctEnd(String s, int end) {
 
 // ---- inline (ui.js:525-619) ----
 
-// Positions index one string; the closer memo lives with it.
+// Positions index one string; the closer memo lives with it, for the scan only.
 final class _Inline {
   _Inline(this.s) : n = s.length;
 
   final String s;
   final int n;
 
-  // Closer memo, indexed by delimiter, position, run length and depth. Each
-  // slot stores `closer + 2`, so 0 means "not computed yet".
-  Int32List? _closeMemo;
+  // Closer memo (see [_closer]): the delimiter at position j owns row
+  // `_rowOf[j]` of `_memo`, 21 slots. Allocated by the first closer walk and
+  // dropped when the scan ends, so only one string's memo is alive at a time.
+  Int32List? _rowOf;
+  Int32List? _memo;
+  // The memo slots the walks in progress have passed, as one stack: a nested
+  // walk pushes above its caller's slots and pops back to its own base.
+  Int32List? _passed;
+  int _passedCount = 0;
 
   List<HfyMdInline> parse(int depth, bool noLink) {
     if (depth > hfyMdDepthLimit) return [HfyMdText(s)];
-    final out = <HfyMdInline>[];
+    final out = <Object>[];
     final buf = StringBuffer();
-    void emit(HfyMdInline node) {
+    void emit(Object node) {
       if (buf.isNotEmpty) {
         out.add(HfyMdText(buf.toString()));
         buf.clear();
@@ -509,7 +563,22 @@ final class _Inline {
       i++;
     }
     if (buf.isNotEmpty) out.add(HfyMdText(buf.toString()));
-    return out;
+    // The scan is over: the memo goes before any child is parsed, so only one
+    // memo is alive at a time however deeply the emphasis nests.
+    _rowOf = null;
+    _memo = null;
+    _passed = null;
+    return [
+      for (final item in out)
+        if (item is _Deferred)
+          item.wrap(
+            _Inline(
+              s.substring(item.from, item.to),
+            ).parse(depth + 1, item.noLink),
+          )
+        else
+          item as HfyMdInline,
+    ];
   }
 
   int _run(int i, int ch) {
@@ -536,7 +605,7 @@ final class _Inline {
     return -1;
   }
 
-  ({HfyMdInline node, int end})? _emphasis(int i, int depth, bool noLink) {
+  ({Object node, int end})? _emphasis(int i, int depth, bool noLink) {
     final ch = s.codeUnitAt(i);
     final run = _run(i, ch);
     final after = i + run;
@@ -546,36 +615,39 @@ final class _Inline {
     }
     final at = _closer(ch, after, run, depth);
     if (at == -1 || at <= after) return null;
-    final kids = _Inline(s.substring(after, at)).parse(depth + 1, noLink);
-    final HfyMdInline node = switch (run) {
-      2 => HfyMdStrong(kids),
-      3 => HfyMdStrong([HfyMdEmphasis(kids)]),
-      _ => HfyMdEmphasis(kids),
+    final HfyMdInline Function(List<HfyMdInline>) wrap = switch (run) {
+      2 => HfyMdStrong.new,
+      3 => (kids) => HfyMdStrong([HfyMdEmphasis(kids)]),
+      _ => HfyMdEmphasis.new,
     };
-    return (node: node, end: at + run);
+    return (node: _Deferred(after, at, noLink, wrap), end: at + run);
   }
 
   // `hfyMdCloser` (ui.js:579-597): the forward scan for a closing run of `k`
   // delimiters `ch` from `from`. Returns the closing run's start, or -1.
   //
   // The walk is a function of its position alone (given `ch`, `k`, `depth`),
-  // so every position it passes is memoised with the answer of the walk from
-  // there: a later walk that reaches the position stops at once.
+  // so every delimiter it passes is memoised with the answer of the walk from
+  // there: a later walk that reaches the delimiter stops at once. Only
+  // delimiters get memo rows, so the memo grows with them, not with the text.
   int _closer(int ch, int from, int k, int depth) {
-    final memo = _closeMemo ??= Int32List(2 * (n + 1) * 21);
-    final chBase = ch == _star ? 0 : n + 1;
-    final visited = <int>[];
+    if (_memo == null) _allocMemo();
+    final rowOf = _rowOf!;
+    final memo = _memo!;
+    final base = _passedCount;
     var found = -1;
     var j = from;
     while (j < n) {
-      final slot = (((chBase + j) * 3 + (k - 1)) * 7) + depth;
-      final known = memo[slot];
-      if (known != 0) {
-        found = known - 2;
-        break;
-      }
-      visited.add(slot);
       final c = s.codeUnitAt(j);
+      if (c == ch) {
+        final slot = rowOf[j] * 21 + (k - 1) * 7 + depth;
+        final known = memo[slot];
+        if (known != 0) {
+          found = known - 2;
+          break;
+        }
+        _pass(slot);
+      }
       if (c == _backslash) {
         j += 2;
         continue;
@@ -618,13 +690,36 @@ final class _Inline {
       }
       j += m;
     }
-    for (final slot in visited) {
-      memo[slot] = found + 2;
+    for (var q = base; q < _passedCount; q++) {
+      memo[_passed![q]] = found + 2;
     }
+    _passedCount = base;
     return found;
   }
 
-  ({HfyMdInline node, int end})? _link(int i, int depth) {
+  void _pass(int slot) {
+    var passed = _passed!;
+    if (_passedCount == passed.length) {
+      passed = _passed = Int32List(passed.length * 2)..setAll(0, passed);
+    }
+    passed[_passedCount++] = slot;
+  }
+
+  // The row of the delimiter at j holds 21 slots, `(k - 1) * 7 + depth`, each
+  // storing `closer + 2` (0: not computed yet).
+  void _allocMemo() {
+    final rowOf = Int32List(n);
+    var rows = 0;
+    for (var j = 0; j < n; j++) {
+      final c = s.codeUnitAt(j);
+      if (c == _star || c == _underscore) rowOf[j] = rows++;
+    }
+    _rowOf = rowOf;
+    _memo = Int32List(rows * 21);
+    _passed = Int32List(256);
+  }
+
+  ({Object node, int end})? _link(int i, int depth) {
     var d = 0;
     var j = i;
     final lim = min(n, i + 1000);
@@ -664,7 +759,18 @@ final class _Inline {
     if (href == null) {
       return (node: HfyMdText(s.substring(i, k + 1)), end: k + 1);
     }
-    final kids = _Inline(s.substring(i + 1, j)).parse(depth + 1, true);
-    return (node: HfyMdLink(href, kids), end: k + 1);
+    final node = _Deferred(i + 1, j, true, (kids) => HfyMdLink(href, kids));
+    return (node: node, end: k + 1);
   }
+}
+
+// A node whose children are the inline parse of `s[from, to)`, made after the
+// scan (see [_Inline.parse]).
+final class _Deferred {
+  const _Deferred(this.from, this.to, this.noLink, this.wrap);
+
+  final int from;
+  final int to;
+  final bool noLink;
+  final HfyMdInline Function(List<HfyMdInline>) wrap;
 }

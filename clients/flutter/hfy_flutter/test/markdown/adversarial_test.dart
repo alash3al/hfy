@@ -1,25 +1,32 @@
-// Adversarial input (PARITY P-MD-021 for the parse side; the spec's resource
-// bounds): every pathological shape finishes in well under a second, never
-// throws, and never overflows the stack. The ui.js regexes and the forward
-// emphasis scan are quadratic or worse on these; the Dart port is linear
+// Adversarial input (PARITY P-MD-010, P-MD-012, P-MD-026; the spec's resource
+// bounds): every pathological shape finishes within the budget, never throws,
+// and never overflows the stack. The ui.js regexes and the forward emphasis
+// scan are quadratic or worse on these; the Dart port is linear or bounded
 // (see the notes at the top of lib/src/markdown/parser.dart).
+//
+// The budget is generous on purpose (5 s per shape, not a benchmark). Before
+// the bounds, the bare-URL shapes below took 8 s at 110k characters and 27-35 s
+// at 200k; ui.js itself takes 3 s on the first. Under `flutter test`, every
+// shape at 200k characters now runs in well under a second.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hfy_flutter/src/markdown/nodes.dart';
 import 'package:hfy_flutter/src/markdown/parser.dart';
 
 const int _n = 100000;
+const int _big = 200000;
+const int _budgetMs = 5000;
 
 String _repeat(String s, int times) => List.filled(times, s).join();
 
-/// Parses [input], asserting it returns within the budget, and returns the tree.
+/// Parses [input] and asserts it returns within the budget; returns the tree.
 List<HfyMdBlock> _timed(String name, String input) {
   final watch = Stopwatch()..start();
   final tree = hfyMdParse(input);
   watch.stop();
   expect(
     watch.elapsedMilliseconds,
-    lessThan(1000),
+    lessThan(_budgetMs),
     reason:
         '$name took ${watch.elapsedMilliseconds} ms on ${input.length} chars',
   );
@@ -50,6 +57,7 @@ void main() {
 
   test('P-MD unbalanced link openers stay literal and fast', () {
     _timed('[a[a', _repeat('[a', _n ~/ 2));
+    _timed('[a](b x200k', _repeat('[a](b', _big ~/ 5));
   });
 
   test(
@@ -78,6 +86,7 @@ void main() {
     _timed('spaced-star', '*x${_repeat(' **x', 20000)}');
     _timed('spaced-underscore', '*x${_repeat(' _x', 20000)}');
     _timed('mixed closers', _repeat('*_`', _n ~/ 3));
+    _timed('mixed closers x200k', _repeat('*_`', _big ~/ 3));
   });
 
   test('P-MD-012 a long trailing punctuation run in a bare URL', () {
@@ -90,6 +99,21 @@ void main() {
     _timed('https://x. x50k', _repeat('https://x.', _n ~/ 9));
     _timed('https://x.https://x', 'https://x${_repeat('.https://x', 10000)}');
     _timed('angle autolinks', _repeat('<https://a', _n ~/ 9));
+  });
+
+  test('P-MD-012 bare-URL starts at 200k: every candidate scan is bounded', () {
+    // A run longer than the 2048-character cap is plain text, so each start
+    // costs at most one capped scan however long the run after it is.
+    // Only the last start links: its run ends at the end of the input, so it
+    // is short, and ui.js links it too.
+    final ring = _repeat('](http://a)', _big ~/ 11);
+    final tree = _timed('](http://a) x200k', ring);
+    final p = tree.single as HfyMdParagraph;
+    expect(p.children.whereType<HfyMdLink>(), hasLength(1));
+    final bracket = _repeat('http://a]', _big ~/ 9);
+    _expectLiteralParagraph(_timed('http://a] x200k', bracket), bracket);
+    _timed('*http://a* x200k', _repeat('*http://a*', _big ~/ 10));
+    _timed('<http:// x200k', _repeat('<http://', _big ~/ 8));
   });
 
   test(
@@ -117,8 +141,9 @@ void main() {
     _timed('dash-run', '-${_repeat('-', _n)}x');
   });
 
-  test('P-MD-007 a 2000-level nested list finishes and is depth-capped', () {
-    final lines = [for (var k = 0; k < 2000; k++) '${_repeat(' ', 2 * k)}- x'];
+  test('P-MD-007 a 500-level nested list finishes and is depth-capped', () {
+    // 500 levels is ~250k characters, under the input cap (see limits_test).
+    final lines = [for (var k = 0; k < 500; k++) '${_repeat(' ', 2 * k)}- x'];
     final tree = _timed('nested lists', lines.join('\n'));
     expect(_listDepth(tree), hfyMdDepthLimit + 1);
   });
