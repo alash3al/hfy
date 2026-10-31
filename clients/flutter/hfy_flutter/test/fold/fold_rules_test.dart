@@ -605,10 +605,9 @@ void main() {
           ev('s', 'turn.state', actor: agentActor, data: {'state': 'running'}),
         );
         // an older slice of the SAME turn, no turn.state inside
-        c.applyHistoryPage([
+        c.mergeOlderPage([
           ev('old1', 'message.text', data: {'text': 'earlier'}, when: at(0)),
-        ]);
-        c.mergeOlder(hasMore: false);
+        ], hasMore: false);
         expect(c.t1.state, 'running'); // collector default must NOT win
         expect(c.t1.blocks.map((b) => b.id), ['b1', 'old1']);
         expect(c.hasOlder, isFalse);
@@ -638,10 +637,9 @@ void main() {
           ),
         );
         expect(c.pendingOwn, ['a1']);
-        c.applyHistoryPage([
+        c.mergeOlderPage([
           ev('s2', 'turn.state', actor: agentActor, data: {'state': 'stopped'}),
-        ]);
-        c.mergeOlder(hasMore: false);
+        ], hasMore: false);
         final tool = c.toolOf();
         expect(tool.stopped, isTrue);
         // the merged state event settles the held ask; askState stays unset —
@@ -655,7 +653,7 @@ void main() {
       final c = foldOf();
       startTurn(c);
       c.apply(ev('m', 'message.text', data: {'text': 'newer'}));
-      c.applyHistoryPage([
+      c.mergeOlderPage([
         ev('turn-0', 'turn', parent: '', data: {'agent': 'main'}),
         ev(
           'm0',
@@ -663,12 +661,10 @@ void main() {
           parent: 'turn-0',
           data: {'text': 'older turn'},
         ),
-      ]);
-      c.mergeOlder(hasMore: true);
+      ], hasMore: true);
       expect(c.turns.map((t) => t.id), ['turn-0', 'turn-1']);
       expect(c.hasOlder, isTrue);
-      c.applyHistoryPage(const <HfyEvent>[]);
-      c.mergeOlder(hasMore: false);
+      c.mergeOlderPage(const <HfyEvent>[], hasMore: false);
       expect(c.hasOlder, isFalse);
     });
   });
@@ -973,8 +969,7 @@ void main() {
 
     test('hasOlder keeps the welcome down while nothing folds', () {
       final c = foldOf();
-      c.hasOlder = true; // the component's hasOlder only moves via loadOlder
-      c.syncDerived();
+      c.setHasOlder(true); // the component's hasOlder only moves via loadOlder
       expect(c.showWelcome, isFalse);
     });
 

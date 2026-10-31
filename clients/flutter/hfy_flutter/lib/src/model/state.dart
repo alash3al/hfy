@@ -66,23 +66,50 @@ class HfySystemClock implements HfyClock {
   DateTime now() => DateTime.now().toUtc();
 }
 
-/// Calendar-day keys ("en-CA" YYYY-MM-DD, ui.js:1052-1054) in the device time
-/// zone. The fixture harness pins the choice to UTC (clients/fixtures/
-/// README.md, the TZ=UTC note), so the default zone is UTC; a named zone
-/// arrives with the UI phase, which carries the platform tz database.
+/// Calendar-day keys ("en-CA" YYYY-MM-DD, ui.js:1052-1054) in ONE time zone.
+///
+/// Zone semantics: a day key is the REAL local calendar day the instant falls
+/// on, exactly like ui.js's `dayKey` (an `Intl` 'en-CA' formatter with the
+/// device zone). The production default [HfyTz.local] reads the device zone
+/// through `DateTime.fromMillisecondsSinceEpoch(ms)` — no offset table of its
+/// own, so named-zone lookups, DST transitions and the web/JS build all follow
+/// the platform as `new Date(ts)` does (ui.js:1052 leaves the Intl zone
+/// undefined); DST-crossing instants land in the new calendar day like any
+/// other wall-clock day change. [HfyTz.fixed] pins one constant offset
+/// (tests, embedded devices without a tz database) and [HfyTz.utc] pins UTC —
+/// what the fixture harnesses inject so scenarios crossing a calendar
+/// midnight are deterministic across machines (clients/fixtures/README.md's
+/// TZ=UTC note; the JS harness pins the same choice by running node with
+/// TZ=UTC). A named IANA zone arrives with the UI phase, which carries the
+/// platform tz database — nothing here parses one.
 class HfyTz {
   final String id;
   final Duration offset;
 
+  /// Whether day keys come from the DEVICE zone (see [HfyTz.local]); fixed
+  /// zones shift the instant before formatting instead.
+  final bool device;
+
   const HfyTz.utc() : this.fixed('UTC', Duration.zero);
 
-  const HfyTz.fixed(this.id, this.offset);
+  /// The DEVICE zone (ui.js's formatter with `timeZone: undefined`), not a
+  /// pinned offset: DST folds and skips land on the wall calendar, and an
+  /// offset stored in [offset] would go stale at the next transition — the
+  /// key is derived per instant, never cached.
+  const HfyTz.local()
+    : id = 'local',
+      offset = Duration.zero,
+      device = true;
+
+  const HfyTz.fixed(this.id, this.offset) : device = false;
 
   String dayKey(int msSinceEpoch) {
-    final d = DateTime.fromMillisecondsSinceEpoch(
-      msSinceEpoch + offset.inMilliseconds,
-      isUtc: true,
-    );
+    final d = device
+        ? DateTime.fromMillisecondsSinceEpoch(msSinceEpoch)
+        : DateTime.fromMillisecondsSinceEpoch(
+            msSinceEpoch + offset.inMilliseconds,
+            isUtc: true,
+          );
     final mm = d.month.toString().padLeft(2, '0');
     final dd = d.day.toString().padLeft(2, '0');
     return '${d.year.toString().padLeft(4, '0')}-$mm-$dd';

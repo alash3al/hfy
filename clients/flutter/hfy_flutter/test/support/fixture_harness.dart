@@ -9,17 +9,23 @@
 //     #fire semantics, clients/fixtures/README.md "Duplicate delivery"): an
 //     id is delivered at most once; only live deliveries move lastEventId,
 //     and liveAfter is PINNED right after the history run;
-//   - pages[] (newest first) go through the fold's REAL loadOlder merge, one
-//     page per call while hasOlder holds (client.js loadOlder);
+//   - pages[] (newest first) go through the fold's REAL loadOlder merge,
+//     mergeOlderPage, one page per call while hasOlder holds (client.js
+//     loadOlder);
 //   - `minimize` runs the real minimizeSheet() before the final relayout +
 //     syncDerived pass;
 //   - the projection comes from projection.dart and is compared against
 //     clients/fixtures/expected/<name>.json.
+//
+// The fold runs with HfyTz.utc() injected: the production default is the
+// DEVICE zone (HfyTz.local), but the shared fixture contract pins UTC — the
+// JS harness does the same by running node with TZ=UTC (README's header
+// rules) — so grouping-gaps scenarios stay identical on every machine.
 
 import 'package:hfy_flutter/src/client/dedupe.dart';
 import 'package:hfy_flutter/src/model/event.dart' show HfyEvent;
 import 'package:hfy_flutter/src/model/fold.dart' show HfyConversation;
-import 'package:hfy_flutter/src/model/state.dart' show HfyToolCalls, HfyViewer;
+import 'package:hfy_flutter/src/model/state.dart' show HfyTz, HfyToolCalls, HfyViewer;
 
 import 'projection.dart';
 
@@ -28,12 +34,18 @@ import 'projection.dart';
 /// relative /v1/files/… urls against it (uploads.go:220-228).
 final Uri embedExample = Uri.parse('https://embed.example/');
 
-/// Runs one fixture scenario to its final projection.
-Map<String, dynamic> runScenario(Map<String, dynamic> def) {
+/// Runs one fixture scenario to its final projection. With [batch] the main
+/// sequence folds through applyAll() instead of per-event apply() — a
+/// contract test asserts both land on the identical projection (the
+/// relayout()/syncDerived() passes are pure recomputes); everything else
+/// (dedupe, cursor pinning, pages, minimize) is byte-identical in both
+/// variants.
+Map<String, dynamic> runScenario(Map<String, dynamic> def, {bool batch = false}) {
   final conv = HfyConversation(
     viewer: HfyViewer.fromJson(def['viewer']),
     toolCalls: _modeOf(def),
     base: embedExample,
+    tz: const HfyTz.utc(), // the pinned zone (see the header note above)
   );
   conv.markLoaded(); // the real client has connected by the time events arrive
   final wire = wireStructuredOf(def);
@@ -43,11 +55,12 @@ Map<String, dynamic> runScenario(Map<String, dynamic> def) {
   final dedupe = HfyDedupe();
   final events = asEnvelopeList(def['events']);
   final pathIsHistory = def['path'] == 'history';
+  final delivered = <({HfyEvent e, bool isH})>[];
   for (var i = 0; i < events.length; i++) {
     final e = events[i];
     // history-flagged events: the leading run's page
     final isH = pathIsHistory || e.json['history'] == true;
-    if (dedupe.claim(e.id, isHistory: isH)) conv.apply(e, history: isH);
+    if (dedupe.claim(e.id, isHistory: isH)) delivered.add((e: e, isH: isH));
     // connect() pins the page's end mark as the stream cursor right after
     // the history page (fixtures_test.go:205-209) so live events move it on.
     final nextIsH =
@@ -56,6 +69,13 @@ Map<String, dynamic> runScenario(Map<String, dynamic> def) {
     if (isH && !nextIsH && def['liveAfter'] != null) {
       final live = def['liveAfter'];
       dedupe.pinLiveAfter(live is String ? live : '$live');
+    }
+  }
+  if (batch) {
+    conv.applyAll([for (final d in delivered) d.e], history: false);
+  } else {
+    for (final d in delivered) {
+      conv.apply(d.e, history: d.isH);
     }
   }
   // pages[] through the REAL loadOlder merge — one page per call while
@@ -68,14 +88,12 @@ Map<String, dynamic> runScenario(Map<String, dynamic> def) {
       final page = pageIdx < pages.length
           ? pages[pageIdx++] // the mock's `p = pages[pageIdx++]`
           : null;
-      final delivered = <HfyEvent>[];
+      final pageEvents = <HfyEvent>[];
       for (final e in asEnvelopeList(page?['events'])) {
-        if (dedupe.claim(e.id, isHistory: true)) delivered.add(e);
+        if (dedupe.claim(e.id, isHistory: true)) pageEvents.add(e);
       }
-      conv.applyHistoryPage(delivered); // collects without any layout
-      final hasMore = page != null && page['next'] != null;
-      conv.mergeOlder(hasMore: hasMore); // merge + relayout + sync
-      hasOlder = hasMore;
+      conv.mergeOlderPage(pageEvents, hasMore: page != null && page['next'] != null);
+      hasOlder = page != null && page['next'] != null;
     }
   }
   // minimize is the user dragging the sheet down (fixtures_test.go:216).

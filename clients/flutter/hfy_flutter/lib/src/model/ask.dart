@@ -169,10 +169,13 @@ List<HfyAskQuestion> hfyAskQuestions(Object? raw) {
       for (final o in rawOptions) {
         if (o is! Map<String, Object?>) continue; // `o &&`
         if (o['value'] == null) continue; // `o.value != null`
+        // ui.js: `String(o.label != null ? o.label : o.value)` — null/absent
+        // falls back, but a PRESENT falsy label ('' / 0 / false) stays verbatim
+        // (Stringified), unlike the `a || b` chains elsewhere.
         opts.add(
           HfyAskOption(
             value: _asText(o['value']),
-            label: _asText(_or(o['label'], o['value'])),
+            label: _asText(o['label'] ?? o['value']),
           ),
         );
       }
