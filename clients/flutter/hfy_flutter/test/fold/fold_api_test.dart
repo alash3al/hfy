@@ -223,17 +223,49 @@ void main() {
       expect(
         c.apply(ev('u1', 'summary', actor: agentActor, data: {'text': 'x'})),
         isFalse,
-        reason: 'dropped type — no revision',
+        reason: 'dropped type — no relayout, no revision (ui.js default-return)',
       );
       expect(c.revision, revision);
+    });
+
+    test('a ghost decision still seats the turn, exactly like ui.js:1044-1046',
+        () {
+      // THE review repro: a first-ever approval.decided whose call_id the
+      // fold never saw. ui.js's _ensureTurn creates the turn and STILL runs
+      // relayout + syncDerived after the silent find; the old fold skipped
+      // all of it and left the turns view stale over an internal turn.
+      final c = foldOf();
+      final revision = c.revision;
       expect(
         c.apply(
           ev('zz', 'approval.decided', actor: agentActor, data: {'call_id': 'ghost'}),
         ),
-        isFalse,
-        reason: 'nothing to act on — no row, no revision',
+        isTrue,
+        reason: 'handled: the turn was ensured even though nothing settled',
       );
-      expect(c.revision, revision);
+      expect(c.revision, revision + 1, reason: 'the view must move with it');
+      expect(c.turns, hasLength(1), reason: 'the turns VIEW seats the turn');
+      expect(c.turns.single.id, 'turn-1');
+      expect(c.turns.single.state, 'queued');
+      expect(c.turns.single.own, isFalse);
+      expect(c.turns.single.showTyping, isTrue,
+          reason: 'ui.js relayout: an empty queued turn shows the dots');
+      expect(c.showWelcome, isFalse, reason: 'turns exist — the empty state is gone');
+      expect(c.pendingOwn, isEmpty);
+      expect(c.sheetOpen, isFalse);
+      expect(c.ownActive, isFalse);
+      // an unknown-call interrupted behaves the same
+      final c2 = foldOf();
+      final r2 = c2.revision;
+      expect(
+        c2.apply(
+          ev('ii', 'tool_call.interrupted', actor: agentActor, data: {'call_id': 'g2'}),
+        ),
+        isTrue,
+      );
+      expect(c2.revision, r2 + 1);
+      expect(c2.turns.single.state, 'queued');
+      expect(c2.turns.single.showTyping, isTrue);
     });
 
     test('applyAll bumps at most once and reports whether anything changed', () {
@@ -251,7 +283,24 @@ void main() {
       );
       expect(c.revision, 1, reason: 'one batch — one bump');
       expect(c.applyAll([ev('u2', 'unicorns', data: const {})]), isFalse);
-      expect(c.revision, 1, reason: 'nothing acted — no bump');
+      expect(c.revision, 1, reason: 'unknown types are not handled — no bump');
+    });
+
+    test('a ghost-only batch seats its turn with the same one-bump discipline',
+        () {
+      final c = foldOf();
+      final revision = c.revision;
+      // returns whether anything SETTLED (false) — but the batch was handled,
+      // so the turn seats in the view with its relayout-driven typing dots.
+      expect(
+        c.applyAll([
+          ev('zz', 'approval.decided', actor: agentActor, data: {'call_id': 'ghost'}),
+        ]),
+        isFalse,
+      );
+      expect(c.revision, revision + 1, reason: 'the fold acted (turn created)');
+      expect(c.turns.single.state, 'queued');
+      expect(c.turns.single.showTyping, isTrue);
     });
 
     test('hasOlder is a getter — setHasOlder mirrors connect and re-derives', () {

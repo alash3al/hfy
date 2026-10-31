@@ -175,6 +175,7 @@ async function runScenario(def) {
   // envelope id is delivered once (a seen-set), and only live deliveries
   // move lastEventId — see clients/fixtures/README.md, "duplicate delivery".
   let lastEventId = null;
+  let minAfterDone = false; // minimizeAfter applies exactly once
   const seen = {};
   const fire = function (env, isHistory) {
     if (env && env.id != null) {
@@ -206,6 +207,14 @@ async function runScenario(def) {
     // history page, so live events move lastEventId onward from there
     const nextIsH = i + 1 < events.length && (def.path === 'history' || !!events[i + 1].history);
     if (isH && !nextIsH && def.liveAfter != null) lastEventId = def.liveAfter;
+    // minimizeAfter: the user drags the sheet down MID-sequence (the real
+    // minimizeSheet()), then the sequence keeps flowing — the sheet reopen rule
+    // on a NEW pending call (P-FOLD-049) is what a next approval must undo.
+    // Applies once, right after delivering that event.
+    if (!minAfterDone && def.minimizeAfter != null && e.id === def.minimizeAfter) {
+      minAfterDone = true;
+      comp.minimizeSheet(); comp.relayout(); comp.syncDerived();
+    }
   });
   if (def.pages && def.pages.length) {
     listeners.push(function (e, isHistory) { fire(e, isHistory); }); // as hfyClient.init does
@@ -357,10 +366,11 @@ func TestFixturesMatchJS(t *testing.T) {
 			Config *struct {
 				ToolCalls string `json:"tool_calls"`
 			} `json:"config"`
-			LiveAfter string `json:"liveAfter"`
-			Minimize  bool   `json:"minimize"`
-			HasOlder  bool   `json:"hasOlder"`
-			Events    []struct {
+			LiveAfter     string `json:"liveAfter"`
+			Minimize      bool   `json:"minimize"`
+			MinimizeAfter string `json:"minimizeAfter"`
+			HasOlder      bool   `json:"hasOlder"`
+			Events        []struct {
 				ID        string `json:"id"`
 				Type      string `json:"type"`
 				CreatedAt string `json:"created_at"`
@@ -426,6 +436,33 @@ func TestFixturesMatchJS(t *testing.T) {
 		// that ships pages but starts without hasOlder models an impossible state
 		if len(def.Pages) > 0 && !def.HasOlder {
 			t.Errorf("%s: pages without header hasOlder (hasOlder must be true before the first loadOlder)", name)
+		}
+		// minimizeAfter must name an event of the MAIN sequence and only makes
+		// sense with a pending approval at or before it (the user minimizes an
+		// open sheet; there is nothing to minimize without one). The hook itself
+		// applies exactly once — the harness's minAfterDone flag. (P-FOLD-049)
+		if def.MinimizeAfter != "" {
+			minIdx := -1
+			for i, e := range def.Events {
+				if e.ID == def.MinimizeAfter {
+					minIdx = i
+					break
+				}
+			}
+			if minIdx < 0 {
+				t.Errorf("%s: minimizeAfter %q names no event of the main sequence (pages are not addressable)", name, def.MinimizeAfter)
+			} else {
+				asked := false
+				for _, e := range def.Events[:minIdx+1] {
+					if e.Type == "approval.requested" {
+						asked = true
+						break
+					}
+				}
+				if !asked {
+					t.Errorf("%s: minimizeAfter %q: no approval.requested at or before it (nothing to minimize)", name, def.MinimizeAfter)
+				}
+			}
 		}
 		var checkEnvs []struct {
 			ID        string `json:"id"`

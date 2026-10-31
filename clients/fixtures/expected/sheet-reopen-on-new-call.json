@@ -1,0 +1,91 @@
+{
+  "config": {
+    "tool_calls": "summary"
+  },
+  "hasOlder": false,
+  "lastEventId": "ev-6",
+  "name": "sheet-reopen-on-new-call",
+  "path": "live",
+  "pendingOwn": [
+    "t1-c1",
+    "t1-c2"
+  ],
+  "sheetOpen": true,
+  "showActionPill": false,
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:02.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "showDay": true,
+          "showHead": true,
+          "streaming": false,
+          "text": "Book a table"
+        },
+        {
+          "args": {
+            "table": 4
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-3",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:03.000Z",
+          "kind": "tool",
+          "name": "shop.book",
+          "showApproval": true,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": true,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        },
+        {
+          "args": {
+            "table": 5
+          },
+          "callId": "t1-c2",
+          "cardButtonsLive": false,
+          "content": "",
+          "hidden": false,
+          "id": "ev-5",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:06.000Z",
+          "kind": "tool",
+          "name": "shop.book",
+          "showApproval": true,
+          "showDay": false,
+          "showDecided": false,
+          "showDetails": false,
+          "showHead": false,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "showSummary": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "queued"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

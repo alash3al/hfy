@@ -39,6 +39,7 @@ payload shapes in `internal/types/payloads.go`):
   "config": {"tool_calls": "details"},   // optional; tool-call visibility mode (hidden|summary|details; default summary)
   "liveAfter": "ev-3",                   // optional; the connect page's live_after, required with any history content
   "minimize": true,                      // optional; the user drags the sheet down before the projection (real minimizeSheet())
+  "minimizeAfter": "ev-3",               // optional; the user drags the sheet down MID-sequence (see below)
   "events": [ /* envelope v=1 below, oldest first */ ],
   "pages":  [ /* optional: extra history pages delivered through the REAL loadOlder, newest page first; each is {next, live_after, viewer, events} */ ]
 }
@@ -58,14 +59,21 @@ created_at}`. Rules the test enforces on every file:
   the device zone, `HfyTz.local()`), so scenarios that cross a calendar
   midnight (`grouping-gaps`) and `expected/*.json` in general are
   deterministic across machines. Keep that pin in any other harness.
-- The only sheet-manipulation hook is the header's trailing `minimize: true`
-  (it runs `minimizeSheet()` after ALL events and pages, right before the
-  final projection). A scenario needing a minimize BETWEEN deliveries — e.g.
-  minimize, then a SECOND `approval.requested` to pin the reopen rule
-  (P-FOLD-049) — cannot be expressed yet; adding a positional hook such as
-  `"minimizeAfter": "<event id>"` (or an event-level `"minimize": true`
-  honored mid-sequence) to `fixtures_test.go`'s `runScenario` and the Dart
-  `runScenario` is the required extension before such a fixture can exist.
+- The sheet-manipulation hooks are the header's trailing `minimize: true` (it
+  runs `minimizeSheet()` after ALL events and pages, right before the final
+  projection) and `"minimizeAfter": "<event id>"` (it runs `minimizeSheet()`
+  mid-sequence, right after delivering that event, then the sequence keeps
+  flowing — that the sheet only CONTINUES minimized is exactly what a next
+  approval can disprove). `minimizeAfter` validates in the header sanity of
+  `fixtures_test.go` and loudly in the Dart harness: the id must name an event
+  of the MAIN sequence (pages are not addressable) and at least one
+  `approval.requested` must appear at or before it (a minimize without an open
+  approval is a bad fixture); it applies once even against a re-delivered id.
+  `events/sheet-reopen-on-new-call.json` uses it to pin the reopen rule
+  (P-FOLD-049): approval A opens the sheet, `minimizeAfter` closes it, a
+  SECOND approval B — a new pending call — re-opens it (`sheetOpen:true`,
+  `showActionPill:false` in the expectation) in both the real JS fold and the
+  Dart fold.
 
 Delivery semantics: `path:"live"` folds through `fold(env, false)` — unless an
 event carries `"history": true`. History-flagged events must form one **leading

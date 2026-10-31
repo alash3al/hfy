@@ -13,7 +13,14 @@
 //     mergeOlderPage, one page per call while hasOlder holds (client.js
 //     loadOlder);
 //   - `minimize` runs the real minimizeSheet() before the final relayout +
-//     syncDerived pass;
+//     syncDerived pass; `minimizeAfter` ("<event id>") runs it MID-sequence,
+//     right after delivering that event (once; the id must exist in the main
+//     sequence with an approval.requested at or before it, else we throw) —
+//     the sheet reopen rule on a NEW pending call (P-FOLD-049) is what a next
+//     approval must undo. In the batch variant the hook is skipped: applyAll
+//     folds all events in one pass, so a mid-sequence minimize cannot be
+//     interleaved; the reopen rule makes the FINAL projection of a
+//     minimizeAfter scenario identical in both variants anyway;
 //   - the projection comes from projection.dart and is compared against
 //     clients/fixtures/expected/<name>.json.
 //
@@ -54,6 +61,7 @@ Map<String, dynamic> runScenario(Map<String, dynamic> def, {bool batch = false})
   // only live deliveries move lastEventId.
   final dedupe = HfyDedupe();
   final events = asEnvelopeList(def['events']);
+  _validateMinimizeAfter(def, events);
   final pathIsHistory = def['path'] == 'history';
   final delivered = <({HfyEvent e, bool isH})>[];
   for (var i = 0; i < events.length; i++) {
@@ -74,8 +82,19 @@ Map<String, dynamic> runScenario(Map<String, dynamic> def, {bool batch = false})
   if (batch) {
     conv.applyAll([for (final d in delivered) d.e], history: false);
   } else {
+    var minimized = false; // minimizeAfter applies exactly once
     for (final d in delivered) {
       conv.apply(d.e, history: d.isH);
+      // the mid-sequence minimize: real minimizeSheet() right after that
+      // event's delivery (fixtures_test.go's minimizeAfter hook)
+      if (!minimized &&
+          def['minimizeAfter'] is String &&
+          d.e.json['id'] == def['minimizeAfter']) {
+        minimized = true;
+        conv.minimizeSheet();
+        conv.relayout();
+        conv.syncDerived();
+      }
     }
   }
   // pages[] through the REAL loadOlder merge — one page per call while
@@ -120,6 +139,31 @@ HfyToolCalls _modeOf(Map<String, dynamic> def) {
     if (m.name == mode) return m;
   }
   return HfyToolCalls.summary; // P-CFG-003's fallback
+}
+
+/// The minimizeAfter header's contract (mirrors the Go header sanity in
+/// fixtures_test.go): the id must name an event of the MAIN sequence, and the
+/// scenario must carry an approval.requested at or before it — a mid-sequence
+/// minimize without a pending approval is a bad fixture, fail loudly.
+void _validateMinimizeAfter(Map<String, dynamic> def, List<HfyEvent> events) {
+  final after = def['minimizeAfter'];
+  if (after is! String) return;
+  final idx = events.indexWhere((e) => e.json['id'] == after);
+  if (idx < 0) {
+    throw StateError(
+      'minimizeAfter "$after": no event with that id in the main sequence '
+      '(pages are not addressable)',
+    );
+  }
+  final hasApproval = events
+      .take(idx + 1)
+      .any((e) => e.json['type'] == 'approval.requested');
+  if (!hasApproval) {
+    throw StateError(
+      'minimizeAfter "$after": no approval.requested at or before it '
+      '(nothing to minimize)',
+    );
+  }
 }
 
 List<Map<String, Object?>> _pagesOf(Map<String, dynamic> def) {
