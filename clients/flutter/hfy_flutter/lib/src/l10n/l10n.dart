@@ -35,6 +35,7 @@ final _namePart = RegExp(r'[\s._@-]+');
 
 /// ui.js hfySize (133-141): binary steps, Intl unit words, and thousands
 /// grouping. Bytes are whole numbers, larger units keep at most one decimal.
+// shortcut: every ar tag gets the ar shape (ASCII digits, ',' thousands, '.' decimal); Intl's ar-EG and ar-SA print Arabic-Indic digits and ar-MA/ar-DZ swap the separators, upgrade with per-region number symbols when those hosts matter.
 String hfySize(num n, String lang) {
   if (!(n >= 0)) return '';
   var x = n.toDouble();
@@ -49,7 +50,7 @@ String hfySize(num n, String lang) {
 }
 
 const _enUnits = ['B', 'kB', 'MB', 'GB'];
-const _arUnits = ['ب', 'كيلوبايت', 'م.ب', 'ج.ب'];
+const _arUnits = ['ب', 'كيلوبايت', 'م.ب', 'غ.ب'];
 
 const _enMonths = [
   'January',

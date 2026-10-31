@@ -176,7 +176,10 @@ void main() {
           1536: '1.5 kB',
           10 * 1024 * 1024: '10 MB',
           1.5 * 1024 * 1024: '1.5 MB',
+          1048576: '1 MB',
           5 * 1024 * 1024 * 1024: '5 GB',
+          1073741824: '1 GB',
+          1000000000: '953.7 MB',
           2 * 1024 * 1024 * 1024 * 1024: '2,048 GB',
           12345678: '11.8 MB',
           0.5: '1B',
@@ -189,15 +192,19 @@ void main() {
     );
 
     test(
-      'ar: Arabic unit words with ASCII digits, as this Intl build prints them',
+      'ar: Arabic unit words with ASCII digits, as node Intl prints the ar tag',
       () {
         expect(hfySize(0, 'ar'), '0 ب');
         expect(hfySize(999, 'ar'), '999 ب');
+        expect(hfySize(1023, 'ar'), '1,023 ب');
         expect(hfySize(1024, 'ar'), '1 كيلوبايت');
         expect(hfySize(1536, 'ar'), '1.5 كيلوبايت');
+        expect(hfySize(1048576, 'ar'), '1 م.ب');
         expect(hfySize(10 * 1024 * 1024, 'ar'), '10 م.ب');
-        expect(hfySize(5 * 1024 * 1024 * 1024, 'ar'), '5 ج.ب');
-        expect(hfySize(2 * 1024 * 1024 * 1024 * 1024, 'ar'), '2,048 ج.ب');
+        expect(hfySize(1000000000, 'ar'), '953.7 م.ب');
+        expect(hfySize(1073741824, 'ar'), '1 غ.ب');
+        expect(hfySize(5 * 1024 * 1024 * 1024, 'ar'), '5 غ.ب');
+        expect(hfySize(2 * 1024 * 1024 * 1024 * 1024, 'ar'), '2,048 غ.ب');
       },
     );
 
