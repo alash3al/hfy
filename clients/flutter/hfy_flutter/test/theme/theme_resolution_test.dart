@@ -45,8 +45,9 @@ Future<void> _pump(
 Future<void> _pumpLocalized(
   WidgetTester tester,
   ValueNotifier<Locale> locale,
-  void Function(BuildContext context) seen,
-) => tester.pumpWidget(
+  void Function(BuildContext context) seen, {
+  String? lang,
+}) => tester.pumpWidget(
   MediaQuery(
     data: const MediaQueryData(),
     child: ValueListenableBuilder<Locale>(
@@ -57,6 +58,7 @@ Future<void> _pumpLocalized(
         child: child,
       ),
       child: HfyThemeScope(
+        lang: lang,
         child: Builder(
           builder: (context) {
             seen(context);
@@ -204,6 +206,30 @@ void main() {
       await _pumpLocalized(tester, locale, (c) => t = HfyTheme.of(c));
       expect(t.lang, 'en');
       expect(t.isRtl, isFalse);
+    });
+
+    testWidgets('the config lang beats Localizations and the device locale', (
+      tester,
+    ) async {
+      tester.platformDispatcher.localeTestValue = const Locale('fr');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      final en = ValueNotifier(const Locale('en'));
+      addTearDown(en.dispose);
+      late HfyTheme t;
+      late TextDirection direction;
+      await _pumpLocalized(tester, en, (c) {
+        t = HfyTheme.of(c);
+        direction = Directionality.of(c);
+      }, lang: 'ar');
+      expect([t.lang, direction], ['ar', TextDirection.rtl]);
+
+      final ar = ValueNotifier(const Locale('ar'));
+      addTearDown(ar.dispose);
+      await _pumpLocalized(tester, ar, (c) {
+        t = HfyTheme.of(c);
+        direction = Directionality.of(c);
+      }, lang: 'en');
+      expect([t.lang, direction], ['en', TextDirection.ltr]);
     });
 
     testWidgets('a Localizations locale change rebuilds the theme: en to ar', (

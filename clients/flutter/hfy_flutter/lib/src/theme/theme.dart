@@ -171,6 +171,17 @@ class HfyTheme extends ThemeExtension<HfyTheme> {
 
 /// Resolves [HfyTheme] from the host config and the platform, and provides it
 /// with the matching [Directionality] (the root wiring of P-CFG-011).
+///
+/// The language follows the app locale, as Flutter widgets do: the nearest
+/// [Localizations] locale, else the view's platform locale. It does not follow
+/// the raw device language the way the web embed follows `navigator.language`.
+/// [lang] is the explicit override and beats both; [dir] overrides the
+/// direction derived from the language.
+///
+/// Gotcha: a plain [MaterialApp] supports only en_US, so on an Arabic device
+/// its Localizations resolve to en-US and the scope renders LTR. Hosts that
+/// want Arabic add it to `supportedLocales` and `localizationsDelegates`, or
+/// pass `lang: 'ar'`.
 class HfyThemeScope extends StatelessWidget {
   const HfyThemeScope({
     super.key,
