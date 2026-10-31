@@ -1,0 +1,153 @@
+[
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://a‮b.example/",
+    "browser": null
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://a‍b.example/",
+    "browser": null
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://a‌b.example/",
+    "browser": null
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://١1.example/",
+    "browser": null
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://a󠀁b.example/",
+    "browser": null
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://①.com/",
+    "browser": "https://1.com/"
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://𝐚.example/",
+    "browser": "https://a.example/"
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://¹.example/",
+    "browser": "https://1.example/"
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://ġ.example/",
+    "browser": "https://xn--vea.example/"
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://ㅤ.example/",
+    "browser": "https://.example/"
+  },
+  {
+    "group": "attack",
+    "kind": "href",
+    "input": "https://ᅟ.example/",
+    "browser": "https://.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ünicode.example/",
+    "browser": "https://xn--nicode-2ya.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://😊.example/",
+    "browser": "https://xn--o28h.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ß.example/",
+    "browser": "https://xn--zca.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ẞ.example/",
+    "browser": "https://xn--zca.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ǅ.example/",
+    "browser": "https://xn--d-toa.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ǆ.example/",
+    "browser": "https://xn--d-toa.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ﬁ.example/",
+    "browser": "https://fi.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://ſ.example/",
+    "browser": "https://s.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://İ.example/",
+    "browser": "https://xn--i-9bb.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://a­.example/",
+    "browser": "https://a.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://​x.example/",
+    "browser": "https://x.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "href",
+    "input": "https://%C3%BC.example/",
+    "browser": "https://xn--tda.example/"
+  },
+  {
+    "group": "non-ascii-host",
+    "kind": "url",
+    "input": "https://ünicode.example/i.png",
+    "base": "https://embed.example/",
+    "browser": "https://xn--nicode-2ya.example/i.png"
+  },
+  {
+    "group": "raw-space",
+    "kind": "href",
+    "input": "mailto:a b@x.example",
+    "browser": "mailto:a b@x.example"
+  }
+]

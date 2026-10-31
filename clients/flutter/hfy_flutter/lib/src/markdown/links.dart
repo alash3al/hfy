@@ -12,12 +12,16 @@ final RegExp _markdownHrefPrefix = RegExp(
 /// `hfySafeHref` (ui.js:302-306): a markdown link destination. Only absolute
 /// http(s) and mailto URLs pass, returned in their serialized form (so
 /// `https://x.example` comes back as `https://x.example/`). Anything else,
-/// relative or unparsable included, is null and stays literal text.
+/// relative or unparsable included, is null and stays literal text. A result
+/// is one URL string without spaces: a mailto path with a space (which the
+/// browser keeps) is refused. This is not an opener guard: whoever opens the
+/// href must check `Uri.parse(href).scheme` again.
 String? hfySafeHref(String raw) {
   if (!_markdownHrefPrefix.hasMatch(raw)) return null;
   final url = parseHfyUrl(raw);
-  if (url == null) return null;
-  return _isHrefScheme(url.scheme) ? url.href : null;
+  if (url == null || !_isHrefScheme(url.scheme)) return null;
+  final href = url.href;
+  return href.contains(' ') ? null : href;
 }
 
 /// `hfySafeUrl` (ui.js:308-311): a card or attachment URL, possibly relative

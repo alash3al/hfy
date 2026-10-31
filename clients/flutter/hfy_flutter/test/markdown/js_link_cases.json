@@ -116,11 +116,6 @@
   },
   {
     "kind": "href",
-    "input": "https://ünicode.example/",
-    "expected": "https://xn--nicode-2ya.example/"
-  },
-  {
-    "kind": "href",
     "input": "https://Ｅｘａｍｐｌｅ.com",
     "expected": "https://example.com/"
   },
@@ -128,56 +123,6 @@
     "kind": "href",
     "input": "https://a。b/",
     "expected": "https://a.b/"
-  },
-  {
-    "kind": "href",
-    "input": "https://😊.example/",
-    "expected": "https://xn--o28h.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ß.example/",
-    "expected": "https://xn--zca.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ẞ.example/",
-    "expected": "https://xn--zca.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ǅ.example/",
-    "expected": "https://xn--d-toa.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ǆ.example/",
-    "expected": "https://xn--d-toa.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ﬁ.example/",
-    "expected": "https://fi.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://ſ.example/",
-    "expected": "https://s.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://İ.example/",
-    "expected": "https://xn--i-9bb.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://a­.example/",
-    "expected": "https://a.example/"
-  },
-  {
-    "kind": "href",
-    "input": "https://​x.example/",
-    "expected": "https://x.example/"
   },
   {
     "kind": "href",
@@ -248,11 +193,6 @@
     "kind": "href",
     "input": "mailto:a@x.example",
     "expected": "mailto:a@x.example"
-  },
-  {
-    "kind": "href",
-    "input": "mailto:a b@x.example",
-    "expected": "mailto:a b@x.example"
   },
   {
     "kind": "href",
@@ -580,12 +520,6 @@
     "input": "/v1/files/%E2%82%AC.png",
     "base": "https://embed.example/",
     "expected": "https://embed.example/v1/files/%E2%82%AC.png"
-  },
-  {
-    "kind": "url",
-    "input": "https://ünicode.example/i.png",
-    "base": "https://embed.example/",
-    "expected": "https://xn--nicode-2ya.example/i.png"
   },
   {
     "kind": "url",

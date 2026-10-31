@@ -1,6 +1,8 @@
 // Regenerates the JS-oracle expectations used by the markdown tests:
 //   test/markdown/js_parity_cases.json  parser trees (hfyMdParse)
 //   test/markdown/js_link_cases.json    hfySafeHref / hfySafeUrl results
+//   test/markdown/documented_divergences.json  links the policy refuses on
+//                                       purpose, with the browser's answer
 // Every expectation is produced by the REAL internal/httpapi/embed/ui.js,
 // loaded with the same DOM stubs as fixtures_test.go, never written by hand.
 //
@@ -177,19 +179,8 @@ const links = [
   ['href', 'https://a..b/'],
   ['href', 'https://./'],
   ['href', 'https://x.example./'],
-  ['href', 'https://ünicode.example/'],
   ['href', 'https://Ｅｘａｍｐｌｅ.com'],
   ['href', 'https://a。b/'],
-  ['href', 'https://😊.example/'],
-  ['href', 'https://ß.example/'],
-  ['href', 'https://ẞ.example/'],
-  ['href', 'https://ǅ.example/'],
-  ['href', 'https://ǆ.example/'],
-  ['href', 'https://ﬁ.example/'],
-  ['href', 'https://ſ.example/'],
-  ['href', 'https://İ.example/'],
-  ['href', 'https://a\u00ad.example/'],
-  ['href', 'https://\u200bx.example/'],
   ['href', 'https://x\u0085.example/'],
   ['href', 'https://xn--ls8h.example/'],
   ['href', 'https://xn--a.example/'],
@@ -204,7 +195,6 @@ const links = [
   ['href', 'https://x/\u007f'],
   ['href', 'https://x/a\u{10ffff}'],
   ['href', 'mailto:a@x.example'],
-  ['href', 'mailto:a b@x.example'],
   ['href', 'mailto:a ?x'],
   ['href', 'mailto:a #x'],
   ['href', 'mailto:'],
@@ -265,10 +255,47 @@ const links = [
   ['url', '#f', 'mailto:a@b'],
   ['url', 'x', 'ftp://h/a'],
   ['url', '/v1/files/%E2%82%AC.png', 'https://embed.example/'],
-  ['url', 'https://ünicode.example/i.png', 'https://embed.example/'],
   ['url', 'https://x.example/\u0001', 'https://embed.example/'],
   ['url', ' /v1/files/a ', 'https://embed.example/'],
 ];
+
+// Links the policy refuses on purpose (url.dart: a non-ASCII host fails closed;
+// links.dart: a mailto path keeps no space). `browser` is what the real ui.js
+// returns; the Dart test asserts the fail-closed result and records the gap.
+const divergences = [
+  // the eleven attack hosts: the browser refuses some and links others elsewhere
+  ['attack', 'href', 'https://a\u202Eb.example/'],
+  ['attack', 'href', 'https://a\u200Db.example/'],
+  ['attack', 'href', 'https://a\u200Cb.example/'],
+  ['attack', 'href', 'https://\u06611.example/'],
+  ['attack', 'href', 'https://a\u{E0001}b.example/'],
+  ['attack', 'href', 'https://\u2460.com/'],
+  ['attack', 'href', 'https://\u{1D41A}.example/'],
+  ['attack', 'href', 'https://\u00B9.example/'],
+  ['attack', 'href', 'https://g\u0307.example/'],
+  ['attack', 'href', 'https://\u3164.example/'],
+  ['attack', 'href', 'https://\u115F.example/'],
+  // non-ASCII hosts the browser maps to xn-- labels
+  ['non-ascii-host', 'href', 'https://ünicode.example/'],
+  ['non-ascii-host', 'href', 'https://😊.example/'],
+  ['non-ascii-host', 'href', 'https://ß.example/'],
+  ['non-ascii-host', 'href', 'https://ẞ.example/'],
+  ['non-ascii-host', 'href', 'https://ǅ.example/'],
+  ['non-ascii-host', 'href', 'https://ǆ.example/'],
+  ['non-ascii-host', 'href', 'https://ﬁ.example/'],
+  ['non-ascii-host', 'href', 'https://ſ.example/'],
+  ['non-ascii-host', 'href', 'https://İ.example/'],
+  ['non-ascii-host', 'href', 'https://a\u00ad.example/'],
+  ['non-ascii-host', 'href', 'https://\u200bx.example/'],
+  ['non-ascii-host', 'href', 'https://%C3%BC.example/'],
+  ['non-ascii-host', 'url', 'https://ünicode.example/i.png', 'https://embed.example/'],
+  // a mailto path with a raw space: the browser keeps the space
+  ['raw-space', 'href', 'mailto:a b@x.example'],
+];
+const divergenceCases = divergences.map(([group, kind, input, base]) =>
+  kind === 'href'
+    ? { group, kind, input, browser: load().safeHref(input) }
+    : { group, kind, input, base, browser: load(base).safeUrl(input) });
 
 const parityCases = md.map(([name, input]) => ({ name, input, tree: load().parse(input) }));
 const linkCases = links.map((row) => {
@@ -279,4 +306,5 @@ const linkCases = links.map((row) => {
 const dir = path.join(root, 'clients/flutter/hfy_flutter/test/markdown');
 fs.writeFileSync(path.join(dir, 'js_parity_cases.json'), JSON.stringify(parityCases, null, 2) + '\n');
 fs.writeFileSync(path.join(dir, 'js_link_cases.json'), JSON.stringify(linkCases, null, 2) + '\n');
-console.log(`wrote ${parityCases.length} parser cases and ${linkCases.length} link cases`);
+fs.writeFileSync(path.join(dir, 'documented_divergences.json'), JSON.stringify(divergenceCases, null, 2) + '\n');
+console.log(`wrote ${parityCases.length} parser cases, ${linkCases.length} link cases and ${divergenceCases.length} divergences`);

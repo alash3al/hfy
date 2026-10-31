@@ -43,31 +43,40 @@ void main() {
     }
   });
 
-  group('P-MD-011 IDNA (the reduced mapping, ASCII-exact)', () {
+  group('P-MD-011 IDNA: ASCII hosts map, a non-ASCII host fails closed', () {
     for (final (raw, want) in const [
-      ('https://ünicode.example', 'https://xn--nicode-2ya.example/'),
       ('https://Ｅｘａｍｐｌｅ.com', 'https://example.com/'),
       ('https://a。b', 'https://a.b/'),
-      ('https://😊.example', 'https://xn--o28h.example/'),
-      ('https://ß.example', 'https://xn--zca.example/'),
-      ('https://ẞ.example', 'https://xn--zca.example/'),
-      ('https://ς.example', 'https://xn--3xa.example/'),
-      ('https://Σ.example', 'https://xn--4xa.example/'),
-      ('https://İ.example', 'https://xn--i-9bb.example/'),
-      ('https://ǅ.example', 'https://xn--d-toa.example/'),
-      ('https://ﬁ.example', 'https://fi.example/'),
-      ('https://ſ.example', 'https://s.example/'),
-      ('https://a\u00ad.example', 'https://a.example/'),
-      ('https://\u200bx.example', 'https://x.example/'),
-      ('https://xn--ls8h.example', 'https://xn--ls8h.example/'),
-      ('https://xn--a.example', null),
-      ('https://xn--Ab.example', null),
-      ('https://xn--.example', null),
+      ('https://%41.example/', 'https://a.example/'),
+      ('https://ünicode.example', null),
+      ('https://ß.example', null),
+      ('https://ς.example', null),
+      ('https://ﬁ.example', null),
+      ('https://a\u00ad.example', null),
+      ('https://\u200bx.example', null),
+      ('https://%C3%BC.example', null),
+      ('https://a\u202eb.example', null),
+      ('https://\u3164.example', null),
       ('https://x\u0085.example', null),
       ('https://\u0000.example', null),
       ('https://a b/', null),
       ('https://a%20b/', null),
-      ('https://%41.example/', 'https://a.example/'),
+    ]) {
+      test(raw, () => expect(_href(raw), want));
+    }
+  });
+
+  group('P-MD-011 IDNA: xn-- labels of ASCII hosts are checked', () {
+    for (final (raw, want) in const [
+      ('https://xn--ls8h.example', 'https://xn--ls8h.example/'),
+      ('https://xn--mnchen-3ya.example', 'https://xn--mnchen-3ya.example/'),
+      ('https://x.xn--zca.example', 'https://x.xn--zca.example/'),
+      ('https://xn--a.example', null),
+      ('https://xn--Ab.example', null),
+      ('https://xn--.example', null),
+      ('https://xn--ab-g4t.example', null),
+      ('https://xn--ab-m1t.example', null),
+      ('https://xn--ab-j1t.example', null),
     ]) {
       test(raw, () => expect(_href(raw), want));
     }

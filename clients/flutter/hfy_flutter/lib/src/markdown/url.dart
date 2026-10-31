@@ -3,7 +3,7 @@
 // standard's basic URL parser, for the schemes the embed can ever show: http,
 // https and mailto, plus relative references resolved against an http(s) base.
 // Two parts are reduced, and only these:
-//   - IDNA (the UTS #46 table is not reproduced): see [_domainToAscii];
+//   - IDNA: a non-ASCII host fails closed, see [_domainToAscii];
 //   - the other special schemes (ws, wss, ftp, file) parse as non-special. The
 //     link policy rejects every scheme but http, https and mailto, so the
 //     caller's answer is the same; a file: base is reported as failure.
@@ -476,104 +476,35 @@ String _percentDecodeUtf8(String input) {
   return utf8.decode(bytes, allowMalformed: true);
 }
 
-// shortcut: UTS #46 IDNA reduced to what the link policy meets. Mapped: ASCII
-// and fullwidth ASCII to lowercase ASCII, the ideographic full stops to '.',
-// U+0130 to "i" + combining dot, the Latin compatibility letters in
-// [_latinCompat], other letters through Dart's lowercase. Ignored code points
-// drop out. Rejected: controls, unassigned, private use, surrogates, space
-// separators, U+FFFD. Not reproduced: the rest of the NFKC compatibility
-// mapping (superscripts, mathematical alphabets, ...), NFC, the bidi and joiner
-// label rules, and the rest of the UTS #46 disallowed table. Upgrade with the
-// IdnaMappingTable when a non-ASCII host ever reaches the policy in practice.
-const Map<int, String> _latinCompat = {
-  0x17F: 's',
-  0x1C4: 'd\u017E',
-  0x1C5: 'd\u017E',
-  0x1C6: 'd\u017E',
-  0x1C7: 'lj',
-  0x1C8: 'lj',
-  0x1C9: 'lj',
-  0x1CA: 'nj',
-  0x1CB: 'nj',
-  0x1CC: 'nj',
-  0x1F1: 'dz',
-  0x1F2: 'dz',
-  0x1F3: 'dz',
-  0xFB00: 'ff',
-  0xFB01: 'fi',
-  0xFB02: 'fl',
-  0xFB03: 'ffi',
-  0xFB04: 'ffl',
-  0xFB05: 'st',
-  0xFB06: 'st',
-};
-
+// Non-ASCII hosts fail closed. The UTS #46 mapping is not reproduced, so a
+// host with a code point >= 0x80 (after the full-stop mapping) is refused and
+// its link stays plain text. The browser links some of those hosts to other
+// places (U+2460 -> 1.com, U+3164 -> an empty label) and refuses others; each
+// case is recorded in test/markdown/documented_divergences.json.
+// shortcut: no UTS #46 mapping and no NFC, so non-ASCII hosts never link;
+// upgrade with an IdnaMappingTable once a non-ASCII host must link.
 String? _domainToAscii(String domain) {
   final mapped = StringBuffer();
   for (final cp in domain.runes) {
-    if (_isIgnoredCodePoint(cp)) continue;
-    final compat = _latinCompat[cp];
-    if (compat != null) {
-      mapped.write(compat);
-    } else if (cp == 0x3002 || cp == 0xFF0E || cp == 0xFF61) {
+    if (cp == 0x3002 || cp == 0xFF0E || cp == 0xFF61) {
       mapped.write('.');
     } else if (cp >= 0xFF01 && cp <= 0xFF5E) {
       mapped.writeCharCode(_lowerAscii(cp - 0xFEE0));
     } else if (cp < 0x80) {
       mapped.writeCharCode(_lowerAscii(cp));
     } else {
-      if (_isRejectedCodePoint(cp)) return null;
-      mapped.write(
-        cp == 0x130 ? 'i\u0307' : String.fromCharCodes([cp]).toLowerCase(),
-      );
+      return null;
     }
   }
-  final labels = <String>[];
-  for (final label in mapped.toString().split('.')) {
-    if (label.codeUnits.every((cu) => cu < 0x80)) {
-      if (label.startsWith('xn--') &&
-          !_isCanonicalPunycode(label.substring(4))) {
-        return null;
-      }
-      labels.add(label);
-    } else {
-      if (label.startsWith('xn--')) return null;
-      labels.add('xn--${_punyEncode(label.runes.toList())}');
+  final labels = mapped.toString().split('.');
+  for (final label in labels) {
+    if (label.startsWith('xn--') && !_isXnLabel(label.substring(4))) {
+      return null;
     }
   }
   final ascii = labels.join('.');
   return ascii.isEmpty ? null : ascii;
 }
-
-bool _isIgnoredCodePoint(int cp) =>
-    cp == 0xAD ||
-    cp == 0x34F ||
-    (cp >= 0x180B && cp <= 0x180E) ||
-    cp == 0x200B ||
-    cp == 0x2060 ||
-    (cp >= 0xFE00 && cp <= 0xFE0F) ||
-    cp == 0xFEFF;
-
-bool _isRejectedCodePoint(int cp) =>
-    cp <= 0x1F ||
-    (cp >= 0x7F && cp <= 0x9F) ||
-    cp == 0x20 ||
-    cp == 0xA0 ||
-    cp == 0x1680 ||
-    (cp >= 0x2000 && cp <= 0x200A) ||
-    cp == 0x2028 ||
-    cp == 0x2029 ||
-    cp == 0x202F ||
-    cp == 0x205F ||
-    cp == 0x3000 ||
-    cp == 0xFFFD ||
-    (cp >= 0xD800 && cp <= 0xDFFF) ||
-    (cp >= 0xE000 && cp <= 0xF8FF) ||
-    (cp >= 0xFDD0 && cp <= 0xFDEF) ||
-    (cp & 0xFFFE) == 0xFFFE ||
-    _unassignedOrPrivate.hasMatch(String.fromCharCodes([cp]));
-
-final RegExp _unassignedOrPrivate = RegExp(r'^[\p{Cn}\p{Co}]$', unicode: true);
 
 bool _endsInNumber(String s) {
   var parts = s.split('.');
@@ -795,50 +726,6 @@ int _adapt(int delta, int numPoints, bool firstTime) {
 int _threshold(int k, int bias) =>
     k <= bias ? _pTMin : (k >= bias + _pTMax ? _pTMax : k - bias);
 
-String _punyEncode(List<int> input) {
-  final out = StringBuffer();
-  var basic = 0;
-  for (final c in input) {
-    if (c < 0x80) {
-      out.writeCharCode(c);
-      basic++;
-    }
-  }
-  var handled = basic;
-  if (basic > 0) out.write('-');
-  var n = _pInitialN;
-  var delta = 0;
-  var bias = _pInitialBias;
-  while (handled < input.length) {
-    var m = 0x7FFFFFFF;
-    for (final c in input) {
-      if (c >= n && c < m) m = c;
-    }
-    delta += (m - n) * (handled + 1);
-    n = m;
-    for (final c in input) {
-      if (c < n) delta++;
-      if (c != n) continue;
-      var q = delta;
-      for (var k = _pBase; ; k += _pBase) {
-        final t = _threshold(k, bias);
-        if (q < t) break;
-        out.writeCharCode(_punyDigit(t + (q - t) % (_pBase - t)));
-        q = (q - t) ~/ (_pBase - t);
-      }
-      out.writeCharCode(_punyDigit(q));
-      bias = _adapt(delta, handled + 1, handled == basic);
-      delta = 0;
-      handled++;
-    }
-    delta++;
-    n++;
-  }
-  return out.toString();
-}
-
-int _punyDigit(int d) => d < 26 ? d + 0x61 : d - 26 + 0x30;
-
 int _punyDecodeDigit(int cu) {
   if (cu >= 0x30 && cu <= 0x39) return cu - 0x30 + 26;
   final l = cu | 0x20;
@@ -882,16 +769,21 @@ List<int>? _punyDecode(String input) {
   return output;
 }
 
-// An "xn--" label is accepted only when it decodes to non-ASCII text that is
-// itself accepted, and re-encodes to exactly the same label.
-bool _isCanonicalPunycode(String encoded) {
+// An "xn--" label must decode to non-ASCII text free of controls, format,
+// separator, private, unassigned and surrogate code points.
+// shortcut: the RFC 3492 canonical re-encode check is not reproduced, so a
+// non-canonical label passes where the browser may refuse it (the DNS name is
+// the same either way); upgrade with an encoder if that difference matters.
+final RegExp _xnBadChar = RegExp(
+  r'[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Z}\u{FFFD}]',
+  unicode: true,
+);
+
+bool _isXnLabel(String encoded) {
   final decoded = _punyDecode(encoded);
   if (decoded == null || decoded.isEmpty) return false;
   if (decoded.every((cp) => cp < 0x80)) return false;
-  for (final cp in decoded) {
-    if (_isRejectedCodePoint(cp) || _isIgnoredCodePoint(cp)) return false;
-  }
-  return _punyEncode(decoded) == encoded;
+  return decoded.every((cp) => !_xnBadChar.hasMatch(_cpString(cp)));
 }
 
 // ---- percent-encoding (WHATWG "percent-encode sets") ----

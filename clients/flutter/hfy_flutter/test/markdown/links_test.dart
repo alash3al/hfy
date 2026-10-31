@@ -1,7 +1,8 @@
 // Link safety (PARITY P-MD-011, P-CRD-004 for the card/attachment rule): the
 // results of hfySafeHref and hfySafeUrl must equal the real ui.js functions
 // (ui.js:302-311) on every row of js_link_cases.json, and the named rows below
-// pin the scheme classes the policy exists for.
+// pin the scheme classes the policy exists for. The links the policy refuses on
+// purpose are in documented_divergences_test.dart.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hfy_flutter/src/markdown/links.dart';
@@ -13,8 +14,8 @@ final Uri _page = Uri.parse('https://embed.example/');
 void main() {
   final rows = markdownDataCases('js_link_cases.json');
 
-  test('P-MD-011: the oracle file holds its 114 link rows', () {
-    expect(rows, hasLength(114));
+  test('P-MD-011: the oracle file holds its 101 browser-parity link rows', () {
+    expect(rows, hasLength(101));
   });
 
   for (final row in rows) {
@@ -45,33 +46,39 @@ void main() {
       'relative',
       '',
     ]) {
-      test(_show(raw), () {
+      test('P-MD-011 ${_show(raw)}', () {
         expect(hfySafeHref(raw), isNull);
       });
     }
   });
 
   group('P-MD-011 whitespace and control characters', () {
-    test('a leading space or tab disqualifies the link', () {
+    test('P-MD-011 a leading space or tab disqualifies the link', () {
       expect(hfySafeHref(' https://x.example'), isNull);
       expect(hfySafeHref('\thttps://x.example'), isNull);
     });
-    test('a tab inside the scheme disqualifies the link', () {
+    test('P-MD-011 a tab inside the scheme disqualifies the link', () {
       expect(hfySafeHref('https\t://x.example'), isNull);
     });
     test(
-      'tabs and newlines inside the path are stripped, as the URL parser does',
+      'P-MD-011 tabs and newlines inside the path are stripped, as the URL parser does',
       () {
         expect(hfySafeHref('https://x.example\t\n/a'), 'https://x.example/a');
       },
     );
-    test('a trailing C0 control is stripped by the URL parser', () {
+    test('P-MD-011 a trailing C0 control is stripped by the URL parser', () {
       expect(hfySafeHref('https://x.example/\u0001'), 'https://x.example/');
+    });
+    test('P-MD-011 a mailto path with a space is refused, not left raw', () {
+      expect(hfySafeHref('mailto:a b@x.example'), isNull);
+      expect(hfySafeHref('mailto:a  b'), isNull);
+      expect(hfySafeHref('mailto:a%20b@x.example'), 'mailto:a%20b@x.example');
+      expect(hfySafeHref('mailto:a?subject=a b'), 'mailto:a?subject=a%20b');
     });
   });
 
   group('P-MD-011 safe absolute URLs come back serialized', () {
-    test('http(s) and mailto pass with the WHATWG href', () {
+    test('P-MD-011 http(s) and mailto pass with the WHATWG href', () {
       expect(hfySafeHref('https://x.example'), 'https://x.example/');
       expect(hfySafeHref('HTTP://X.EXAMPLE/OK'), 'http://x.example/OK');
       expect(hfySafeHref('mailto:a@x.example'), 'mailto:a@x.example');
@@ -79,13 +86,16 @@ void main() {
   });
 
   group('P-CRD-004 card and attachment URLs resolve against the page', () {
-    test('a server-relative download resolves to the page origin', () {
-      expect(
-        hfySafeUrl('/v1/files/a b', _page),
-        'https://embed.example/v1/files/a%20b',
-      );
-    });
-    test('a protocol-relative url keeps the base scheme', () {
+    test(
+      'P-CRD-004 a server-relative download resolves to the page origin',
+      () {
+        expect(
+          hfySafeUrl('/v1/files/a b', _page),
+          'https://embed.example/v1/files/a%20b',
+        );
+      },
+    );
+    test('P-CRD-004 a protocol-relative url keeps the base scheme', () {
       expect(
         hfySafeUrl('//cdn.example/i.png', _page),
         'https://cdn.example/i.png',
@@ -95,14 +105,17 @@ void main() {
         'http://cdn.example/i.png',
       );
     });
-    test('unsafe or unparsable urls are the empty string, never null', () {
-      expect(hfySafeUrl('javascript:alert(1)', _page), '');
-      expect(hfySafeUrl('data:image/png;base64,AAAA', _page), '');
-      expect(hfySafeUrl('ftp://cdn.example/a.png', _page), '');
-      expect(hfySafeUrl(null, _page), '');
-      expect(hfySafeUrl('', _page), '');
-    });
-    test('a relative base cannot resolve anything', () {
+    test(
+      'P-CRD-004 unsafe or unparsable urls are the empty string, never null',
+      () {
+        expect(hfySafeUrl('javascript:alert(1)', _page), '');
+        expect(hfySafeUrl('data:image/png;base64,AAAA', _page), '');
+        expect(hfySafeUrl('ftp://cdn.example/a.png', _page), '');
+        expect(hfySafeUrl(null, _page), '');
+        expect(hfySafeUrl('', _page), '');
+      },
+    );
+    test('P-CRD-004 a relative base cannot resolve anything', () {
       expect(hfySafeUrl('/v1/files/x', Uri.parse('embed/page')), '');
     });
   });
