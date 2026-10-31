@@ -206,14 +206,15 @@ Bridge protocol (envelope `{"v":1,"type":…}`): the widget sends `ready`
 on load and `token-needed` when it needs a grant; the host answers
 `grant` (`{token, expires_at}`) and may send `configure` (below).
 Outbound, the widget calls `window.HfyBridge.postMessage(json)` when
-present — Flutter's `webview_flutter` creates exactly that from a
-JavaScriptChannel named `HfyBridge`; React Native and other shells
-inject a one-line shim onto their native bridge — and otherwise sniffs
-the known bridges (`ReactNativeWebView`, `webkit.messageHandlers.hfy`,
-`chrome.webview`, `flutter_inappwebview`), falling back to
+present (Android `addJavascriptInterface`); React Native and other
+shells inject a one-line shim onto their native bridge — and otherwise
+sniffs the known bridges (`ReactNativeWebView`,
+`webkit.messageHandlers.hfy`, `chrome.webview`), falling back to
 `window.parent.postMessage` only when genuinely framed. Inbound, every
 shell calls `window.hfy.receive(json)`. `window.parent` is never
-redefined: it is a built-in that equals `window` in a top-level WebView.
+redefined: it is a built-in that equals `window` in a top-level
+WebView. Flutter apps: use the native hfy_flutter SDK (in development);
+do not embed `/embed` in a WebView.
 For iframes, parent origins are allow-listed by `server.cors_origins`,
 checked on every `postMessage`, and emitted as CSP `frame-ancestors`.
 
@@ -339,7 +340,13 @@ event as stored.
   schema does not know is dropped, strings are clipped and cleaned, and the
   model never sees the card.
 
-  Enable per MCP server (`mcp.<name>.ui`):
+  Enable per MCP server (`mcp.<name>.ui`) — but only after every hfy
+  instance is upgraded. Older binaries never read `_meta`, so cards are
+  inert there; worse, an older worker resuming a held ask after the
+  viewer's answer was recorded ignores the unknown fields on the stored
+  `approval.requested` and re-executes the tool. Upgrade all instances
+  and drain in-flight held asks before enabling `ui:` anywhere; strict
+  config (unknown keys stop startup) only protects a fresh start.
 
   ```yaml
   mcp:

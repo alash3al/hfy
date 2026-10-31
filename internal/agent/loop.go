@@ -446,8 +446,10 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		res.Structured = nil
 	}
 	// A tool's ui block reaches clients only when its server's config opted
-	// in; errors, sub-agents and ask-less agents lose it. Questions ride the
-	// result separately and pause the turn later (handleCall).
+	// in; error results lose the whole block. Sub-agents and ask-less agents
+	// lose only the questions here (the card survives); a sub-agent's card
+	// is dropped later because its result reaches the parent as text.
+	// Questions ride the result separately and pause the turn later (handleCall).
 	if cfg := l.rt.Cfg.MCP[tool.Server]; cfg.UI != nil && !res.IsError {
 		card, qs, err := svc.SanitizeUI(res.UI, cfg.UI.ImageHosts, l.spec.Top && l.spec.Builtins[builtins.AskUser])
 		if err != nil {

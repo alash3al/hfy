@@ -188,31 +188,16 @@ The widget keeps the token in memory only. It asks again (`token-needed`) on exp
 
 ### 5. Mobile: embed the chat in a WebView
 
+**Flutter apps: use the native hfy_flutter SDK (in development); do not embed /embed in a WebView.**
+
 Load `https://<hfy>/embed` top-level in the WebView. Messages go out from the widget as a JSON string, and come back in by calling `window.hfy.receive(json)`. The widget picks the first outbound bridge that exists:
 
-1. `window.HfyBridge.postMessage(str)`: Flutter `webview_flutter` JavaScriptChannel named `HfyBridge`, or Android `addJavascriptInterface(obj, "HfyBridge")` with a `@JavascriptInterface fun postMessage(s: String)`.
+1. `window.HfyBridge.postMessage(str)`: Android `addJavascriptInterface(obj, "HfyBridge")` with a `@JavascriptInterface fun postMessage(s: String)`.
 2. `window.webkit.messageHandlers.hfy.postMessage(str)`: iOS/macOS WKWebView, `userContentController.add(handler, name: "hfy")`.
 3. `window.chrome.webview.postMessage(str)`: Windows WebView2.
 4. `window.ReactNativeWebView.postMessage(str)`: React Native `react-native-webview`, via `onMessage`.
-5. `window.flutter_inappwebview.callHandler('hfy', str)`: flutter_inappwebview handler named `hfy`.
 
 Inbound, from any shell: evaluate `window.hfy.receive(<json string or object>)`.
-
-Flutter (`webview_flutter`):
-
-```dart
-final c = WebViewController()
-  ..setJavaScriptMode(JavaScriptMode.unrestricted)
-  ..addJavaScriptChannel('HfyBridge', onMessageReceived: (m) async {
-    final msg = jsonDecode(m.message);
-    if (msg['type'] == 'token-needed') {
-      final g = await api.chatGrant();              // your backend: {token, expires_at}
-      final out = jsonEncode({'v': 1, 'type': 'grant', 'token': g.token, 'expires_at': g.expiresAt});
-      await c.runJavaScript('window.hfy.receive(${jsonEncode(out)})');
-    }
-  })
-  ..loadRequest(Uri.parse('https://hfy.example.com/embed'));
-```
 
 React Native:
 
@@ -268,7 +253,7 @@ agent:
   mcp: [orders]        # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
 ```
 
-Every tool call carries `_meta["hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content. A background task may ship a display card in `_meta["hfy/ui"]` (see "Tool cards" below) — v1.1.0 renamed these keys from the old `io.github.alash3al.hfy/*` spelling; servers must send `hfy/turn` and `hfy/ui`.
+Every tool call carries `_meta["hfy/turn"] = {conversation, turn, call_id, agent, actor: {type, ref}, scope, vars}`. **Authorize inside the MCP server from `_meta.actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content. An opted-in tool result may ship a display card in `_meta["hfy/ui"]` (see "Tool cards" below) — v1.1.0 renamed these keys from the old `io.github.alash3al.hfy/*` spelling; servers must send `hfy/turn` and `hfy/ui`.
 
 Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help center as an MCP search tool (filtered by `_meta.actor`), and the agent calls it when needed. For small, fixed knowledge, put it in the system prompt or pass it via grant `vars`.
 
@@ -344,7 +329,7 @@ Enable it with `ask_user: true` on a top-level agent (not available to sub-agent
 
 ### Tool cards (`_meta["hfy/ui"]`)
 
-An MCP server can put a display card (or carousel) in a tool result's `_meta["hfy/ui"]`, and — when both the server (`mcp.<name>.ui` in hfy's config) and the agent (`ask_user: true`) allow — structured questions that attach to the tool's **own** call: the turn pauses on the real call, the viewer answers in the approval sheet, and the model receives the tool's text joined with `{"answers": {...}}`. hfy rebuilds the block server-side before any viewer sees it: unknown fields are dropped, strings clipped, urls filtered, limits enforced (32 KiB total, 6 kv rows, 3 buttons, 10 cards, payload ≤ 2 KiB). The model never sees the card. **Deploy hfy updated to this version before your MCP servers start returning `hfy/ui`: an older hfy instance stores unknown `_meta` keys untouched, and cards sent to them are simply never rendered.**
+An MCP server can put a display card (or carousel) in a tool result's `_meta["hfy/ui"]`, and — when both the server (`mcp.<name>.ui` in hfy's config) and the agent (`ask_user: true`) allow — structured questions that attach to the tool's **own** call: the turn pauses on the real call, the viewer answers in the approval sheet, and the model receives the tool's text joined with `{"answers": {...}}`. hfy rebuilds the block server-side before any viewer sees it: unknown fields are dropped, strings clipped, urls filtered, limits enforced (32 KiB total, 6 kv rows, 3 buttons, 10 cards, payload ≤ 2 KiB). The model never sees the card. **Upgrade every hfy instance before any MCP server starts sending `hfy/ui`: an older binary never reads `_meta`, so the whole feature is inert there. And do not enable `ui:` in a running cluster gradually: an older worker resuming a held ask after the viewer's answer was recorded ignores the unknown fields on the stored `approval.requested` and re-executes the tool. Upgrade all instances and drain in-flight held asks before enabling `ui:` anywhere; strict config (unknown keys stop startup) only protects a fresh start.**
 
 The block, sent as ordinary JSON under `_meta["hfy/ui"]`:
 
@@ -371,11 +356,11 @@ The `//` comments are doc-only. Questions never live on a button: they are a top
  "questions": {"questions": [{"id": "size", "text": "Which size?", "type": "single", "options": [{"value": "s", "label": "Small"}, {"value": "l", "label": "Large"}]}]}}
 ```
 
-A carousel is `{"v": 1, "type": "carousel", "cards": [<card>, ...]}` (up to 10). If the questions part is unusable the card survives; if the card part is unusable (no title and no body, bad carousel) only the questions survive — nothing renders, but the turn still pauses on their answers. Wrong `v` drops the whole block. An ui-carrying tool that **also** needs approval cannot ask: approval pauses first, and after it the questions are dropped (log a warning). Stopping the turn while the questions are open ends it with the held tool result plus "The user stopped before answering.".
+A carousel is `{"v": 1, "type": "carousel", "cards": [<card>, ...]}` (up to 10). If the questions part is unusable the card survives; if the card part is unusable (no title and no body, bad carousel) only the questions survive — nothing renders, but the turn still pauses on their answers; a questions-only block (no card at all) is allowed too, same behavior. Wrong `v` drops the whole block. An ui-carrying tool that **also** needs approval cannot ask: approval pauses first, and after it the questions are dropped (log a warning). Stopping the turn while the questions are open ends it with the held tool result plus "The user stopped before answering.".
 
 Host actions arrive as `{"v": 1, "type": "action", "name": "<name>", "payload": {...}, "call_id": "<call>"}` over the widget bridge (`window.HfyBridge.postMessage`, webkit messageHandlers, `chrome.webview`, ReactNativeWebView, or `postMessage` when framed); send the token the same way (`token-needed` / `hfy.receive`). Send buttons are live only on the viewer's own, current turn; link buttons always are.
 
-Mobile hosts: Android WebView needs the file-chooser callback (`onShowFileChooser` → Activity result) wired for document/attachment picking, and Flutter's `file_selector`/`webview_flutter` plugin equivalents; both are documented here, not device-tested.
+Mobile hosts: Android WebView needs the file-chooser callback (`onShowFileChooser` → Activity result) wired for document/attachment picking; this is documented here, not device-tested.
 
 ### Approvals
 
