@@ -153,23 +153,7 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 			// joined with the answers (a decline or a timeout just tells the
 			// model the viewer passed). The client's d.Result is ignored.
 			req := v.RequestData[c.CallID]
-			var text string
-			switch {
-			case d.Approve:
-				text = answersText(d.Answers)
-				if text == "" {
-					text = strings.TrimSpace(promptDeclined)
-				}
-			case d.Reason == "timeout":
-				text = strings.TrimSpace(promptTimeout)
-			default:
-				text = strings.TrimSpace(promptDeclined)
-			}
-			content := req.Held.Content
-			if content != "" && text != "" {
-				content += "\n\n"
-			}
-			content += text
+			content := svc.HeldResultText(req, d, true)
 			if err := sink.CallFinished(ctx, info, mcp.Result{Content: content, Structured: req.Held.Structured, UI: req.UI}); err != nil {
 				return err
 			}
@@ -177,9 +161,9 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 			// Never re-run an answered ask: the decision's answers ARE the
 			// tool result, exactly this JSON (strictly; an old decision without
 			// answers falls back to the declined text).
-			text := answersText(d.Answers)
+			text := svc.AnswersText(d.Answers)
 			if text == "" {
-				text = strings.TrimSpace(promptDeclined)
+				text = promptDeclined
 			}
 			if err := sink.CallFinished(ctx, info, mcp.Result{Content: text}); err != nil {
 				return err
@@ -189,9 +173,9 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 			if text == "" {
 				if c.Name == svc.AskUserTool { // declined or timed out: the model continues gracefully
 					if d.Reason == "timeout" {
-						text = strings.TrimSpace(promptTimeout)
+						text = promptTimeout
 					} else {
-						text = strings.TrimSpace(promptDeclined)
+						text = promptDeclined
 					}
 				} else {
 					text = strings.TrimSpace(promptRejected)
@@ -228,22 +212,6 @@ func (rt *Runtime) resolveDangling(ctx context.Context, l *loop, sink *turnSink,
 		}
 	}
 	return nil
-}
-
-// answersText renders a decision's answers as the tool_result text, an object
-// re-marshaled from what the stored event decoded to (Postgres re-orders jsonb
-// object keys, so only decoding yields a stable order). Empty when the
-// decision's answers are unusable.
-func answersText(raw json.RawMessage) string {
-	var answ map[string]any
-	if json.Unmarshal(raw, &answ) != nil || answ == nil {
-		return ""
-	}
-	b, err := json.Marshal(map[string]any{"answers": answ})
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 func (rt *Runtime) findTool(ctx context.Context, full string) (mcp.Tool, bool) {

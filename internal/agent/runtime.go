@@ -33,11 +33,12 @@ var promptInterrupted string
 //go:embed prompts/rejected.txt
 var promptRejected string
 
-//go:embed prompts/declined.txt
-var promptDeclined string
-
-//go:embed prompts/timeout.txt
-var promptTimeout string
+// The declined/timeout notes are shared with svc (HeldResultText), which
+// ends turns with them; one source of truth, svc/prompts.
+var (
+	promptDeclined = svc.PromptDeclined
+	promptTimeout  = svc.PromptTimeout
+)
 
 //go:embed prompts/repeated.txt
 var promptRepeated string

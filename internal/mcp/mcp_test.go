@@ -31,7 +31,7 @@ func TestLocalClientListsAndCalls(t *testing.T) {
 	m.Add(c)
 
 	tools, errs := m.Tools(ctx, nil)
-	if len(errs) > 0 || len(tools) != 10 { // echo, write_file, whoami, getenv, boom, slow, ui, ui_ask, ui_boom, ui_silent
+	if len(errs) > 0 || len(tools) != 12 { // echo, write_file, whoami, getenv, boom, slow, ui, ui_ask, ui_questions, ui_ask_stop, ui_boom, ui_silent
 		t.Fatalf("tools=%v errs=%v", tools, errs)
 	}
 	if tools[0].FullName() != "files.boom" || mcp.WireName(tools[0]) != "files__boom" {

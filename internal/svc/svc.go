@@ -206,8 +206,10 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, conversationID, turn
 		return false, err
 	}
 	// A tool that ran and asked questions holds its finished result until its
-	// questions are decided. If the turn now ends first (stop or exhaustion),
-	// the model still gets its one tool_result, as an unanswered one.
+	// questions are decided. If the turn now ends first (stop, unknown agent,
+	// exhaustion, a stop after the user already answered but before the resume
+	// ran) the model still gets its one tool_result, exactly what the resume
+	// would have served, so it never re-runs a tool that took effect.
 	events, err := s.store.TurnEvents(ctx, tx, turnID)
 	if err != nil {
 		return false, err
@@ -218,15 +220,12 @@ func (s *Service) endTurnTx(ctx context.Context, tx pgx.Tx, conversationID, turn
 	}
 	for _, c := range v.Calls {
 		req := v.RequestData[c.CallID]
-		if _, decided := v.Decided[c.CallID]; req.Held == nil || v.Done[c.CallID] || decided {
+		if req.Held == nil || v.Done[c.CallID] {
 			continue
 		}
-		text := "The user stopped before answering."
-		if h := req.Held.Content; h != "" {
-			text = h + "\n\n" + text
-		}
+		d, decided := v.Decided[c.CallID]
 		if err := s.appendTo(ctx, tx, events[0], main, types.ToolResult{CallID: c.CallID,
-			Content: text, Structured: req.Held.Structured, UI: req.UI}); err != nil {
+			Content: HeldResultText(req, d, decided), Structured: req.Held.Structured, UI: req.UI}); err != nil {
 			return false, err
 		}
 	}

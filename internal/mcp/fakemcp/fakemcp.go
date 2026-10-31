@@ -5,6 +5,7 @@ package fakemcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"time"
 
@@ -68,6 +69,27 @@ func MaybeRun() {
 	sdk.AddTool(s, &sdk.Tool{Name: "ui_silent", Description: "Return ui _meta with no content blocks"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Quiet card"}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_questions", Description: "Return questions with no card part"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "just asking"}},
+				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1,
+					"questions": map[string]any{"questions": []any{map[string]any{"id": "pitch",
+						"text": "Which?", "type": "single", "options": []string{"up", "down"}}}}}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask_stop", Description: "Ask for a stop, then return questions"},
+		func(ctx context.Context, req *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			// The test plays the stop requestor: one post, awaited, so the
+			// cancel_requested event is committed before the result returns.
+			res, err := http.Post(os.Getenv("HFY_STOP_URL"), "text/plain", nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			res.Body.Close()
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "your pizza, pick a size"}},
+				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Order",
+					"questions": map[string]any{"questions": []any{map[string]any{"id": "size",
+						"text": "Which size?", "type": "single", "options": []string{"small", "large"}}}}}}}, nil, nil
 		})
 	sdk.AddTool(s, &sdk.Tool{Name: "boom", Description: "Always fails"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {

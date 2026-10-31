@@ -1,8 +1,11 @@
 package agent_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -182,6 +185,137 @@ func TestToolQuestionsDeclinedOrTimedOut(t *testing.T) {
 			t.Fatalf("timed-out tool_result: %v\n%s", r, e.dump(turn))
 		}
 	})
+}
+
+// A stop after the user answered but before the resume ran must not lose the
+// answers: the model gets exactly one tool_result, the held result joined
+// with them, and the resume never re-runs the tool.
+func TestToolQuestionsAnsweredThenStopped(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		askSettings(c)
+		c.Queue.Workers = 0 // this test plays the worker itself
+	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask"}}},
+		fakeprov.Step{Content: "size noted"},
+	)
+	turn := e.post("order it")
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "a", Approve: true, Answers: []byte(`{"size":"large"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.rt.Svc.Stop(e.ctx, e.conv.ID, e.user); err != nil { // before the resume can run
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateStopped)
+	r := e.find(turn, types.EventToolResult)
+	want := "your pizza, pick a size\n\n" + `{"answers":{"size":"large"}}`
+	if len(r) != 1 || r[0]["content"] != want {
+		t.Fatalf("answered-then-stopped tool_result: %v\n%s", r, e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventToolCallInterrupted)); n != 0 {
+		t.Fatalf("the answered call was marked interrupted\n%s", e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 1 {
+		t.Fatalf("approval requests: %d\n%s", n, e.dump(turn))
+	}
+}
+
+// The stop may land while the loop is still holding: the cancel is already in
+// the log when the loop asks for the approval. The computed result is then
+// stored once as dropped, one tool_result, not an interrupted marker.
+func TestToolQuestionsStoppedMidHold(t *testing.T) {
+	var (
+		store  *db.Store
+		convID int64
+		turn   int64
+	)
+	stop := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		user, _ := store.FindOrCreateActor(context.Background(), store.Pool, types.ActorExternal, "u1")
+		store.AppendEvent(context.Background(), store.Pool, db.NewEvent{ConversationID: convID,
+			ParentID: &turn, ActorID: user, Scope: "u1", Payload: types.TurnCancelRequested{}})
+	}))
+	defer stop.Close()
+	e := setup(t, func(c *config.Config) {
+		askSettings(c)
+		c.Queue.Workers = 0
+		srv := c.MCP["files"]
+		srv.Environment["HFY_STOP_URL"] = stop.URL
+		c.MCP["files"] = srv
+	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask_stop"}}},
+		fakeprov.Step{Content: "size noted"},
+	)
+	store, convID = e.store, e.conv.ID
+	turn = e.post("order it")
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateStopped)
+	r := e.find(turn, types.EventToolResult)
+	want := "your pizza, pick a size\n\nThe user stopped before answering."
+	if len(r) != 1 || r[0]["content"] != want {
+		t.Fatalf("mid-hold stopped tool_result: %v\n%s", r, e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventToolCallInterrupted)); n != 0 {
+		t.Fatalf("the held call was marked interrupted\n%s", e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 0 {
+		t.Fatalf("no approval may be requested after the stop\n%s", e.dump(turn))
+	}
+}
+
+// Without the ask_user opt-in a tool's questions are dropped with only the
+// card kept: the result is the tool's text, the card rides it, nothing pauses.
+func TestToolQuestionsWithoutAskUser(t *testing.T) {
+	e := setup(t, func(c *config.Config) { // no AskUser
+		c.Agent.MCP = []string{"files"}
+		uiServer(c)
+	},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask"}}},
+		fakeprov.Step{Content: "size, whatever"},
+	)
+	turn := e.post("order it")
+	e.waitState(turn, types.StateCompleted)
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 0 {
+		t.Fatalf("a non-asking agent must not pause\n%s", e.dump(turn))
+	}
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != 1 || r[0]["content"] != "your pizza, pick a size" {
+		t.Fatalf("tool result: %v\n%s", r, e.dump(turn))
+	}
+	if card, _ := r[0]["ui"].(map[string]any); card == nil || card["title"] != "Order" {
+		t.Fatalf("card: %v", r[0]["ui"])
+	}
+}
+
+// A sub-agent never pauses on a tool's questions either: its run is not
+// stored, so the card is alone with the questions and there is no approval.
+func TestSubagentGetsNoPause(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		uiServer(c)
+		c.Subagents = map[string]config.Subagent{"orders": {
+			Description: "Handles orders", Model: "fake/m", System: "Orders.",
+			MCP: []string{"files"},
+		}}
+	},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "r", Name: "hfy__orders", Args: `{"task":"order it"}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask"}}},
+		fakeprov.Step{Content: "picked"},
+		fakeprov.Step{Content: "order placed"},
+	)
+	turn := e.post("place it")
+	e.waitState(turn, types.StateCompleted)
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 0 {
+		t.Fatalf("a sub-agent must not pause\n%s", e.dump(turn))
+	}
+	if e.state(turn) == types.StateAwaitingApproval {
+		t.Fatalf("paused\n%s", e.dump(turn))
+	}
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != 1 || r[0]["content"] != "picked" {
+		t.Fatalf("tool result: %v\n%s", r, e.dump(turn))
+	}
 }
 
 // Answers that fail the stored questions refuse the decision; only the

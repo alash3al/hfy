@@ -351,6 +351,15 @@ func (l *loop) holdForQuestions(ctx context.Context, info CallInfo, res mcp.Resu
 	req := types.ApprovalRequested{CallID: info.ID, Questions: res.Questions, UI: res.UI,
 		Held: &types.HeldResult{Content: res.Content, Structured: res.Structured}}
 	if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, req, timeout); err != nil {
+		if errors.Is(err, svc.ErrStopRequested) {
+			// The stop won the race but the tool ran: its result must still
+			// land as the one tool_result, or the model may re-run it.
+			if ferr := l.finishCall(context.WithoutCancel(ctx), info, mcp.Result{
+				Content:    svc.HeldResultText(req, types.ApprovalDecided{}, false),
+				Structured: res.Structured, UI: res.UI}); ferr != nil {
+				return callOutcome{}, ferr
+			}
+		}
 		return callOutcome{}, err
 	}
 	return callOutcome{paused: true}, nil
