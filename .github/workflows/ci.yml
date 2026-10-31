@@ -25,7 +25,8 @@ jobs:
         with:
           go-version-file: go.mod
       # The shared fixtures (TestFixturesMatchJS) fold the real embed/ui.js
-      # under node; the test skip-hides when it is missing, so install it here.
+      # under node; under HFY_TEST_REQUIRE_DB=1 the test fails when it is
+      # missing (no skip), so install it here.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
