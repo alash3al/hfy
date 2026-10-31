@@ -20,7 +20,7 @@ UNVERIFIED ledger (all UNVERIFIED-flagged items in this matrix, so they are not 
 | ID | Behavior | Source | Dart | Test | Status |
 |---|---|---|---|---|---|
 | P-CLIENT-001 | The client listens to exactly these 14 named SSE event types: `turn`, `turn.state`, `turn.cancel_requested`, `message.text`, `reasoning`, `tool_call`, `tool_call.interrupted`, `tool_result`, `approval.requested`, `approval.decided`, `model.usage`, `summary`, `text.delta`, `reasoning.delta`, plus unnamed frames. | client.js:5-9,271-274 | client/hfy_client.dart | unit | todo |
-| P-CLIENT-002 | `parseExpiryMs` extracts the grant expiry tolerantly: `expires_at` or `expiresAt`; a `Date`, epoch seconds (`< 1e12` → ×1000) or ms, an RFC3339 string, or a numeric string with the same seconds/ms rule; anything else → `null` (no proactive refresh). | client.js:12-25,17,22 | client/hfy_token.dart | unit | todo |
+| P-CLIENT-002 | `parseExpiryMs` extracts the grant expiry tolerantly: `expires_at` or `expiresAt`; a `Date`, epoch seconds (`< 1e12` → ×1000) or ms, an RFC3339 string, or a numeric string with the same seconds/ms rule; anything else → `null` (no proactive refresh). | client.js:12-25,17,22 | client/hfy_token.dart | unit | done (1a) |
 | P-CLIENT-003 | Constructing requires `onTokenNeeded`; without it a `TypeError` is thrown immediately. | client.js:57-59 | client/hfy_client.dart | unit | todo |
 | P-CLIENT-004 | `api` defaults to the page origin and always has trailing slashes stripped. | client.js:61-64 | client/hfy_client.dart | unit | todo |
 | P-CLIENT-005 | Proactive refresh skew `refreshSkewMs` defaults to 30000 ms and is injectable. | client.js:69 | client/hfy_client.dart | unit | todo |
