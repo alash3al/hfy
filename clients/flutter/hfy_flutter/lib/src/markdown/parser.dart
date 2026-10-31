@@ -92,9 +92,16 @@ const int hfyMdIsolateThreshold = 32768;
 ///
 /// Text longer than [hfyMdMaxInput] comes back as plain paragraphs, one per run
 /// of non-blank lines, with no inline or block syntax (see [_plainParagraphs]).
-/// The cap bounds memory, not time: the UI should still run this off the main
-/// isolate (`compute` or `Isolate.run`) for text over [hfyMdIsolateThreshold]
-/// characters (32 KiB).
+/// The cap bounds memory, not time, and not the block count: 5 MB of `a` and
+/// blank lines gives about 1.7M blocks. The widget must render a capped number
+/// of them (truncate, or build them lazily), never all at once.
+///
+/// Widget-phase obligations (see lib/src/markdown/README.md):
+///   - run this off the main isolate (`compute` or `Isolate.run`) for text over
+///     [hfyMdIsolateThreshold] characters (32 KiB);
+///   - sanitize lone surrogates at the widget boundary, before the text is
+///     parsed or shown, with `utf8.decode(utf8.encode(s))`: each one becomes
+///     U+FFFD and valid pairs are kept (limits_test.dart pins this).
 List<HfyMdBlock> hfyMdParse(String text) {
   if (text.length > hfyMdMaxInput) return _plainParagraphs(text);
   final lines = text.replaceAll(_crlf, '\n').split('\n');

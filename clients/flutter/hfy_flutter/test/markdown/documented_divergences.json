@@ -145,6 +145,54 @@
     "browser": "https://xn--nicode-2ya.example/i.png"
   },
   {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--nicode-osa.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--elvin-r74b.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--le-1b1n.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--abc-jdc.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--a-dcp.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--ab-yu3n.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--ab-r13a.example/",
+    "browser": null
+  },
+  {
+    "group": "xn-label",
+    "kind": "href",
+    "input": "https://xn--ab-213n.example/",
+    "browser": null
+  },
+  {
     "group": "raw-space",
     "kind": "href",
     "input": "mailto:a b@x.example",

@@ -289,6 +289,17 @@ const divergences = [
   ['non-ascii-host', 'href', 'https://\u200bx.example/'],
   ['non-ascii-host', 'href', 'https://%C3%BC.example/'],
   ['non-ascii-host', 'url', 'https://ünicode.example/i.png', 'https://embed.example/'],
+  // xn-- labels whose decoded text the browser refuses (url.dart _isXnLabel).
+  // The NFC label (xn--cafe-yvc) and the mixed-digit bidi label (xn--1-9pc)
+  // still link here and are pinned in url_test.dart, not in this table.
+  ['xn-label', 'href', 'https://xn--nicode-osa.example/'],     // Ünicode, uppercase
+  ['xn-label', 'href', 'https://xn--elvin-r74b.example/'],     // U+212A Kelvin sign + elvin
+  ['xn-label', 'href', 'https://xn--le-1b1n.example/'],        // U+FB01 ﬁle
+  ['xn-label', 'href', 'https://xn--abc-jdc.example/'],        // U+0301 + abc
+  ['xn-label', 'href', 'https://xn--a-dcp.example/'],          // U+2488 ⒈ + a
+  ['xn-label', 'href', 'https://xn--ab-yu3n.example/'],        // a U+FF0E b
+  ['xn-label', 'href', 'https://xn--ab-r13a.example/'],        // a U+3002 b
+  ['xn-label', 'href', 'https://xn--ab-213n.example/'],        // a U+FF61 b
   // a mailto path with a raw space: the browser keeps the space
   ['raw-space', 'href', 'mailto:a b@x.example'],
 ];

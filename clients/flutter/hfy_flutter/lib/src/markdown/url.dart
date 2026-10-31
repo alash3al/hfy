@@ -769,22 +769,49 @@ List<int>? _punyDecode(String input) {
   return output;
 }
 
-// An "xn--" label must decode to non-ASCII text free of controls, format,
-// separator, private, unassigned and surrogate code points.
-// shortcut: the RFC 3492 canonical re-encode check is not reproduced, so a
-// non-canonical label passes where the browser may refuse it (the DNS name is
-// the same either way); upgrade with an encoder if that difference matters.
+// An "xn--" label must decode to non-ASCII text the browser would also link.
+// Checked against the browser on every single-code-point label (ui.js under
+// node's URL, 1.1M code points): the rules below refuse no label the browser
+// links, except the marks named in the first one.
+//   - no control, format, separator, private, unassigned or surrogate code
+//     point (the original check);
+//   - not led by a combining mark: the browser also links 154 such marks
+//     (U+0897 among them), which fail closed here;
+//   - unchanged by toLowerCase(): uppercase letters and the Kelvin sign are
+//     refused, the browser maps them to other labels;
+//   - no dot variant (U+3002, U+FF0E, U+FF61, U+002E): the browser splits there;
+//   - no compatibility ligature (U+FB00-U+FB06, U+FB13-U+FB17) and no enclosed
+//     alphanumeric (U+2460-U+24EA): the browser refuses all of them.
+// shortcut: the other UTS #46 validity rules are not reproduced. A label that is
+// not NFC (cafe + U+0301), mixes Arabic-Indic and ASCII digits, or is another
+// compatibility letter or digit (U+FF41, U+1D41A, U+017F) still links where the
+// browser refuses it; upgrade with an IDNA table once such a host must not link.
+// The RFC 3492 canonical re-encode is not reproduced either.
 final RegExp _xnBadChar = RegExp(
   r'[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Z}\u{FFFD}]',
   unicode: true,
 );
 
+final RegExp _xnLeadMark = RegExp(r'^\p{M}', unicode: true);
+
 bool _isXnLabel(String encoded) {
   final decoded = _punyDecode(encoded);
   if (decoded == null || decoded.isEmpty) return false;
   if (decoded.every((cp) => cp < 0x80)) return false;
-  return decoded.every((cp) => !_xnBadChar.hasMatch(_cpString(cp)));
+  if (!decoded.every((cp) => !_xnBadChar.hasMatch(_cpString(cp)))) return false;
+  final text = String.fromCharCodes(decoded);
+  if (_xnLeadMark.hasMatch(text) || text != text.toLowerCase()) return false;
+  return decoded.every((cp) => !_xnRefusedCp(cp));
 }
+
+bool _xnRefusedCp(int cp) =>
+    cp == 0x2E ||
+    cp == 0x3002 ||
+    cp == 0xFF0E ||
+    cp == 0xFF61 ||
+    (cp >= 0xFB00 && cp <= 0xFB06) ||
+    (cp >= 0xFB13 && cp <= 0xFB17) ||
+    (cp >= 0x2460 && cp <= 0x24EA);
 
 // ---- percent-encoding (WHATWG "percent-encode sets") ----
 

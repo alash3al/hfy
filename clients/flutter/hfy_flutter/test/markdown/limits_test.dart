@@ -4,6 +4,7 @@
 // The isolate threshold is the widget phase's cue to parse off the main
 // isolate.
 
+import 'dart:convert' show utf8;
 import 'dart:io' show ProcessInfo;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -126,5 +127,20 @@ void main() {
         {'t': 'text', 'v': 'see $url'},
       ],
     });
+  });
+
+  test('widget phase: past the cap the block count is not capped, so the '
+      'widget must cap what it builds', () {
+    final blocks = hfyMdParse(_repeat('a\n\n', 100000));
+    expect(blocks, hasLength(100000));
+  });
+
+  test('widget phase: utf8 round trip turns each lone surrogate into U+FFFD '
+      'and keeps a valid pair', () {
+    const lone = 'x\uD800y\uDC00z';
+    expect(utf8.decode(utf8.encode(lone)).codeUnits,
+        [0x78, 0xFFFD, 0x79, 0xFFFD, 0x7A]);
+    const pair = '\u{1F600}';
+    expect(utf8.decode(utf8.encode(pair)), pair);
   });
 }

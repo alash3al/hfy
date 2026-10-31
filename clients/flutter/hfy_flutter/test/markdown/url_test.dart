@@ -82,6 +82,45 @@ void main() {
     }
   });
 
+  group('P-MD-011 IDNA: xn-- labels the browser refuses fail closed', () {
+    for (final raw in const [
+      'https://xn--nicode-osa.example', // Ünicode: uppercase
+      'https://xn--elvin-r74b.example', // U+212A Kelvin sign, then elvin
+      'https://xn--le-1b1n.example', // U+FB01 ﬁle: compatibility ligature
+      'https://xn--abc-jdc.example', // U+0301 abc: a leading mark
+      'https://xn--a-dcp.example', // U+2488 ⒈a: enclosed digit
+      'https://xn--ab-yu3n.example', // a U+FF0E b: fullwidth dot
+      'https://xn--ab-r13a.example', // a U+3002 b: ideographic dot
+      'https://xn--ab-213n.example', // a U+FF61 b: halfwidth ideographic dot
+    ]) {
+      test(raw, () => expect(_href(raw), isNull));
+    }
+    for (final (raw, want) in const [
+      ('https://xn--a-dha.example', 'https://xn--a-dha.example/'), // üa
+      ('https://xn--9hb.example', 'https://xn--9hb.example/'),
+    ]) {
+      test('positive control $raw', () => expect(_href(raw), want));
+    }
+  });
+
+  group('P-MD-011 IDNA: known leftovers and over-refusal (url.dart shortcut)', () {
+    // The browser refuses these and Dart links them: pinned, so a fix shows up
+    // as a failing row here.
+    for (final (raw, want) in const [
+      ('https://xn--cafe-yvc.example', 'https://xn--cafe-yvc.example/'), // NFC
+      ('https://xn--1-9pc.example', 'https://xn--1-9pc.example/'), // bidi
+      ('https://xn--b-yq0i.example', 'https://xn--b-yq0i.example/'), // ａb
+      ('https://xn--b-mp9q.example', 'https://xn--b-mp9q.example/'), // 𝐚b
+      ('https://xn--t-uoa.example', 'https://xn--t-uoa.example/'), // ſt
+    ]) {
+      test('leftover $raw still links', () => expect(_href(raw), want));
+    }
+    // The browser links this single mark label; the leading-mark rule refuses it.
+    test('a leading mark the browser links (U+0897) fails closed', () {
+      expect(_href('https://xn--gyb.example'), isNull);
+    });
+  });
+
   group('P-MD-011 percent-encode sets and paths', () {
     for (final (raw, want) in const [
       ('https://x/a^b', 'https://x/a%5Eb'),
