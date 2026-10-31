@@ -161,6 +161,96 @@ func TestEmbedCardJS(t *testing.T) {
 	}
 }
 
+// A stop lands as a tool_result plus a terminal turn state, never as an
+// approval.decided: the pending ask settles to "Stopped", the sheet closes
+// and the pill disappears, on the live-event path and the history path alike.
+func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("no node")
+	}
+	src, err := os.ReadFile("embed/ui.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := strconv.Quote(string(src) + `
+;return {hfyEmbed: window.hfyEmbed, setClient: function (v) { hfyClient = v }};`)
+	driver := `
+		var win = { addEventListener: function () {} };
+		win.parent = win;
+		var doc = { addEventListener: function () {}, querySelector: function () { return null },
+			querySelectorAll: function () { return [] } };
+		var nav = { language: 'en' };
+		var api = new Function('window', 'document', 'navigator', 'requestAnimationFrame', ` + quoted + `)(win, doc, nav, function () {});
+		var agent = { type: 'agent', ref: 'main', uuid: 'agent-main' },
+			u1 = { type: 'external', ref: 'u1', uuid: 'u1' };
+		function env(type, data, actor, parent, id) {
+			return { id: id || (env.seq = (env.seq || 1000) + 1), type: type, parent: parent, actor: actor,
+				data: data, created_at: '2026-01-02T10:00:00Z' };
+		}
+		function blockOf(c, callId) {
+			for (var i = 0; i < c.turns.length; i++) {
+				var bs = c.turns[i].blocks;
+				for (var j = 0; j < bs.length; j++) if (bs[j].kind === 'tool' && bs[j].callId === callId) return bs[j];
+			}
+			throw new Error('no tool block ' + callId);
+		}
+		function truthy(v, m) { if (!v) throw new Error('falsy: ' + m) }
+		function falsy(v, m) { if (v) throw new Error('truthy: ' + m + ' ' + JSON.stringify(v)) }
+		function settled(c, b, m) {
+			falsy(b.showApproval, m + ': approval cleared');
+			falsy(b.showPendingOwn, m + ': no row awaits the viewer');
+			if (b.hasQuestions) {
+				truthy(b.askState === 'stopped', m + ': ask settled to stopped');
+				truthy(b.askStateText === 'Stopped', m + ': row label says Stopped');
+				falsy(b.askCanOpen, m + ': no Open button');
+			}
+		}
+		function drive(isH) {
+			var c = api.hfyEmbed(); api.setClient({ viewer: { uuid: 'u1' } });
+			// the wire sequence a stopped ask produces: turn, text, call,
+			// questions held (approval.requested), the one tool_result, then stopped
+			c.fold(env('turn', { agent: '' }, u1, 0, 101), isH);
+			c.fold(env('message.text', { text: 'ask me' }, u1, 101), isH);
+			c.fold(env('turn.state', { state: 'running' }, agent, 101), isH);
+			c.fold(env('tool_call', { call_id: '101-q', name: 'hfy.ask_user', arguments: {questions: [{id: 'a', text: 'How?', type: 'single', options: [{value: 'x', label: 'X'}]}]} }, agent, 101), isH);
+			c.fold(env('approval.requested', { call_id: '101-q', questions: {questions: [{id: 'a', text: 'How?', type: 'single', options: [{value: 'x', label: 'X'}]}]} }, agent, 101), isH);
+			c.relayout();
+			var q = blockOf(c, '101-q');
+			truthy(q.showApproval && q.askState === 'pending', isH + ': ask is pending before the stop');
+			truthy(c.pendingOwn.length === 1 && c.sheetOpen, isH + ': sheet is open');
+			truthy(c.showActionPill || c.pendingOwn.length, isH + ': action pill armed');
+			// also a plain approval in the same turn: same settle, no questions
+			c.fold(env('tool_call', { call_id: '101-p', name: 'shop.pay', arguments: '{}' }, agent, 101), isH);
+			c.fold(env('approval.requested', { call_id: '101-p' }, agent, 101), isH);
+			c.relayout();
+			truthy(c.pendingOwn.length === 2, isH + ': plain approval joins the sheet');
+			// the stop: tool_result (held text) then the terminal state
+			c.fold(env('tool_result', { call_id: '101-q', content: 'your pizza\n\nThe user stopped before answering.' }, agent, 101), isH);
+			settled(c, blockOf(c, '101-q'), isH + ': ask');
+			// the plain approval settles with the turn state, having no result of its own
+			c.fold(env('turn.state', { state: 'stopped' }, agent, 101), isH);
+			settled(c, blockOf(c, '101-p'), isH + ': plain approval');
+			var p = blockOf(c, '101-p');
+			truthy(p.status === 'interrupted', isH + ': plain approval shows Interrupted');
+			truthy(c.turns[0].state === 'stopped', isH + ': turn stopped');
+			falsy(c.sheetOpen, isH + ': sheet closed');
+			falsy(c.showActionPill, isH + ': pill gone');
+			truthy(c.pendingOwn.length === 0 && c.pendingCount === '0', isH + ': nothing pending');
+			// a late real decision still wins (never dropped by the settled flag)
+			c.fold(env('approval.decided', { call_id: '101-q', approve: true, answers: {a: 'x'} }, agent, 101), isH);
+			var qq = blockOf(c, '101-q');
+			truthy(qq.decision === 'allowed' && qq.askState === 'answered', isH + ': late decision overrides');
+			return true;
+		}
+		truthy(drive(false), 'live path');
+		truthy(drive(true), 'history path');
+	`
+	out, err := exec.Command("node", "-e", driver).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+}
+
 // The fold pass is pure JavaScript too: card buttons must settle from the
 // final folded state, on the live-event path and the history path alike.
 func TestEmbedFoldCardLiveness(t *testing.T) {

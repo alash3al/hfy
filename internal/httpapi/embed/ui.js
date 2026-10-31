@@ -16,7 +16,7 @@ var HFY_STRINGS = {
     actionNeeded: 'Action needed', waitingFor: 'Waiting for {name}', waitingYou: 'Waiting for your decision', open: 'Open', next: 'Next', back: 'Back', submit: 'Submit', stepOf: '{n} of {total}',
     yes: 'yes', no: 'no', photos: 'Photos', camera: 'Camera', document: 'Document', caption: 'Add a caption…', addMore: 'Add more', close: 'Close',
     discardTitle: 'Discard these attachments?', discard: 'Discard', keep: 'Keep editing', errType: 'This file type can’t be sent: {name}', errSize: 'Files must be at most {size}',
-    askTitle: 'Questions from the assistant', askWaiting: 'Waiting for your answers', askAnswered: 'Answered', askSkipped: 'Skipped', askTimeout: 'Not answered in time',
+    askTitle: 'Questions from the assistant', askWaiting: 'Waiting for your answers', askAnswered: 'Answered', askSkipped: 'Skipped', askTimeout: 'Not answered in time', askStopped: 'Stopped',
     questionOf: 'Question {n} of {total}', review: 'Review your answers', optional: 'Optional', chooseMany: 'Choose all that apply', noAnswer: 'No answer',
     confirmYes: 'Yes', confirmNo: 'No', edit: 'Edit', skipQuestions: 'Skip questions', skipConfirm: 'Skip these questions? The assistant will continue without your answers.', skip: 'Skip', cancel: 'Cancel' },
   ar: { title: 'المحادثة', placeholder: 'اكتب رسالة…', send: 'إرسال', stop: 'إيقاف', attach: 'إرفاق ملفات', thinking: 'التفكير', tool: 'أداة', interrupted: 'انقطعت', reconnecting: 'إعادة الاتصال…', refreshing: 'جارٍ التحديث…', ended: 'انتهت المحادثة', error: 'حدث خطأ ما', retry: 'إعادة المحاولة', loadOlder: 'تحميل الرسائل الأقدم', you: 'أنت', agent: 'المساعد', connecting: 'جارٍ الاتصال…',
@@ -25,7 +25,7 @@ var HFY_STRINGS = {
     actionNeeded: 'مطلوب إجراء', waitingFor: 'بانتظار {name}', waitingYou: 'بانتظار قرارك', open: 'فتح', next: 'التالي', back: 'السابق', submit: 'تأكيد', stepOf: '{n} من {total}',
     yes: 'نعم', no: 'لا', photos: 'الصور', camera: 'الكاميرا', document: 'مستند', caption: 'أضف تعليقًا…', addMore: 'إضافة المزيد', close: 'إغلاق',
     discardTitle: 'تجاهل هذه المرفقات؟', discard: 'تجاهل', keep: 'متابعة التعديل', errType: 'لا يمكن إرسال هذا النوع من الملفات: {name}', errSize: 'يجب ألا يتجاوز حجم الملف {size}',
-    askTitle: 'أسئلة من المساعد', askWaiting: 'بانتظار إجاباتك', askAnswered: 'تمت الإجابة', askSkipped: 'تم التخطي', askTimeout: 'لم تتم الإجابة في الوقت المحدد',
+    askTitle: 'أسئلة من المساعد', askWaiting: 'بانتظار إجاباتك', askAnswered: 'تمت الإجابة', askSkipped: 'تم التخطي', askTimeout: 'لم تتم الإجابة في الوقت المحدد', askStopped: 'تم الإيقاف',
     questionOf: 'السؤال {n} من {total}', review: 'راجع إجاباتك', optional: 'اختياري', chooseMany: 'اختر كل ما ينطبق', noAnswer: 'بدون إجابة',
     confirmYes: 'نعم', confirmNo: 'لا', edit: 'تعديل', skipQuestions: 'تخطي الأسئلة', skipConfirm: 'تخطي هذه الأسئلة؟ سيتابع المساعد دون إجاباتك.', skip: 'تخطي', cancel: 'إلغاء' }
 };
@@ -896,7 +896,7 @@ window.hfyEmbed = function () {
         text: '', images: [], files: [], hasImages: false, hasFiles: false, streaming: false, copied: false,
         isOwn: false, showBubbleName: false, nameCls: '', tickCls: '', tickLabel: '', endsInText: true, endsFor: null,
         callId: '', name: '', niceName: '', toolLabel: '', argsText: '', argsRaw: null, argLang: '', argList: [], hasArgList: false, showRawArgs: false,
-        status: '', statusCls: '', statusText: '', isRunning: false,
+        status: '', statusCls: '', statusText: '', isRunning: false, stopped: false,
         content: '', structuredText: '', showApproval: false, showSummary: false, showDetails: false, showDecided: false, showBadge: false, decision: '',
         decidedText: '', decidedCls: '', busy: false, hasDetails: false,
         showPendingOwn: false, showPendingOther: false, waitingText: '', choice: '', submitted: false,
@@ -939,6 +939,22 @@ window.hfyEmbed = function () {
       return b.ref || this.t('you');
     },
 
+    // A call still on its viewer's approval when the turn ends settles without
+    // a decision event: the server appends only its one tool_result and the
+    // terminal turn state (no approval.decided), so the ask row closes, the
+    // sheet closes and the pill disappears. Idempotent and late-safe: a real
+    // approval.decided arriving later still overrides (it never checks stopped).
+    settleCall: function (b) {
+      b.showApproval = false; b.showDecided = true; b.stopped = true; b.busy = false;
+      if (b.status === 'running') this.setToolStatus(b, 'interrupted');
+    },
+    settleCalls: function (turn) {
+      var self = this;
+      turn.blocks.forEach(function (b) {
+        if (b.isTool && b.showApproval && !b.showDecided) self.settleCall(b);
+      });
+    },
+
     fold: function (env, isHistory) {
       if (!env || !env.type) return;
       var list = (isHistory && this._collecting) || this.turns, d = hfyData(env.data);
@@ -949,7 +965,9 @@ window.hfyEmbed = function () {
           turn = this.ensureTurn(list, turnId); turn.agent = d.agent || turn.agent; break;
         case 'turn.state':
           turn = this.ensureTurn(list, turnId); turn.stateSeen = true; turn.state = d.state || turn.state;
-          if (d.error) turn.error = d.error; break;
+          if (d.error) turn.error = d.error;
+          // a turn that ends takes its as-yet-undecided calls with it
+          if (HFY_TERMINAL.indexOf(turn.state) !== -1) this.settleCalls(turn); break;
         case 'message.text': {
           turn = this.ensureTurn(list, turnId);
           var isAgent = !!(env.actor && env.actor.type === 'agent');
@@ -991,7 +1009,10 @@ window.hfyEmbed = function () {
           // an ask's result is {"answers": {...}}: the fallback when the decision event carried none
           if (b.isAsk && !b.finalAnswers) { var res = hfyData(b.content); if (res && res.answers && typeof res.answers === 'object') b.finalAnswers = res.answers; }
           if (d.ui != null) b.uiCard = d.ui;
-          if (d.structured != null) b.structuredText = hfyPretty(d.structured); break;
+          if (d.structured != null) b.structuredText = hfyPretty(d.structured);
+          // a held call's result arrives without a decision only when the turn
+          // took it (a resume always folds approval.decided first)
+          if (b.showApproval && !b.showDecided) this.settleCall(b); break;
         case 'tool_call.interrupted':
           turn = this.ensureTurn(list, turnId);
           b = this.findTool(turn, d.call_id); if (b) this.setToolStatus(b, 'interrupted'); break;
@@ -1041,11 +1062,13 @@ window.hfyEmbed = function () {
       if (b.showApproval) state = own ? 'pending' : 'other';
       else if (b.decision === 'allowed') state = 'answered';
       else if (b.decision === 'denied') state = b.declineReason === 'timeout' ? 'timeout' : 'skipped';
+      else if (b.stopped) state = 'stopped';
       else state = 'asking';
       var answers = state === 'answered' && b.finalAnswers ? b.finalAnswers : null;
       b.askState = state;
       b.askCls = 'is-' + state;
-      b.askStateText = state === 'pending' ? this.t('askWaiting') : state === 'other' ? waitOther : state === 'answered' ? this.t('askAnswered')
+      b.askStateText = state === 'pending' ? this.t('askWaiting') : state === 'other' ? waitOther
+        : state === 'answered' ? this.t('askAnswered') : state === 'stopped' ? this.t('askStopped')
         : state === 'timeout' ? this.t('askTimeout') : state === 'skipped' ? this.t('askSkipped') : '';
       b.askCanOpen = state === 'pending';
       b.askRows = answers ? b.questions.map(function (q) { return { k: q.id, q: q.text, a: hfyAnswerText(q, answers[q.id], L) }; }) : [];

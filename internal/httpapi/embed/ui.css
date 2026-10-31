@@ -417,7 +417,7 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-ask-head{display:flex;align-items:center;gap:8px;min-height:32px}
 .hfy-ask-head>.hfy-i{width:16px;height:16px;color:var(--hfy-accent-text)}
 .hfy-ask-head .hfy-appr-text{flex:1}
-.hfy-ask-rec.is-skipped .hfy-appr-wait,.hfy-ask-rec.is-timeout .hfy-appr-wait{color:var(--hfy-warn)}
+.hfy-ask-rec.is-skipped .hfy-appr-wait,.hfy-ask-rec.is-timeout .hfy-appr-wait,.hfy-ask-rec.is-stopped .hfy-appr-wait{color:var(--hfy-warn)}
 .hfy-ask-rec.is-answered .hfy-appr-wait{color:var(--hfy-ok)}
 .hfy-ask-rows{display:grid;gap:6px;margin:0;padding:8px 10px;border-radius:var(--r2);background:var(--hfy-surface-2)}
 .hfy-ask-row dt{font-size:12px;color:var(--hfy-muted)}
