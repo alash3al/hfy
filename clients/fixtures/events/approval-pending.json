@@ -1,0 +1,199 @@
+{
+  "name": "approval-pending",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:01:07Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Book a table for me"
+      },
+      "created_at": "2026-01-02T10:01:08Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:01:09Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.book",
+        "call_id": "t1-c1",
+        "arguments": {
+          "table": 4
+        }
+      },
+      "created_at": "2026-01-02T10:01:10Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "approval.requested",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1"
+      },
+      "created_at": "2026-01-02T10:01:11Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:01:12Z"
+    },
+    {
+      "id": "turn-2",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:01:13Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "text": "And one for me too"
+      },
+      "created_at": "2026-01-02T10:01:14Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:01:15Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "tool_call",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.book",
+        "call_id": "t2-c1",
+        "arguments": {
+          "table": 5
+        }
+      },
+      "created_at": "2026-01-02T10:01:16Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "approval.requested",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t2-c1"
+      },
+      "created_at": "2026-01-02T10:01:17Z"
+    },
+    {
+      "id": "ev-11",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:01:18Z"
+    }
+  ]
+}

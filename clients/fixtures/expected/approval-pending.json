@@ -1,0 +1,90 @@
+{
+  "hasOlder": false,
+  "name": "approval-pending",
+  "path": "live",
+  "pendingOwn": [
+    "t1-c1"
+  ],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:01:08.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Book a table for me"
+        },
+        {
+          "args": {
+            "table": 4
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:01:10.000Z",
+          "kind": "tool",
+          "name": "shop.book",
+          "showApproval": true,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": true,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-7",
+          "iso": "2026-01-02T10:01:14.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "streaming": false,
+          "text": "And one for me too"
+        },
+        {
+          "args": {
+            "table": 5
+          },
+          "callId": "t2-c1",
+          "cardButtonsLive": false,
+          "content": "",
+          "id": "ev-9",
+          "isAsk": false,
+          "iso": "2026-01-02T10:01:16.000Z",
+          "kind": "tool",
+          "name": "shop.book",
+          "showApproval": true,
+          "showDecided": false,
+          "showPendingOther": true,
+          "showPendingOwn": false,
+          "status": "running",
+          "stopped": false
+        }
+      ],
+      "id": "turn-2",
+      "own": false,
+      "showTyping": false,
+      "state": "awaiting_approval"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

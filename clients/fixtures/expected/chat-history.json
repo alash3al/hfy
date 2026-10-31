@@ -1,0 +1,32 @@
+{
+  "hasOlder": false,
+  "name": "chat-history",
+  "path": "history",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "ev-6",
+          "iso": "2026-01-02T10:00:09.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Hello, world!"
+        }
+      ],
+      "id": "turn-1",
+      "own": false,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

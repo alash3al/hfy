@@ -1,0 +1,175 @@
+{
+  "name": "approval-allow",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:47Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Order a pizza"
+      },
+      "created_at": "2026-01-02T10:00:48Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:00:49Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.pay",
+        "call_id": "t1-c1",
+        "arguments": {
+          "amount": 9,
+          "currency": "EUR"
+        }
+      },
+      "created_at": "2026-01-02T10:00:50Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "approval.requested",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1"
+      },
+      "created_at": "2026-01-02T10:00:51Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:00:52Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "approval.decided",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "approve": true
+      },
+      "created_at": "2026-01-02T10:00:53Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "Payment accepted.",
+        "ui": {
+          "v": 1,
+          "type": "card",
+          "title": "Payment",
+          "body": "EUR 12.50 to Pizza Place",
+          "badge": "EUR 12"
+        }
+      },
+      "created_at": "2026-01-02T10:00:54Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Your pizza is on its way."
+      },
+      "created_at": "2026-01-02T10:00:55Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:00:56Z"
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "name": "card-nonowner",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:49Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u2",
+        "type": "external",
+        "ref": "u2"
+      },
+      "v": 1,
+      "data": {
+        "text": "from someone else"
+      },
+      "created_at": "2026-01-02T10:02:50Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:02:51Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.pay",
+        "call_id": "t1-c1",
+        "arguments": {}
+      },
+      "created_at": "2026-01-02T10:02:52Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "ok",
+        "ui": {
+          "v": 1,
+          "type": "card",
+          "title": "Margherita",
+          "subtitle": "Classic",
+          "body": "Tomato, mozzarella",
+          "badge": "EUR 9",
+          "kv": [
+            {
+              "label": "Size",
+              "value": "L"
+            },
+            {
+              "label": "Crust",
+              "value": "Thin"
+            }
+          ],
+          "buttons": [
+            {
+              "link": {
+                "label": "Menu",
+                "url": "https://cdn.shop.example/menu"
+              }
+            },
+            {
+              "send": {
+                "label": "Order Margherita"
+              }
+            },
+            {
+              "host": {
+                "label": "Pay now",
+                "name": "checkout",
+                "payload": {
+                  "amount": 9
+                }
+              }
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:02:53Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:02:54Z"
+    }
+  ]
+}

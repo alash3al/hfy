@@ -1,0 +1,159 @@
+{
+  "hasOlder": false,
+  "name": "ask-declined",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:01:32.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Book something nice"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  },
+                  {
+                    "label": "Large",
+                    "value": "l"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              },
+              {
+                "id": "qm1",
+                "options": [
+                  {
+                    "label": "Olives",
+                    "value": "olives"
+                  },
+                  {
+                    "label": "Extra cheese",
+                    "value": "cheese"
+                  }
+                ],
+                "text": "Any extras?",
+                "type": "multi"
+              },
+              {
+                "id": "qt1",
+                "placeholder": "e.g. ring the bell",
+                "required": false,
+                "text": "Delivery notes?",
+                "type": "text"
+              },
+              {
+                "id": "qc1",
+                "required": true,
+                "text": "Confirm the purchase?",
+                "type": "confirm"
+              }
+            ]
+          },
+          "askState": "skipped",
+          "callId": "t1-a1",
+          "cardButtonsLive": false,
+          "content": "The user declined to answer.",
+          "decision": "denied",
+          "id": "ev-4",
+          "isAsk": true,
+          "iso": "2026-01-02T10:01:34.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Medium",
+                  "value": "m"
+                },
+                {
+                  "label": "Large",
+                  "value": "l"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            },
+            {
+              "id": "qm1",
+              "options": [
+                {
+                  "label": "Olives",
+                  "value": "olives"
+                },
+                {
+                  "label": "Extra cheese",
+                  "value": "cheese"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Any extras?",
+              "type": "multi"
+            },
+            {
+              "id": "qt1",
+              "options": [],
+              "placeholder": "e.g. ring the bell",
+              "required": false,
+              "text": "Delivery notes?",
+              "type": "text"
+            },
+            {
+              "id": "qc1",
+              "options": [],
+              "placeholder": "",
+              "required": true,
+              "text": "Confirm the purchase?",
+              "type": "confirm"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "id": "ev-9",
+          "iso": "2026-01-02T10:01:39.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Understood, nothing booked."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

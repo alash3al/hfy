@@ -1,0 +1,72 @@
+{
+  "name": "turn-failed",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:03:03Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Search the web"
+      },
+      "created_at": "2026-01-02T10:03:04Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:03:05Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "failed",
+        "error": "The model provider returned 500."
+      },
+      "created_at": "2026-01-02T10:03:06Z"
+    }
+  ]
+}

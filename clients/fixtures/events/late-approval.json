@@ -1,0 +1,183 @@
+{
+  "name": "late-approval",
+  "path": "history",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-2",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:08Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "One more thing"
+      },
+      "created_at": "2026-01-02T10:02:09Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "tool_call",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "hfy.ask_user",
+        "call_id": "t2-a1",
+        "arguments": {
+          "questions": [
+            {
+              "id": "qs1",
+              "text": "Which size?",
+              "type": "single",
+              "required": true,
+              "options": [
+                {
+                  "value": "m",
+                  "label": "Medium"
+                },
+                {
+                  "value": "l",
+                  "label": "Large"
+                }
+              ]
+            },
+            {
+              "id": "qm1",
+              "text": "Any extras?",
+              "type": "multi",
+              "options": [
+                {
+                  "value": "olives",
+                  "label": "Olives"
+                },
+                {
+                  "value": "cheese",
+                  "label": "Extra cheese"
+                }
+              ]
+            },
+            {
+              "id": "qt1",
+              "text": "Delivery notes?",
+              "type": "text",
+              "required": false,
+              "placeholder": "e.g. ring the bell"
+            },
+            {
+              "id": "qc1",
+              "text": "Confirm the purchase?",
+              "type": "confirm",
+              "required": true
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:02:10Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "cancelled"
+      },
+      "created_at": "2026-01-02T10:02:11Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "approval.requested",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t2-a1",
+        "questions": {
+          "questions": [
+            {
+              "id": "qs1",
+              "text": "Which size?",
+              "type": "single",
+              "required": true,
+              "options": [
+                {
+                  "value": "m",
+                  "label": "Medium"
+                },
+                {
+                  "value": "l",
+                  "label": "Large"
+                }
+              ]
+            },
+            {
+              "id": "qm1",
+              "text": "Any extras?",
+              "type": "multi",
+              "options": [
+                {
+                  "value": "olives",
+                  "label": "Olives"
+                },
+                {
+                  "value": "cheese",
+                  "label": "Extra cheese"
+                }
+              ]
+            },
+            {
+              "id": "qt1",
+              "text": "Delivery notes?",
+              "type": "text",
+              "required": false,
+              "placeholder": "e.g. ring the bell"
+            },
+            {
+              "id": "qc1",
+              "text": "Confirm the purchase?",
+              "type": "confirm",
+              "required": true
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:02:12Z"
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "hasOlder": false,
+  "name": "late-approval",
+  "path": "history",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:09.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "One more thing"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  },
+                  {
+                    "label": "Large",
+                    "value": "l"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              },
+              {
+                "id": "qm1",
+                "options": [
+                  {
+                    "label": "Olives",
+                    "value": "olives"
+                  },
+                  {
+                    "label": "Extra cheese",
+                    "value": "cheese"
+                  }
+                ],
+                "text": "Any extras?",
+                "type": "multi"
+              },
+              {
+                "id": "qt1",
+                "placeholder": "e.g. ring the bell",
+                "required": false,
+                "text": "Delivery notes?",
+                "type": "text"
+              },
+              {
+                "id": "qc1",
+                "required": true,
+                "text": "Confirm the purchase?",
+                "type": "confirm"
+              }
+            ]
+          },
+          "askState": "stopped",
+          "callId": "t2-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "id": "ev-3",
+          "isAsk": true,
+          "iso": "2026-01-02T10:02:10.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Medium",
+                  "value": "m"
+                },
+                {
+                  "label": "Large",
+                  "value": "l"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            },
+            {
+              "id": "qm1",
+              "options": [
+                {
+                  "label": "Olives",
+                  "value": "olives"
+                },
+                {
+                  "label": "Extra cheese",
+                  "value": "cheese"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Any extras?",
+              "type": "multi"
+            },
+            {
+              "id": "qt1",
+              "options": [],
+              "placeholder": "e.g. ring the bell",
+              "required": false,
+              "text": "Delivery notes?",
+              "type": "text"
+            },
+            {
+              "id": "qc1",
+              "options": [],
+              "placeholder": "",
+              "required": true,
+              "text": "Confirm the purchase?",
+              "type": "confirm"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "interrupted",
+          "stopped": true
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "cancelled"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

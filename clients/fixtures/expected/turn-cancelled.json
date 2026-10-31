@@ -1,0 +1,32 @@
+{
+  "hasOlder": false,
+  "name": "turn-cancelled",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:03:08.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Big task"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "cancelled"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

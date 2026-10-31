@@ -1,0 +1,158 @@
+{
+  "name": "tool-summary",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:00:29Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Pay the pizza"
+      },
+      "created_at": "2026-01-02T10:00:30Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:00:31Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.pay",
+        "call_id": "t1-c1",
+        "arguments": {
+          "amount": 12.5,
+          "currency": "EUR"
+        }
+      },
+      "created_at": "2026-01-02T10:00:32Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:00:33Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "approval.decided",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "approve": true
+      },
+      "created_at": "2026-01-02T10:00:34Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "Payment accepted.",
+        "structured": {
+          "transaction": "tx-128",
+          "amount": 12.5,
+          "currency": "EUR"
+        }
+      },
+      "created_at": "2026-01-02T10:00:35Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Paid, thank you."
+      },
+      "created_at": "2026-01-02T10:00:36Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:00:37Z"
+    }
+  ]
+}

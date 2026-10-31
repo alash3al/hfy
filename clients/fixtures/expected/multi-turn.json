@@ -1,0 +1,68 @@
+{
+  "hasOlder": false,
+  "name": "multi-turn",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:20.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "First question"
+        },
+        {
+          "id": "ev-4",
+          "iso": "2026-01-02T10:00:22.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "First answer"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "ev-6",
+          "iso": "2026-01-02T10:00:25.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Second question"
+        },
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:27.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Second answer"
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "hasOlder": false,
+  "name": "tool-error-interrupted",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:39.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Do two things"
+        },
+        {
+          "args": {
+            "sku": "x"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "Connection refused.",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:41.000Z",
+          "kind": "tool",
+          "name": "shop.stock",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "error",
+          "stopped": false
+        },
+        {
+          "args": {},
+          "callId": "t1-c2",
+          "cardButtonsLive": false,
+          "content": "",
+          "id": "ev-6",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:43.000Z",
+          "kind": "tool",
+          "name": "shop.slow",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "interrupted",
+          "stopped": false
+        },
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:45.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Partial results only."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

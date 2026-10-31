@@ -1,0 +1,33 @@
+{
+  "hasOlder": false,
+  "name": "turn-failed",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:03:04.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Search the web"
+        }
+      ],
+      "error": "The model provider returned 500.",
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "failed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

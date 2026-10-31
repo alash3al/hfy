@@ -1,0 +1,129 @@
+{
+  "hasOlder": false,
+  "name": "tool-ask-held",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:01:50.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Order a Margherita"
+        },
+        {
+          "answers": {
+            "qs1": "m"
+          },
+          "args": {
+            "item": "Margherita"
+          },
+          "askState": "answered",
+          "callId": "t1-c1",
+          "card": {
+            "badge": "EUR 9",
+            "body": "Tomato, mozzarella",
+            "buttons": [
+              {
+                "link": {
+                  "label": "Menu",
+                  "url": "https://cdn.shop.example/menu"
+                }
+              },
+              {
+                "send": {
+                  "label": "Order Margherita"
+                }
+              },
+              {
+                "host": {
+                  "label": "Pay now",
+                  "name": "checkout",
+                  "payload": {
+                    "amount": 9
+                  }
+                }
+              }
+            ],
+            "kv": [
+              {
+                "label": "Size",
+                "value": "L"
+              },
+              {
+                "label": "Crust",
+                "value": "Thin"
+              }
+            ],
+            "subtitle": "Classic",
+            "title": "Margherita",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": true,
+          "content": "Order staged: Margherita. Waiting for the size confirmation.\n{\"answers\":{\"qs1\":\"m\"}}",
+          "decision": "allowed",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:01:52.000Z",
+          "kind": "tool",
+          "name": "shop.order_pizza",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Small",
+                  "value": "s"
+                },
+                {
+                  "label": "Medium",
+                  "value": "m"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false,
+          "structured": {
+            "item": "Margherita",
+            "size": "m",
+            "staged": true
+          }
+        },
+        {
+          "id": "ev-9",
+          "iso": "2026-01-02T10:01:57.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Margherita (Medium) confirmed, EUR 9."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

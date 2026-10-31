@@ -1,0 +1,61 @@
+{
+  "hasOlder": false,
+  "name": "message-attachments",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "attachments": [
+            {
+              "hasUrl": true,
+              "isImage": true,
+              "mime": "image/png",
+              "name": "menu.png"
+            },
+            {
+              "hasUrl": true,
+              "isImage": false,
+              "mime": "application/pdf",
+              "name": "allergens.pdf"
+            },
+            {
+              "hasUrl": false,
+              "isImage": false,
+              "mime": "text/csv",
+              "name": "receipt.csv"
+            }
+          ],
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:14.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Here are the files"
+        },
+        {
+          "id": "ev-4",
+          "iso": "2026-01-02T10:02:16.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Got them, reading the menu now."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

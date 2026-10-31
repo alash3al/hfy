@@ -1,0 +1,304 @@
+{
+  "name": "ask-answered",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:01:19Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "I want a pizza"
+      },
+      "created_at": "2026-01-02T10:01:20Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:01:21Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "hfy.ask_user",
+        "call_id": "t1-a1",
+        "arguments": {
+          "questions": [
+            {
+              "id": "qs1",
+              "text": "Which size?",
+              "type": "single",
+              "required": true,
+              "options": [
+                {
+                  "value": "m",
+                  "label": "Medium"
+                },
+                {
+                  "value": "l",
+                  "label": "Large"
+                }
+              ]
+            },
+            {
+              "id": "qm1",
+              "text": "Any extras?",
+              "type": "multi",
+              "options": [
+                {
+                  "value": "olives",
+                  "label": "Olives"
+                },
+                {
+                  "value": "cheese",
+                  "label": "Extra cheese"
+                }
+              ]
+            },
+            {
+              "id": "qt1",
+              "text": "Delivery notes?",
+              "type": "text",
+              "required": false,
+              "placeholder": "e.g. ring the bell"
+            },
+            {
+              "id": "qc1",
+              "text": "Confirm the purchase?",
+              "type": "confirm",
+              "required": true
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:01:22Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "approval.requested",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-a1",
+        "questions": {
+          "questions": [
+            {
+              "id": "qs1",
+              "text": "Which size?",
+              "type": "single",
+              "required": true,
+              "options": [
+                {
+                  "value": "m",
+                  "label": "Medium"
+                },
+                {
+                  "value": "l",
+                  "label": "Large"
+                }
+              ]
+            },
+            {
+              "id": "qm1",
+              "text": "Any extras?",
+              "type": "multi",
+              "options": [
+                {
+                  "value": "olives",
+                  "label": "Olives"
+                },
+                {
+                  "value": "cheese",
+                  "label": "Extra cheese"
+                }
+              ]
+            },
+            {
+              "id": "qt1",
+              "text": "Delivery notes?",
+              "type": "text",
+              "required": false,
+              "placeholder": "e.g. ring the bell"
+            },
+            {
+              "id": "qc1",
+              "text": "Confirm the purchase?",
+              "type": "confirm",
+              "required": true
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:01:23Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:01:24Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "approval.decided",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-a1",
+        "approve": true,
+        "answers": {
+          "qs1": "l",
+          "qm1": [
+            "olives",
+            "cheese"
+          ],
+          "qt1": "after 6pm",
+          "qc1": true
+        }
+      },
+      "created_at": "2026-01-02T10:01:25Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-a1",
+        "content": "{\"answers\":{\"qs1\":\"l\",\"qm1\":[\"olives\",\"cheese\"],\"qt1\":\"after 6pm\",\"qc1\":true}}"
+      },
+      "created_at": "2026-01-02T10:01:26Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.pay",
+        "call_id": "t1-c1",
+        "arguments": {
+          "amount": 14
+        }
+      },
+      "created_at": "2026-01-02T10:01:27Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "ok"
+      },
+      "created_at": "2026-01-02T10:01:28Z"
+    },
+    {
+      "id": "ev-11",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Ordered: Large, olives, extra cheese, after 6pm."
+      },
+      "created_at": "2026-01-02T10:01:29Z"
+    },
+    {
+      "id": "ev-12",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:01:30Z"
+    }
+  ]
+}

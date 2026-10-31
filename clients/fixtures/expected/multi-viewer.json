@@ -1,0 +1,68 @@
+{
+  "hasOlder": false,
+  "name": "multi-viewer",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:26.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Table for two, please"
+        },
+        {
+          "id": "ev-4",
+          "iso": "2026-01-02T10:02:28.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Booked, 20:00."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-6",
+          "iso": "2026-01-02T10:02:31.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "streaming": false,
+          "text": "Join that table too"
+        },
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:02:33.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Added you, group of three."
+        }
+      ],
+      "id": "turn-2",
+      "own": false,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

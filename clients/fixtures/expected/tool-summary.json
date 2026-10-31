@@ -1,0 +1,67 @@
+{
+  "hasOlder": false,
+  "name": "tool-summary",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:30.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Pay the pizza"
+        },
+        {
+          "args": {
+            "amount": 12.5,
+            "currency": "EUR"
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "Payment accepted.",
+          "decision": "allowed",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:32.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false,
+          "structured": {
+            "amount": 12.5,
+            "currency": "EUR",
+            "transaction": "tx-128"
+          }
+        },
+        {
+          "id": "ev-8",
+          "iso": "2026-01-02T10:00:36.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Paid, thank you."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

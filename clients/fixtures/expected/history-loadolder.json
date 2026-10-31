@@ -1,0 +1,115 @@
+{
+  "hasOlder": false,
+  "name": "history-loadolder",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "old-turn-msg-201",
+          "iso": "2026-01-01T09:00:00.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "an older finished turn"
+        }
+      ],
+      "id": "turn-201",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-302",
+          "iso": "2026-01-02T10:02:56.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "still going"
+        },
+        {
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Small",
+                    "value": "s"
+                  },
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              }
+            ]
+          },
+          "askState": "stopped",
+          "callId": "t301-a1",
+          "cardButtonsLive": false,
+          "content": "",
+          "id": "ev-304",
+          "isAsk": true,
+          "iso": "2026-01-02T10:02:58.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Small",
+                  "value": "s"
+                },
+                {
+                  "label": "Medium",
+                  "value": "m"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "interrupted",
+          "stopped": true
+        },
+        {
+          "id": "ev-306",
+          "iso": "2026-01-02T10:03:01.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "older block merging in"
+        }
+      ],
+      "id": "turn-301",
+      "own": true,
+      "showTyping": false,
+      "state": "stopped"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

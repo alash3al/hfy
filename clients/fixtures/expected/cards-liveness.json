@@ -1,0 +1,164 @@
+{
+  "hasOlder": false,
+  "name": "cards-liveness",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:36.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Show me the menu"
+        },
+        {
+          "args": {},
+          "callId": "t1-c1",
+          "card": {
+            "cards": [
+              {
+                "badge": "EUR 9",
+                "body": "Tomato, mozzarella",
+                "buttons": [
+                  {
+                    "link": {
+                      "label": "Menu",
+                      "url": "https://cdn.shop.example/menu"
+                    }
+                  },
+                  {
+                    "send": {
+                      "label": "Order Margherita"
+                    }
+                  },
+                  {
+                    "host": {
+                      "label": "Pay now",
+                      "name": "checkout",
+                      "payload": {
+                        "amount": 9
+                      }
+                    }
+                  }
+                ],
+                "kv": [
+                  {
+                    "label": "Size",
+                    "value": "L"
+                  },
+                  {
+                    "label": "Crust",
+                    "value": "Thin"
+                  }
+                ],
+                "subtitle": "Classic",
+                "title": "Margherita",
+                "type": "card",
+                "v": 1
+              },
+              {
+                "badge": "EUR 11",
+                "body": "Ham, mushrooms",
+                "title": "Capriciosa",
+                "type": "card",
+                "v": 1
+              }
+            ],
+            "type": "carousel",
+            "v": 1
+          },
+          "cardButtonsLive": false,
+          "content": "Two pizzas available.",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:02:38.000Z",
+          "kind": "tool",
+          "name": "shop.menu",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-7",
+          "iso": "2026-01-02T10:02:42.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "And one Capriciosa"
+        },
+        {
+          "args": {
+            "item": "Capriciosa"
+          },
+          "callId": "t2-c1",
+          "card": {
+            "badge": "EUR 12",
+            "body": "EUR 12.50 to Pizza Place",
+            "title": "Payment",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": false,
+          "content": "staged",
+          "id": "ev-9",
+          "isAsk": false,
+          "iso": "2026-01-02T10:02:44.000Z",
+          "kind": "tool",
+          "name": "shop.order_pizza",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-11",
+          "iso": "2026-01-02T10:02:47.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "and the calzone"
+        }
+      ],
+      "id": "turn-3",
+      "own": true,
+      "showTyping": true,
+      "state": "queued"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

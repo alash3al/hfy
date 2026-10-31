@@ -1,0 +1,13 @@
+{
+  "hasOlder": false,
+  "name": "empty",
+  "path": "history",
+  "pendingOwn": [],
+  "showWelcome": true,
+  "turns": [],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

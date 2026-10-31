@@ -1,0 +1,10 @@
+{
+  "name": "empty",
+  "path": "history",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": []
+}

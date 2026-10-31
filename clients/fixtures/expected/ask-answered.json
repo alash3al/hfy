@@ -1,0 +1,187 @@
+{
+  "hasOlder": false,
+  "name": "ask-answered",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:01:20.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "I want a pizza"
+        },
+        {
+          "answers": {
+            "qc1": true,
+            "qm1": [
+              "olives",
+              "cheese"
+            ],
+            "qs1": "l",
+            "qt1": "after 6pm"
+          },
+          "args": {
+            "questions": [
+              {
+                "id": "qs1",
+                "options": [
+                  {
+                    "label": "Medium",
+                    "value": "m"
+                  },
+                  {
+                    "label": "Large",
+                    "value": "l"
+                  }
+                ],
+                "required": true,
+                "text": "Which size?",
+                "type": "single"
+              },
+              {
+                "id": "qm1",
+                "options": [
+                  {
+                    "label": "Olives",
+                    "value": "olives"
+                  },
+                  {
+                    "label": "Extra cheese",
+                    "value": "cheese"
+                  }
+                ],
+                "text": "Any extras?",
+                "type": "multi"
+              },
+              {
+                "id": "qt1",
+                "placeholder": "e.g. ring the bell",
+                "required": false,
+                "text": "Delivery notes?",
+                "type": "text"
+              },
+              {
+                "id": "qc1",
+                "required": true,
+                "text": "Confirm the purchase?",
+                "type": "confirm"
+              }
+            ]
+          },
+          "askState": "answered",
+          "callId": "t1-a1",
+          "cardButtonsLive": false,
+          "content": "{\"answers\":{\"qs1\":\"l\",\"qm1\":[\"olives\",\"cheese\"],\"qt1\":\"after 6pm\",\"qc1\":true}}",
+          "decision": "allowed",
+          "id": "ev-4",
+          "isAsk": true,
+          "iso": "2026-01-02T10:01:22.000Z",
+          "kind": "tool",
+          "name": "hfy.ask_user",
+          "questions": [
+            {
+              "id": "qs1",
+              "options": [
+                {
+                  "label": "Medium",
+                  "value": "m"
+                },
+                {
+                  "label": "Large",
+                  "value": "l"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Which size?",
+              "type": "single"
+            },
+            {
+              "id": "qm1",
+              "options": [
+                {
+                  "label": "Olives",
+                  "value": "olives"
+                },
+                {
+                  "label": "Extra cheese",
+                  "value": "cheese"
+                }
+              ],
+              "placeholder": "",
+              "required": true,
+              "text": "Any extras?",
+              "type": "multi"
+            },
+            {
+              "id": "qt1",
+              "options": [],
+              "placeholder": "e.g. ring the bell",
+              "required": false,
+              "text": "Delivery notes?",
+              "type": "text"
+            },
+            {
+              "id": "qc1",
+              "options": [],
+              "placeholder": "",
+              "required": true,
+              "text": "Confirm the purchase?",
+              "type": "confirm"
+            }
+          ],
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "args": {
+            "amount": 14
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "ok",
+          "id": "ev-9",
+          "isAsk": false,
+          "iso": "2026-01-02T10:01:27.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "id": "ev-11",
+          "iso": "2026-01-02T10:01:29.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Ordered: Large, olives, extra cheese, after 6pm."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

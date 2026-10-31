@@ -1,0 +1,39 @@
+{
+  "hasOlder": false,
+  "name": "reasoning",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "",
+      "blocks": [
+        {
+          "id": "ev-5",
+          "iso": "2026-01-02T10:00:13.000Z",
+          "kind": "reasoning",
+          "streaming": false,
+          "text": "The user greeted me. Reply and greet back."
+        },
+        {
+          "id": "ev-7",
+          "iso": "2026-01-02T10:00:17.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Hi there!"
+        }
+      ],
+      "id": "turn-1",
+      "own": false,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

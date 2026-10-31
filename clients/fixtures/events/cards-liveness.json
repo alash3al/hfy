@@ -1,0 +1,289 @@
+{
+  "name": "cards-liveness",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:35Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Show me the menu"
+      },
+      "created_at": "2026-01-02T10:02:36Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:02:37Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.menu",
+        "call_id": "t1-c1",
+        "arguments": {}
+      },
+      "created_at": "2026-01-02T10:02:38Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "Two pizzas available.",
+        "ui": {
+          "v": 1,
+          "type": "carousel",
+          "cards": [
+            {
+              "v": 1,
+              "type": "card",
+              "title": "Margherita",
+              "subtitle": "Classic",
+              "body": "Tomato, mozzarella",
+              "badge": "EUR 9",
+              "kv": [
+                {
+                  "label": "Size",
+                  "value": "L"
+                },
+                {
+                  "label": "Crust",
+                  "value": "Thin"
+                }
+              ],
+              "buttons": [
+                {
+                  "link": {
+                    "label": "Menu",
+                    "url": "https://cdn.shop.example/menu"
+                  }
+                },
+                {
+                  "send": {
+                    "label": "Order Margherita"
+                  }
+                },
+                {
+                  "host": {
+                    "label": "Pay now",
+                    "name": "checkout",
+                    "payload": {
+                      "amount": 9
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "v": 1,
+              "type": "card",
+              "title": "Capriciosa",
+              "body": "Ham, mushrooms",
+              "badge": "EUR 11"
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:02:39Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:02:40Z"
+    },
+    {
+      "id": "turn-2",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:41Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "message.text",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "And one Capriciosa"
+      },
+      "created_at": "2026-01-02T10:02:42Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:02:43Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "tool_call",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.order_pizza",
+        "call_id": "t2-c1",
+        "arguments": {
+          "item": "Capriciosa"
+        }
+      },
+      "created_at": "2026-01-02T10:02:44Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "tool_result",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t2-c1",
+        "content": "staged",
+        "ui": {
+          "v": 1,
+          "type": "card",
+          "title": "Payment",
+          "body": "EUR 12.50 to Pizza Place",
+          "badge": "EUR 12"
+        }
+      },
+      "created_at": "2026-01-02T10:02:45Z"
+    },
+    {
+      "id": "turn-3",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:02:46Z"
+    },
+    {
+      "id": "ev-11",
+      "type": "message.text",
+      "parent": "turn-3",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "and the calzone"
+      },
+      "created_at": "2026-01-02T10:02:47Z"
+    },
+    {
+      "id": "ev-12",
+      "type": "turn.state",
+      "parent": "turn-2",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:02:48Z"
+    }
+  ]
+}

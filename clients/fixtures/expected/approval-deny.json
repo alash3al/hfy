@@ -1,0 +1,62 @@
+{
+  "hasOlder": false,
+  "name": "approval-deny",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:58.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Refund everything"
+        },
+        {
+          "args": {
+            "amount": 99
+          },
+          "callId": "t1-c1",
+          "cardButtonsLive": false,
+          "content": "The user declined to allow shop.refund.",
+          "decision": "denied",
+          "declineReason": "Declined by the viewer",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:01:00.000Z",
+          "kind": "tool",
+          "name": "shop.refund",
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "id": "ev-9",
+          "iso": "2026-01-02T10:01:05.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "No refund issued."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

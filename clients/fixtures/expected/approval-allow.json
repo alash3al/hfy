@@ -1,0 +1,69 @@
+{
+  "hasOlder": false,
+  "name": "approval-allow",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:00:48.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Order a pizza"
+        },
+        {
+          "args": {
+            "amount": 9,
+            "currency": "EUR"
+          },
+          "callId": "t1-c1",
+          "card": {
+            "badge": "EUR 12",
+            "body": "EUR 12.50 to Pizza Place",
+            "title": "Payment",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": true,
+          "content": "Payment accepted.",
+          "decision": "allowed",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:00:50.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDecided": true,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        },
+        {
+          "id": "ev-9",
+          "iso": "2026-01-02T10:00:55.000Z",
+          "kind": "text",
+          "ref": "main",
+          "role": "agent",
+          "streaming": false,
+          "text": "Your pizza is on its way."
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

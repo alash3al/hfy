@@ -1,0 +1,50 @@
+{
+  "hasOlder": false,
+  "name": "summary",
+  "path": "history",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:19.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Favorite topping?"
+        }
+      ],
+      "id": "turn-1",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    },
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-5",
+          "iso": "2026-01-02T10:02:23.000Z",
+          "kind": "text",
+          "ref": "u1",
+          "role": "user",
+          "streaming": false,
+          "text": "Ordering my favorite"
+        }
+      ],
+      "id": "turn-2",
+      "own": true,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}

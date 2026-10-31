@@ -1,0 +1,282 @@
+{
+  "name": "tool-ask-held",
+  "path": "live",
+  "viewer": {
+    "uuid": "u1",
+    "type": "external",
+    "ref": "u1"
+  },
+  "events": [
+    {
+      "id": "turn-1",
+      "type": "turn",
+      "parent": null,
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "agent": "main"
+      },
+      "created_at": "2026-01-02T10:01:49Z"
+    },
+    {
+      "id": "ev-2",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "u1",
+        "type": "external",
+        "ref": "u1"
+      },
+      "v": 1,
+      "data": {
+        "text": "Order a Margherita"
+      },
+      "created_at": "2026-01-02T10:01:50Z"
+    },
+    {
+      "id": "ev-3",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "running"
+      },
+      "created_at": "2026-01-02T10:01:51Z"
+    },
+    {
+      "id": "ev-4",
+      "type": "tool_call",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "name": "shop.order_pizza",
+        "call_id": "t1-c1",
+        "arguments": {
+          "item": "Margherita"
+        }
+      },
+      "created_at": "2026-01-02T10:01:52Z"
+    },
+    {
+      "id": "ev-5",
+      "type": "approval.requested",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "questions": {
+          "questions": [
+            {
+              "id": "qs1",
+              "text": "Which size?",
+              "type": "single",
+              "required": true,
+              "options": [
+                {
+                  "value": "s",
+                  "label": "Small"
+                },
+                {
+                  "value": "m",
+                  "label": "Medium"
+                }
+              ]
+            }
+          ]
+        },
+        "ui": {
+          "v": 1,
+          "type": "card",
+          "title": "Margherita",
+          "subtitle": "Classic",
+          "body": "Tomato, mozzarella",
+          "badge": "EUR 9",
+          "kv": [
+            {
+              "label": "Size",
+              "value": "L"
+            },
+            {
+              "label": "Crust",
+              "value": "Thin"
+            }
+          ],
+          "buttons": [
+            {
+              "link": {
+                "label": "Menu",
+                "url": "https://cdn.shop.example/menu"
+              }
+            },
+            {
+              "send": {
+                "label": "Order Margherita"
+              }
+            },
+            {
+              "host": {
+                "label": "Pay now",
+                "name": "checkout",
+                "payload": {
+                  "amount": 9
+                }
+              }
+            }
+          ]
+        },
+        "held": {
+          "content": "Order staged: Margherita. Waiting for the size confirmation.",
+          "structured": {
+            "staged": true,
+            "item": "Margherita"
+          }
+        }
+      },
+      "created_at": "2026-01-02T10:01:53Z"
+    },
+    {
+      "id": "ev-6",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "awaiting_approval"
+      },
+      "created_at": "2026-01-02T10:01:54Z"
+    },
+    {
+      "id": "ev-7",
+      "type": "approval.decided",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "approve": true,
+        "answers": {
+          "qs1": "m"
+        }
+      },
+      "created_at": "2026-01-02T10:01:55Z"
+    },
+    {
+      "id": "ev-8",
+      "type": "tool_result",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "call_id": "t1-c1",
+        "content": "Order staged: Margherita. Waiting for the size confirmation.\n{\"answers\":{\"qs1\":\"m\"}}",
+        "structured": {
+          "staged": true,
+          "item": "Margherita",
+          "size": "m"
+        },
+        "ui": {
+          "v": 1,
+          "type": "card",
+          "title": "Margherita",
+          "subtitle": "Classic",
+          "body": "Tomato, mozzarella",
+          "badge": "EUR 9",
+          "kv": [
+            {
+              "label": "Size",
+              "value": "L"
+            },
+            {
+              "label": "Crust",
+              "value": "Thin"
+            }
+          ],
+          "buttons": [
+            {
+              "link": {
+                "label": "Menu",
+                "url": "https://cdn.shop.example/menu"
+              }
+            },
+            {
+              "send": {
+                "label": "Order Margherita"
+              }
+            },
+            {
+              "host": {
+                "label": "Pay now",
+                "name": "checkout",
+                "payload": {
+                  "amount": 9
+                }
+              }
+            }
+          ]
+        }
+      },
+      "created_at": "2026-01-02T10:01:56Z"
+    },
+    {
+      "id": "ev-9",
+      "type": "message.text",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "text": "Margherita (Medium) confirmed, EUR 9."
+      },
+      "created_at": "2026-01-02T10:01:57Z"
+    },
+    {
+      "id": "ev-10",
+      "type": "turn.state",
+      "parent": "turn-1",
+      "actor": {
+        "uuid": "agent-main",
+        "type": "agent",
+        "ref": "main"
+      },
+      "v": 1,
+      "data": {
+        "state": "completed"
+      },
+      "created_at": "2026-01-02T10:01:58Z"
+    }
+  ]
+}

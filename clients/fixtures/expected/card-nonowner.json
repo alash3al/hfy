@@ -1,0 +1,89 @@
+{
+  "hasOlder": false,
+  "name": "card-nonowner",
+  "path": "live",
+  "pendingOwn": [],
+  "showWelcome": false,
+  "turns": [
+    {
+      "agent": "main",
+      "blocks": [
+        {
+          "id": "ev-2",
+          "iso": "2026-01-02T10:02:50.000Z",
+          "kind": "text",
+          "ref": "u2",
+          "role": "user",
+          "streaming": false,
+          "text": "from someone else"
+        },
+        {
+          "args": {},
+          "callId": "t1-c1",
+          "card": {
+            "badge": "EUR 9",
+            "body": "Tomato, mozzarella",
+            "buttons": [
+              {
+                "link": {
+                  "label": "Menu",
+                  "url": "https://cdn.shop.example/menu"
+                }
+              },
+              {
+                "send": {
+                  "label": "Order Margherita"
+                }
+              },
+              {
+                "host": {
+                  "label": "Pay now",
+                  "name": "checkout",
+                  "payload": {
+                    "amount": 9
+                  }
+                }
+              }
+            ],
+            "kv": [
+              {
+                "label": "Size",
+                "value": "L"
+              },
+              {
+                "label": "Crust",
+                "value": "Thin"
+              }
+            ],
+            "subtitle": "Classic",
+            "title": "Margherita",
+            "type": "card",
+            "v": 1
+          },
+          "cardButtonsLive": false,
+          "content": "ok",
+          "id": "ev-4",
+          "isAsk": false,
+          "iso": "2026-01-02T10:02:52.000Z",
+          "kind": "tool",
+          "name": "shop.pay",
+          "showApproval": false,
+          "showDecided": false,
+          "showPendingOther": false,
+          "showPendingOwn": false,
+          "status": "done",
+          "stopped": false
+        }
+      ],
+      "id": "turn-1",
+      "own": false,
+      "showTyping": false,
+      "state": "completed"
+    }
+  ],
+  "viewer": {
+    "ref": "u1",
+    "type": "external",
+    "uuid": "u1"
+  }
+}
