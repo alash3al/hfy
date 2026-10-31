@@ -125,10 +125,13 @@ class ClientKit {
 
   HfyConnectionState get state => client.state.value;
 
-  /// Waits until the background SSE request completed: the idle watchdog
-  /// arms exactly when the stream's headers are consumed (the connect-time
-  /// feed of P-NAT-002). Deterministic, no fixed sleeps.
-  Future<void> waitLive() => until(() =>
-      server.sseConnections.isNotEmpty &&
-      timers.active.any((t) => t.delay == const Duration(seconds: 30)));
+  /// Waits until the background SSE request COMPLETED — event-driven on the
+  /// server side (nextSseConnection) instead of polling its record list,
+  /// then a bounded wait for the idle watchdog arming (which is client-side
+  /// state, review item 13).
+  Future<void> waitLive() async {
+    await server.nextSseConnection();
+    await until(() =>
+        timers.active.any((t) => t.delay == const Duration(seconds: 30)));
+  }
 }

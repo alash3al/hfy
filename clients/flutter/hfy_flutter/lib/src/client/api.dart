@@ -9,7 +9,11 @@
 //     with retries disabled, only while not close()d (client.js:215-219,
 //     P-CLIENT-021);
 //   - error message = the `{"error": ...}` text, else 'HTTP `<status>`' —
-//     typed as HfyHttpException/HfyAuthException (client.js:220-226);
+//     typed as HfyHttpException/HfyAuthException (client.js:220-226); 403 is
+//     a plain HfyHttpException (review item 6);
+//   - transport failures (no HTTP status) throw HfyNetworkException instead
+//     of the raw DioException, so the bearer headers/URL never leak through
+//     toString (review item 5);
 //   - body reading: text -> JSON.parse, parse failure -> `{error: text}`,
 //     empty -> null treated by callers as `{}` (client.js:319-329);
 //   - history `?limit=50` + `&before=<cursor>`; `next` becomes the cursor;
@@ -18,7 +22,9 @@
 //     an api base WITH a path prefix (https://host/prefix) survives, which
 //     Uri.resolve('/v1/...') would NOT do (it resolves at the host root).
 //     Every endpoint (REST, SSE open, upload PUT) shares joinUri (review
-//     item 2).
+//     item 2); followRedirects is off everywhere, so a hostile/proxy 3xx
+//     surfaces as a typed HfyHttpException instead of a token-stealing
+//     redirect (review item 11).
 //
 // The SSE request is a dio stream GET on /v1/conversation/events. The token
 // travels ONLY in the Authorization header (dio can set headers; the web
@@ -31,11 +37,11 @@ import 'dart:async' show Future, unawaited;
 import 'dart:convert' show jsonDecode, jsonEncode;
 
 import 'package:dio/dio.dart'
-    show Dio, RequestOptions, Response, ResponseBody, ResponseType;
+    show Dio, DioException, RequestOptions, Response, ResponseBody, ResponseType;
 
 import '../model/event.dart' show HfyActor, HfyProtocolException;
 import 'connection.dart' show HfyClock;
-import 'errors.dart' show HfyHttpException;
+import 'errors.dart' show HfyHttpException, HfyNetworkException;
 import 'token.dart' show HfyGrant;
 
 int _systemClock() => DateTime.now().millisecondsSinceEpoch;
@@ -280,6 +286,7 @@ class HfyApi {
       method: 'GET',
       headers: headers,
       responseType: ResponseType.stream,
+      followRedirects: false,
       validateStatus: (_) => true,
     );
   }
@@ -323,16 +330,23 @@ class HfyApi {
       String? bodyText,
       Stream<List<int>>? bodyBytes,
       required ResponseType responseType}) {
-    return dio.fetch<dynamic>(
-      RequestOptions(
-        path: url,
-        method: method,
-        headers: headers,
-        data: bodyText ?? bodyBytes,
-        responseType: responseType,
-        validateStatus: (_) => true,
-      ),
-    );
+    // Transport failures lose the request-shaped DioException entirely
+    // (review item 5): its toString/message carry the Authorization header
+    // inside requestOptions and the raw URL — HfyNetworkException does not.
+    return dio
+        .fetch<dynamic>(
+          RequestOptions(
+            path: url,
+            method: method,
+            headers: headers,
+            data: bodyText ?? bodyBytes,
+            responseType: responseType,
+            followRedirects: false,
+            validateStatus: (_) => true,
+          ),
+        )
+        .onError<DioException>(
+            (DioException e, StackTrace _) => throw HfyNetworkException.fromDio(e));
   }
 
   static int _status(Response<dynamic> res) => res.statusCode ?? 0;

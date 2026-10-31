@@ -84,7 +84,8 @@ void main() {
     );
     server.historyPages[null] = historyPage(liveAfter: 'la-0');
     await client.connect();
-    await until(() => server.sseConnections.isNotEmpty &&
+    await server.nextSseConnection();
+    await until(() =>
         timers.active.any((t) => t.delay == const Duration(seconds: 30)));
     await settle();
     // The interceptor saw BOTH the REST history call and the SSE open:
@@ -151,9 +152,9 @@ void main() {
     final kit = await ClientKit.open(server, dio: dio0);
     server.historyPages[null] = historyPage(liveAfter: 'la-0');
     await kit.client.connect();
-    await until(() => server.sseConnections.isNotEmpty &&
-        kit.timers.active
-            .any((t) => t.delay == const Duration(seconds: 30)));
+    await server.nextSseConnection();
+    await until(() => kit.timers.active
+        .any((t) => t.delay == const Duration(seconds: 30)));
     // The SSE request rides the session dio unchanged (a pinned-headers
     // copy of the base merges before the open's own headers).
     expect(server.sseConnections.single.request.authorization,

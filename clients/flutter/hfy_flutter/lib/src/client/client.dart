@@ -9,7 +9,8 @@
 //   - close(): timers cancelled, stream closed, state `ended`; after that no
 //     events fire, no 401 retry and no token fetch (P-CLIENT-014/016);
 //   - pause()/resume(): NEW native-only lifecycle pair (P-NAT-004 analog);
-//     a later wave wires it to WidgetsBindingObserver;
+//     pause() before the first connect() is a documented no-op (review item
+//     9), resume() defers to an in-flight connect() boot (review item 8);
 //   - SSE via dio streams with a fresh HfySseParser per connection, the
 //     HfyIdleWatchdog fed at connect time and on EVERY byte chunk (>30s of
 //     silence = dead), end-of-stream => fresh token + reconnect resuming
@@ -29,7 +30,8 @@
 // Deviations from client.js, all native-only and intentional (see PARITY.md /
 // the final phase report): the state enum adds `paused`; the SSE token rides
 // the Authorization header instead of `?token=` (dio can set headers); the
-// token provider is single-flight.
+// token provider is single-flight; one connect() boot is shared between
+// racing callers (review item 8, unlike client.js's double boot).
 import 'dart:async' show StreamController, StreamSubscription, Timer, unawaited;
 import 'dart:typed_data' show Uint8List;
 
@@ -212,7 +214,14 @@ class HfyClient {
   int _reconnectAttempts = 0;
   _SseSession? _stream;
 
+  /// The ONE in-flight connect() boot; racing callers re-await it instead of
+  /// double-loading history / double-opening SSE (review item 8).
+  Future<void>? _connectFlight;
 
+  /// Set by dispose(): any state move after that is a programming error and
+  /// fails with a typed StateError (not a Flutter assert deep inside the
+  /// notifier).
+  bool _disposed = false;
 
   /// The Dio this client created itself (dispose() closes it; an injected
   /// dio stays the caller's property and is never closed here).
@@ -286,8 +295,29 @@ class HfyClient {
 
   /// client.js:89-106 (P-CLIENT-008): no-op when a stream is already open;
   /// otherwise the full boot with the closed-flag reset (P-CLIENT-034).
-  Future<void> connect() async {
-    if (_stream != null) return;
+  /// Racing callers share the ONE in-flight boot (review item 8); a later
+  /// connect() after that boot simply no-ops on the open stream.
+  Future<void> connect() {
+    if (_stream != null) return Future<void>.value();
+    final inFlight = _connectFlight;
+    if (inFlight != null) return inFlight;
+    final flight = _connect();
+    _connectFlight = flight;
+    // Side chain that clears the slot; its errors are already delivered to
+    // every awaiter of [flight].
+    unawaited(flight.then((_) {
+      _clearFlight(flight);
+    }, onError: (Object e, StackTrace st) {
+      _clearFlight(flight);
+    }));
+    return flight;
+  }
+
+  void _clearFlight(Future<void> flight) {
+    if (identical(_connectFlight, flight)) _connectFlight = null;
+  }
+
+  Future<void> _connect() async {
     _everStarted = true;
     _closed = false; // a close()d client can be driven again (P-CLIENT-034)
     _paused = false;
@@ -296,10 +326,13 @@ class HfyClient {
     try {
       await _wire.gate.fetch('initial');
       final liveAfter = await _loadHistory(null);
-      if (_paused) return; // pause() raced the token/history awaits: sleep
       // client.js:96-97: live_after wins over any last fired id — it is the
-      // server's end mark of the history page.
+      // server's end mark of the history page. Pinned BEFORE the paused
+      // check (review item 7): pause() during the boot must still leave the
+      // cursor at live_after, otherwise resume() reopens from the all-zero
+      // id and replays the whole conversation.
       if (liveAfter != null) _dedupe.pinLiveAfter(liveAfter);
+      if (_paused) return; // pause() raced the token/history awaits: sleep
       _openStream();
       _scheduleRefresh();
       _reconnectAttempts = 0;
@@ -390,8 +423,11 @@ class HfyClient {
   /// WITHOUT ending the client. Idempotent; a later wave wires this to
   /// WidgetsBindingObserver.didAppLifecycleChange(paused).
   ///
+  /// A pause() BEFORE the first connect() is a documented NO-OP (review item
+  /// 9): the client never started, so a `paused` state there could never be
+  /// left again (resume() gates on having boot-connected once).
   void pause() {
-    if (_paused || _closed) return;
+    if (_paused || _closed || !_everStarted) return;
     _paused = true;
     _cancelRefresh();
     _cancelReconnectTimer();
@@ -404,10 +440,22 @@ class HfyClient {
   /// connected (resume() only runs resume-after-pause) or after close()
   /// (connect() is the revival instead, P-CLIENT-034).
   ///
+  /// While a connect() boot is in flight, resume() DEFERS to it (review item
+  /// 8): the boot reopens the stream on its own; the resumed `connecting`
+  /// state owns it. This also covers pause()-then-resume() DURING that boot:
+  /// the flight's paused-check re-reads the cleared flag and still pins.
   void resume() {
     if (!_paused || _closed || !_everStarted) return;
     _paused = false;
     if (_stream != null) return; // a connect() raced us; it owns the stream
+    final inFlight = _connectFlight;
+    if (inFlight != null) {
+      unawaited(inFlight.then(
+        (_) {},
+        onError: (Object e, StackTrace st) {},
+      ));
+      return;
+    }
     _setState(HfyConnectionState.reconnecting);
     unawaited(_runReconnect());
   }
@@ -417,9 +465,12 @@ class HfyClient {
   /// notifier disposes, and a Dio the client created ITSELF is closed
   /// (an injected one belongs to the caller). After dispose() the client
   /// must no longer be driven — and, unlike [close], a dispose()d client
-  /// cannot merely be revived by another connect(); build a new one.
+  /// cannot merely be revived by another connect(); every further state
+  /// move fails with a typed StateError. Build a new client instead.
   Future<void> dispose() async {
-    close();
+    close(); // the final `ended` state move happens BEFORE the disposal
+    _disposed = true;
+    _connectFlight = null;
     await _events.close();
     _state.dispose();
     _ownedDio?.close();
@@ -430,6 +481,9 @@ class HfyClient {
   void _setState(HfyConnectionState value) {
     // ValueNotifier notifies only on change (client.js #setState guard,
     // P-CLIENT-031's "no listener fires for unchanged states").
+    if (_disposed) {
+      throw StateError('HfyClient was dispose()d; build a new client');
+    }
     _state.value = value;
   }
 

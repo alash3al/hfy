@@ -6,13 +6,19 @@
 // What it supports (phase task test list):
 //   - request RECORDS (method, path, body bytes, authorization,
 //     Last-Event-ID, content-type) for byte-exact payload checks;
+//   - an optional PATH PREFIX strip ([pathPrefix]) so a client pointed at,
+//     e.g. http://host:port/prefix reaches the same routes (review item 2);
 //   - scripted history PAGES keyed by the exact `before` query value
 //     (null key = the no-before first call); a missing key answers 404;
-//   - scripted SSE: frames (`id/event/data`), `: ping` comments, a clean
-//     close (the grant-expiry end) and an abrupt abort (mid-stream drop),
-//     with open/closed socket accounting for the no-leak check;
+//   - scripted SSE: frames (`id/event/data`), `: ping` comments (injected
+//     on a DEFAULT 15s schedule through [timerFactory] when [pingEvery] is
+//     set — events.go:15 — so tests fire pings by hand, review item 13), a
+//     clean close (the grant-expiry end) and an abrupt abort (mid-stream
+//     drop), with open/closed socket accounting for the no-leak check;
 //   - 401 answers (all requests or the next N) for the
 //     401->refresh->retry-once and second-401 rules;
+//   - scripted REDIRECTS (status + Location header, review item 11: the
+//     client must NOT follow them);
 //   - both /v1/conversation/config shapes;
 //   - the upload slot plus both PUT flavors (direct absolute, hfy path
 //     WITH the grant), recorded body-exact.
@@ -52,6 +58,12 @@ class FakeSseConnection {
   final HttpResponse response;
   bool closed = false;
 
+  /// Set once the handshake's `: go` bytes flowed — writes before that (and
+  /// close() from [abort]) hit dart:io's "StreamSink is bound to a stream"
+  /// when a client close() raced the handshake; force-destroying the server
+  /// rips those sockets anyway.
+  bool handshakeDone = false;
+
   FakeSseConnection(this.request, this.response);
 
   Future<void> write(String data) async {
@@ -73,7 +85,7 @@ class FakeSseConnection {
   Future<void> addPing() async => write(': ping\n\n');
 
   Future<void> closeClean() async {
-    if (closed) return;
+    if (closed || !handshakeDone) return;
     closed = true;
     await response.close();
   }
@@ -85,6 +97,7 @@ class FakeSseConnection {
   void abort() {
     if (closed) return;
     closed = true;
+    if (!handshakeDone) return; // the force server close rips the socket
     response.close();
   }
 }
@@ -126,10 +139,21 @@ class FakeHfyServer {
   /// ({file, upload_url, expires_at, direct}).
   Map<String, Object?> uploadSlot = {};
 
-  /// A path prefix every client request may carry before /v1/... (review
+  /// A path prefix every client request carries before /v1/... (review
   /// item 2): routes match the PREFIX-STRIPPED path, records keep the raw
   /// wire path so callers can assert the prefix survived.
   String pathPrefix = '';
+
+  /// Scripted REDIRECTS consumed FIFO per request: `(exact stripped path,
+  /// status, Location)`. The response is `statusCode + Location` with an
+  /// empty body (review item 11 asserts the client does NOT follow it).
+  final List<(String, int, String)> redirects = [];
+
+  /// When set (with [timerFactory]), every SSE connection pings on this
+  /// schedule through the injected factory — events.go:15's every-15s. The
+  /// one-shot chain stops once the connection closed.
+  Duration? pingEvery;
+  Timer Function(Duration delay, void Function() callback)? timerFactory;
 
   // -- records --------------------------------------------------------------
 
@@ -140,6 +164,46 @@ class FakeHfyServer {
   final List<RecordedRequest> uploadPuts = [];
   final List<String> uploadPutBodies = [];
   final List<FakeSseConnection> sseConnections = [];
+
+  /// Waiters that the NEXT SSE connections complete, in arrival order
+  /// (review item 13: event-driven waits instead of wall-clock polling).
+  final List<Completer<FakeSseConnection>> _sseWaiters = <Completer<FakeSseConnection>>[];
+  final List<FakeSseConnection> _sseBuffer = <FakeSseConnection>[];
+
+  /// Awaits the NEXT SSE connection this server accepts (buffered: an
+  /// already-arrived but unawaited connection resolves immediately). Bounded
+  /// through [timeoutMs] so a missing open fails the test instead of hanging.
+  Future<FakeSseConnection> nextSseConnection({int timeoutMs = 5000}) {
+    final buffered = _sseBuffer;
+    if (buffered.isNotEmpty) {
+      return Future<FakeSseConnection>.value(buffered.removeAt(0));
+    }
+    final waiter = Completer<FakeSseConnection>();
+    _sseWaiters.add(waiter);
+    return waiter.future.timeout(Duration(milliseconds: timeoutMs),
+        onTimeout: () =>
+            throw StateError('fake server: no SSE connection within '
+                '${timeoutMs}ms'));
+  }
+
+  void _onSseOpened(FakeSseConnection conn) {    if (_sseWaiters.isNotEmpty) {
+      final waiter = _sseWaiters.removeAt(0);
+      if (!waiter.isCompleted) waiter.complete(conn);
+      return;
+    }
+    _sseBuffer.add(conn);
+  }
+
+  /// The route-matching path: the recorded raw path minus [pathPrefix] (a
+  /// non-prefixed request passes through unchanged, so prefixed and
+  /// non-prefixed clients can share one server).
+  String _effective(String raw) {
+    if (pathPrefix.isEmpty) return raw;
+    if (raw == pathPrefix) return '/';
+    if (!raw.startsWith(pathPrefix)) return raw;
+    final stripped = raw.substring(pathPrefix.length);
+    return stripped.isEmpty ? '/' : stripped;
+  }
 
   int get sseOpenCount => sseConnections.length;
   int get sseClosedCount =>
@@ -185,17 +249,6 @@ class FakeHfyServer {
 
   // -- routing --------------------------------------------------------------
 
-  /// The route-matching path: the recorded raw path minus [pathPrefix] (a
-  /// non-prefixed request passes through unchanged, so prefixed and
-  /// non-prefixed clients share one server).
-  String _effective(String raw) {
-    if (pathPrefix.isEmpty) return raw;
-    if (raw == pathPrefix) return '/';
-    if (!raw.startsWith(pathPrefix)) return raw;
-    final stripped = raw.substring(pathPrefix.length);
-    return stripped.isEmpty ? '/' : stripped;
-  }
-
   Future<void> _onRequest(HttpRequest raw) async {
     final res = raw.response;
     final headers = <String, String>{};
@@ -214,8 +267,17 @@ class FakeHfyServer {
       await _json(res, 401, {'error': 'invalid or expired token'});
       return;
     }
-    final scripted = scriptedErrors
-        .indexWhere((spec) => spec.$1 == raw.uri.path);
+    final redirect =
+        redirects.indexWhere((spec) => spec.$1 == effectivePath);
+    if (redirect >= 0) {
+      final spec = redirects.removeAt(redirect);
+      res.statusCode = spec.$2;
+      res.headers.set('Location', spec.$3);
+      await res.close();
+      return;
+    }
+    final scripted =
+        scriptedErrors.indexWhere((spec) => spec.$1 == effectivePath);
     if (scripted >= 0) {
       final spec = scriptedErrors.removeAt(scripted);
       await _json(res, spec.$2, {'error': spec.$3});
@@ -256,6 +318,7 @@ class FakeHfyServer {
         }
         final conn = FakeSseConnection(record, res);
         sseConnections.add(conn);
+        _onSseOpened(conn);
         unawaited(res.done.then((_) {
           conn.closed = true;
         }, onError: (Object _) {
@@ -264,13 +327,37 @@ class FakeHfyServer {
         res.bufferOutput = false; // stream like Go's http.Flusher does
         res.headers.set('Content-Type', 'text/event-stream');
         res.headers.set('Cache-Control', 'no-cache');
-        await res.flush();
-        // dart:io quirk: headers only hit the wire with the FIRST body byte
-        // (flush() alone does not send them, unlike Go's http.Flusher). A
-        // comment line is protocol-invisible to the parser and gives dio its
-        // headers immediately — the client then starts consuming bytes.
-        res.write(': go\n\n');
-        await res.flush();
+        try {
+          await res.flush();
+          // dart:io quirk: headers only hit the wire with the FIRST body byte
+          // (flush() alone does not send them, unlike Go's http.Flusher). A
+          // comment line is protocol-invisible to the parser and gives dio
+          // its headers immediately — the client then starts consuming
+          // bytes. A peer that vanished mid-handshake (a client close()
+          // racing this route) surfaces HERE, absorbed like any other
+          // dead-peer write.
+          res.write(': go\n\n');
+          await res.flush();
+        } catch (_) {
+          conn.closed = true; // the peer is gone; the test never breaks
+          return;
+        }
+        conn.handshakeDone = true;
+        // review item 13: pings on a controllable schedule, exactly like
+        // events.go:118-125's every-15s comment, but fired by the injected
+        // timer factory (FakeTimers) — no wall clock.
+        final schedule = pingEvery;
+        final factory = timerFactory;
+        if (schedule != null && factory != null) {
+          void rearm() {
+            factory(schedule, () {
+              if (conn.closed) return;
+              unawaited(conn.addPing().whenComplete(rearm));
+            });
+          }
+
+          rearm();
+        }
         return;
       case '/v1/files/serve-direct':
         uploadPuts.add(record); // "presigned": recorded without its auth check
@@ -291,8 +378,10 @@ class FakeHfyServer {
   }
 
   Future<void> _json(HttpResponse res, int code, Object? body) async {
+    // BYTES, not write(): dart:io's response.write() refuses anything
+    // outside latin1 (a giant/tricky error body in tests must survive).
     res.statusCode = code;
-    res.write(_encode(body));
+    res.add(utf8.encode(_encode(body)));
     await res.close();
   }
 
@@ -362,6 +451,13 @@ class FakeTimers {
 }
 
 // -- test harness: microtask/event-loop settling for real-socket IO --------
+//
+// Waiting rules (review item 13): EVENT-DRIVEN where the fake server can
+// signal (FakeHfyServer.nextSseConnection is a completer for the next SSE
+// open, and pings fire through the injected timerFactory), and BOUNDED
+// otherwise — `until` always fails its own test inside timeoutMs instead of
+// hanging, and `settle` is only the small socket-landing grace the dart:io
+// server needs between steps.
 
 /// Lets pending HTTP/microtask work settle (small bounded sleeps so the fake
 /// server's socket writes land between steps).

@@ -161,7 +161,8 @@ void main() {
   });
 
   test('P-CLIENT-022: every status maps to the typed message of '
-      'docs/reference.md (401/403 are HfyAuthException, the rest plain)',
+      'docs/reference.md (401 is the only auth type; 403 "not your turn" is '
+      'a plain HfyHttpException — review item 6)',
       () async {
     final cases = <(int, String)>[
       (400, 'text or attachments required'),
@@ -187,7 +188,9 @@ void main() {
               .having((e) => e.message, 'message', error)));
     }
     // The typed subtype is by-status exactly (P-CLIENT-021: the 401
-    // consumes the attempt and its one retry, both scripted).
+    // consumes the attempt and its one retry, both scripted), and per
+    // review item 6, 403 stays OUT of the auth subtype: it is a plain
+    // HfyHttpException (the token is fine, the grant may not act now).
     server.scriptedErrors
         .add(('/v1/conversation/messages', 401, 'again'));
     server.scriptedErrors
@@ -199,6 +202,17 @@ void main() {
       caught = e;
     }
     expect(caught, isA<HfyAuthException>(), reason: '401 -> HfyAuthException');
+    server.scriptedErrors
+        .add(('/v1/conversation/messages', 403, 'not your turn'));
+    caught = null;
+    try {
+      await kit.client.send('hi');
+    } on HfyHttpException catch (e) {
+      caught = e;
+    }
+    expect(caught, isA<HfyHttpException>().having(
+        (e) => e.runtimeType, 'not an auth subtype', HfyHttpException),
+        reason: '403 is a plain HfyHttpException (review item 6)');
     server.scriptedErrors
         .add(('/v1/conversation/messages', 400, 'again'));
     caught = null;

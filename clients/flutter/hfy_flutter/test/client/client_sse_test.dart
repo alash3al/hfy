@@ -2,8 +2,8 @@
 // across a forced drop, dedupe of replayed envelopes, ping-only keep-alive
 // and idle death (P-NAT-002), stream end at grant expiry, unparseable frames
 // (P-CLIENT-027), parser oversize => reconnect, a 401'ed open (P-CLIENT-030)
-// and concurrent connect() calls. All driven against the in-process
-// FakeHfyServer; no real waits (§11-2).
+// and single-flight connect() racing (review item 8). All driven against the
+// in-process FakeHfyServer; event-driven or bounded waits only (§11-2).
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hfy_flutter/src/client/connection.dart'
     show HfyConnectionState;
@@ -211,34 +211,40 @@ void main() {
         reason: 'tok-1 initial; one ladder run minted tok-2, then tok-3');
   });
 
-  test('P-CLIENT-008: concurrent connect() calls run the full boot twice '
-      '(exactly like client.js) with the last stream winning', () async {
+  test('P-CLIENT-008 + review item 8: racing connect() callers share ONE '
+      'boot — one history page, one SSE open, identical futures', () async {
     server.historyPages[null] = historyPage(liveAfter: 'la-0');
     final ids = <String>[];
     kit.client.events.listen((event) => ids.add(event.id!));
     final f1 = kit.client.connect();
-    final f2 = kit.client.connect();
+    final f2 = kit.client.connect(); // the in-flight boot, not a second one
     await Future.wait<void>([f1, f2]);
     await until(() => kit.state == HfyConnectionState.live &&
-        server.sseConnections.isNotEmpty);
+        server.sseOpenCount == 1);
     expect(kit.state, HfyConnectionState.live);
     expect(kit.tokens.callsIn('initial'), 1,
-        reason: 'connect boots share one initial fetch (single-flight)');
-    // Each boot loaded its own history page (client.js's concurrent connects
-    // do the same); the deliveries dedupe to one envelope per id.
+        reason: 'one boot: one initial fetch (single-flight throughout)');
     final historyCalls = server.requests
         .where((r) => Uri.parse(r.path).path == '/v1/conversation/history')
         .length;
-    expect(historyCalls, 2);
-    // A frame now comes through one connection only (the current session):
-    // the superseded session's subscription is cancelled client-side.
-    if (server.sseConnections.length == 2) {
-      final first = server.sseConnections.first;
-      await first.addFrame(wireEnv('dead-1', 'message.text'));
-      await settle(50);
-    }
+    expect(historyCalls, 1,
+        reason: 'review item 8: ONE in-flight connect future, later callers '
+            'await it instead of double-loading and double-opening');
+    // A single stream owns delivery:
     await conn().addFrame(wireEnv('alive-1', 'message.text'));
     await until(() => ids.length == 1);
     expect(ids, ['alive-1']);
+  });
+
+  test('P-CLIENT-004: a connect() AFTER a completed boot is the client.js '
+      'no-op (not a second boot, not a new stream)', () async {
+    server.historyPages[null] = historyPage(liveAfter: 'la-0');
+    await kit.client.connect();
+    await kit.waitLive();
+    final opensBefore = server.sseOpenCount;
+    await kit.client.connect();
+    await settle(30);
+    expect(server.sseOpenCount, opensBefore);
+    expect(kit.state, HfyConnectionState.live);
   });
 }

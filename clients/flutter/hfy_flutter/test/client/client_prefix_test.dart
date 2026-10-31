@@ -101,9 +101,8 @@ void main() {
       '(?after= on the first open)', () async {
     server.historyPages[null] = historyPage(liveAfter: 'la-0');
     await prefixed.client.connect();
-    await until(() =>
-        server.sseConnections.isNotEmpty &&
-        prefixed.client.state.value == HfyConnectionState.live);
+    await server.nextSseConnection();
+    await until(() => prefixed.client.state.value == HfyConnectionState.live);
     final req = server.sseConnections.last.request;
     expect(Uri.parse(req.path).path, '/prefix/v1/conversation/events');
     expect(req.after, 'la-0',
