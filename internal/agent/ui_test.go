@@ -318,6 +318,32 @@ func TestSubagentGetsNoPause(t *testing.T) {
 	}
 }
 
+// A tool may ship only questions, no card part: the turn pauses the same way
+// and the model gets the held text joined with the answers.
+func TestToolQuestionsOnlyPause(t *testing.T) {
+	e := setup(t, askSettings,
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_questions"}}},
+		fakeprov.Step{Content: "noted"},
+	)
+	turn := e.post("which way")
+	e.waitState(turn, types.StateAwaitingApproval)
+	req := e.find(turn, types.EventApprovalRequested)
+	if len(req) != 1 || req[0]["ui"] != nil {
+		t.Fatalf("questions-only request: %v\n%s", req, e.dump(turn))
+	}
+	if _, ok := req[0]["questions"]; !ok {
+		t.Fatalf("request carries no questions: %v", req[0])
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "a", Approve: true, Answers: []byte(`{"size":"large"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(turn, types.StateCompleted)
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != 1 || r[0]["content"] != "just asking\n\n"+`{"answers":{"size":"large"}}` {
+		t.Fatalf("questions-only tool_result: %v\n%s", r, e.dump(turn))
+	}
+}
+
 // Answers that fail the stored questions refuse the decision; only the
 // question's input is the client's data. The pause stands.
 func TestToolQuestionsRejectBadAnswers(t *testing.T) {

@@ -382,11 +382,16 @@ function hfyCardEl(c, doc, callId, live) {
   }
   return el;
 }
-// While the sheet covers the flow, the newest card scrolls into view above it.
+// While the sheet covers the flow, the newest card scrolls above it:
+// block:start pins its top row (title, thumbnail, price) at the top so the
+// ask sheet leaves it readable without scrolling. sheetPad runs first, so
+// the scroll lands in the padded layout.
 function hfyCardIntoView() {
   setTimeout(function () {
-    var cs = document.querySelectorAll('.hfy-card');
-    if (cs.length) cs[cs.length - 1].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    var c = hfyBridge.component, cs = document.querySelectorAll('.hfy-card');
+    if (!cs.length) return;
+    if (c) c.sheetPad();
+    cs[cs.length - 1].scrollIntoView({ block: 'start' });
   }, 30); // after x-show has laid the sheet out
 }
 function hfyCardRender(el, block) {
@@ -794,9 +799,13 @@ window.hfyEmbed = function () {
       var wait = this._awaitTurn;
       if (wait && this.turns.some(function (t) { return t.id === wait && t.blocks.some(function (b) { return b.isText && b.isUser; }); })) this._awaitTurn = '';
       this.ownActive = !!this._awaitTurn || this.turns.some(function (t) { return t.own && HFY_ACTIVE.indexOf(t.state) !== -1; });
+      // Liveness rides along here: every caller of syncDerived (fold, history
+      // load, applyDom, send) has already run relayout over the final turns,
+      // so ownActive and turn.own are this cycle's values, never one stale.
       this.updateSend();
       this.syncSheet();
       this.syncAttach();
+      this.syncCardLiveness();
     },
     syncAttach: function () {
       var u = this.config.uploads, imgs = u ? u.types.filter(hfyIsImageType) : [], docs = u ? u.types.filter(function (t) { return !hfyIsImageType(t); }) : [];
@@ -1052,7 +1061,7 @@ window.hfyEmbed = function () {
       var yesNo = { yes: this.t('yes'), no: this.t('no') }, argKey = lang + '|' + yesNo.yes + '|' + yesNo.no;
       this.turns.forEach(function (t) { t.blocks.forEach(function (b) { if (b.isText && b.isUser) people[b.actorKey] = 1; }); });
       var multi = Object.keys(people).length > 1;
-      this.turns.forEach(function (turn, turnIdx) {
+      this.turns.forEach(function (turn) {
         var terminal = HFY_TERMINAL.indexOf(turn.state) !== -1, tick = hfyTick(turn.state);
         // a turn is the viewer's when its user message is
         var starter = turn.blocks.find(function (b) { return b.isText && b.isUser; });
@@ -1071,8 +1080,6 @@ window.hfyEmbed = function () {
             b.waitingText = turn.own ? self.t('waitingYou') : waitOther;
             if (b.showApproval && turn.own && !b.submitted) pendingOwn.push(b);
             if (b.hasQuestions) self.askRecord(b, turn.own, waitOther);
-            // a card's send/host buttons live only while the conversation ends here in the viewer's own idle turn
-            b.cardButtonsLive = b.uiCard != null && turnIdx === self.turns.length - 1 && turn.own && !self.ownActive;
             b.niceName = hfyToolName(b.name) || self.t('tool');
             if (b.argLang !== argKey) { b.argList = hfyArgList(b.argsRaw, yesNo); b.hasArgList = b.argList.length > 0; b.argLang = argKey; }
             b.toolLabel = b.name || self.t('tool');
@@ -1133,6 +1140,21 @@ window.hfyEmbed = function () {
       var lastAgent = null;
       this.turns.forEach(function (t) { t.blocks.forEach(function (b) { if (b.isText && b.isAgent) lastAgent = b; }); });
       if (lastAgent) lastAgent.rowCls += ' is-last-agent';
+    },
+
+    // Card buttons settle after the whole pass has folded: send/host live only
+    // when the conversation ends in the block's own completed turn, the
+    // viewer's, and nothing of the viewer's is running — liveness must read
+    // the final ownActive, never the one from the previous cycle. Called from
+    // syncDerived, which every turn-changing path runs after relayout.
+    syncCardLiveness: function () {
+      var self = this;
+      this.turns.forEach(function (turn, turnIdx) {
+        turn.blocks.forEach(function (b) {
+          if (b.kind === 'tool')
+            b.cardButtonsLive = b.uiCard != null && turnIdx === self.turns.length - 1 && turn.own && !self.ownActive;
+        });
+      });
     },
 
     scroller: function () { return document.querySelector('.hfy-messages'); },

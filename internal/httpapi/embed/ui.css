@@ -619,9 +619,10 @@ a.hfy-card-btn{background:var(--hfy-surface-2)}
 .hfy-card-btn:disabled{opacity:.55;cursor:default}
 /* a card shape this UI cannot draw: its raw JSON takes the card's place */
 .hfy-card-fallback{font:12px/1.4 var(--hfy-mono);background:var(--hfy-surface-2);border:1px solid var(--hfy-border);border-radius:8px;padding:var(--s2);color:var(--hfy-muted);margin-top:var(--s1);overflow-x:auto;white-space:pre}
-/* the sheet covers the flow: the cards it relates to shrink out of the way */
-.is-sheet-open .hfy-card{padding:var(--s2);box-shadow:none;gap:var(--s1)}
-.is-sheet-open .hfy-card-img{display:none}
+/* the sheet covers the flow: the cards it relates to shrink out of the way;
+   the image stays as a thumbnail beside the title/badge */
+.is-sheet-open .hfy-card{position:relative;padding:var(--s2);padding-inline-start:calc(48px + var(--s2));box-shadow:none;gap:var(--s1);min-height:calc(48px + var(--s2))}
+.is-sheet-open .hfy-card-img{position:absolute;top:var(--s2);inset-inline-start:var(--s2);width:48px;height:48px;max-height:none;border-radius:8px}
 .is-sheet-open .hfy-card-title{font-size:13px}
 .is-sheet-open .hfy-card-btns{display:none}
 

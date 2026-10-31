@@ -160,3 +160,96 @@ func TestEmbedCardJS(t *testing.T) {
 		t.Fatalf("node: %v\n%s", err, out)
 	}
 }
+
+// The fold pass is pure JavaScript too: card buttons must settle from the
+// final folded state, on the live-event path and the history path alike.
+func TestEmbedFoldCardLiveness(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("no node")
+	}
+	src, err := os.ReadFile("embed/ui.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := strconv.Quote(string(src) + `
+;return {hfyEmbed: window.hfyEmbed, setClient: function (v) { hfyClient = v }};`)
+	driver := `
+		var win = { addEventListener: function () {} };
+		win.parent = win;
+		var doc = { addEventListener: function () {}, querySelector: function () { return null },
+			querySelectorAll: function () { return [] } };
+		var nav = { language: 'en' };
+		var api = new Function('window', 'document', 'navigator', 'requestAnimationFrame', ` + quoted + `)(win, doc, nav, function () {});
+		var agent = { type: 'agent', ref: 'main', uuid: 'agent-main' },
+			u1 = { type: 'external', ref: 'u1', uuid: 'u1' },
+			u2 = { type: 'external', ref: 'u2', uuid: 'u2' };
+		function env(type, data, actor, parent, id) {
+			return { id: id || (env.seq = (env.seq || 1000) + 1), type: type, parent: parent, actor: actor,
+				data: data, created_at: '2026-01-02T10:00:00Z' };
+		}
+		function card() { return { v: 1, type: 'card', title: 'Margherita', body: '12 EUR' }; }
+		// One full turn: own, card-carrying, ending completed; the turn event
+		// itself gets the id, its children parent on it.
+		function ownCardTurn(c, isH, id) {
+			c.fold(env('turn', { agent: '' }, u1, 0, id), isH);
+			c.fold(env('message.text', { text: 'buy pizza' }, u1, id), isH);
+			c.fold(env('tool_call', { call_id: id + '-c', name: 'shop.pay', arguments: '{}' }, agent, id), isH);
+			c.fold(env('tool_result', { call_id: id + '-c', content: 'ok', ui: card() }, agent, id), isH);
+			c.fold(env('turn.state', { state: 'running' }, agent, id), isH);
+			c.fold(env('turn.state', { state: 'completed' }, agent, id), isH);
+		}
+		function blockOf(c, callId) {
+			for (var i = 0; i < c.turns.length; i++) {
+				var bs = c.turns[i].blocks;
+				for (var j = 0; j < bs.length; j++) if (bs[j].kind === 'tool' && bs[j].callId === callId) return bs[j];
+			}
+			throw new Error('no tool block ' + callId);
+		}
+		function truthy(v, m) { if (!v) throw new Error('falsy: ' + m) }
+		function falsy(v, m) { if (v) throw new Error('truthy: ' + m + ' ' + JSON.stringify(v)) }
+		function drive(isH) {
+			var c = api.hfyEmbed(); api.setClient({ viewer: { uuid: 'u1' } });
+			// T1: own, completed, newest => the card's send/host buttons are live.
+			ownCardTurn(c, isH, 101);
+			var t = c.turns[0];
+			truthy(t.own, 'own turn');
+			truthy(t.state === 'completed', 'completed turn');
+			truthy(blockOf(c, '101-c').cardButtonsLive, isH + ': card live on the own completed newest turn');
+			// T2: the same kind of turn, but still running => disabled, and it
+			// demotes the older card too.
+			c.fold(env('turn', { agent: '' }, u1, 0, 201), isH);
+			c.fold(env('message.text', { text: 'another one' }, u1, 201), isH);
+			c.fold(env('turn.state', { state: 'running' }, agent, 201), isH);
+			c.fold(env('tool_call', { call_id: '201-c', name: 'shop.pay', arguments: '{}' }, agent, 201), isH);
+			c.fold(env('tool_result', { call_id: '201-c', content: 'ok', ui: card() }, agent, 201), isH);
+			falsy(blockOf(c, '201-c').cardButtonsLive, isH + ': card disabled while its turn runs');
+			falsy(blockOf(c, '101-c').cardButtonsLive, isH + ': an older turn\'s card is disabled');
+			// T2 completes => its card is live; T1 stays disabled.
+			c.fold(env('turn.state', { state: 'completed' }, agent, 201), isH);
+			truthy(blockOf(c, '201-c').cardButtonsLive, isH + ': card live once its turn completed');
+			falsy(blockOf(c, '101-c').cardButtonsLive, isH + ': only the newest turn is live');
+			// T3: newest but not the viewer's own => send/host disabled, and a
+			// link button would still be clickable (its rendering never gates on liveness).
+			c.fold(env('turn', { agent: '' }, u2, 0, 301), isH);
+			c.fold(env('message.text', { text: 'from someone else' }, u2, 301), isH);
+			c.fold(env('turn.state', { state: 'running' }, agent, 301), isH);
+			c.fold(env('tool_call', { call_id: '301-c', name: 'shop.pay', arguments: '{}' }, agent, 301), isH);
+			c.fold(env('tool_result', { call_id: '301-c', content: 'ok',
+				ui: { v: 1, type: 'card', title: 'Capriciosa', body: '14 EUR',
+					buttons: [{ link: { label: 'menu', url: 'https://cdn.example.com/m' } }] } }, agent, 301), isH);
+			c.fold(env('turn.state', { state: 'completed' }, agent, 301), isH);
+			falsy(blockOf(c, '301-c').cardButtonsLive, isH + ': a non-owner turn never lives');
+			falsy(blockOf(c, '201-c').cardButtonsLive, isH + ': owner card demoted by the non-owner turn');
+			// the 'assistant is typing' dots die with the turn: every turn is terminal here
+			for (var t2 = 0; t2 < c.turns.length; t2++)
+				falsy(c.turns[t2].showTyping, isH + ': no typing dots after all turns settle');
+			return true;
+		}
+		truthy(drive(false), 'live path');
+		truthy(drive(true), 'history path');
+	`
+	out, err := exec.Command("node", "-e", driver).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+}

@@ -5,6 +5,7 @@ package fakemcp
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"time"
@@ -20,6 +21,17 @@ type noIn struct{}
 
 // destructive, readOnly are annotation values the tests assert on.
 var destructive, readOnly = true, true
+
+// fakeCard assembles the hfy/ui _meta value of one card result, so the tool
+// handlers below stay one level deep.
+func fakeCard(fields map[string]any) map[string]any {
+	out := map[string]any{"v": 1, "type": "card", "title": "Order"}
+	maps.Copy(out, fields)
+	return out
+}
+
+var askOne = map[string]any{"questions": []any{map[string]any{"id": "size",
+	"text": "Which size?", "type": "single", "options": []string{"small", "large"}}}}
 
 // MaybeRun serves the fake MCP server and exits if HFY_FAKE_MCP is set.
 func MaybeRun() {
@@ -47,50 +59,6 @@ func MaybeRun() {
 		func(ctx context.Context, _ *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: os.Getenv(in.Text)}}}, nil, nil
 		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui", Description: "Return ui _meta next to text content"},
-		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			// The key matches mcp.UIMetaKey (this package imports nothing).
-			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "here is your order"}},
-				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Margherita", "body": "12 EUR"}}}, nil, nil
-		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask", Description: "Return text plus a card that carries questions"},
-		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "your pizza, pick a size"}},
-				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Order",
-					"questions": map[string]any{"questions": []any{map[string]any{"id": "size",
-						"text": "Which size?", "type": "single", "options": []string{"small", "large"}}}}}}}, nil, nil
-		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui_boom", Description: "Fails and returns ui _meta anyway"},
-		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			r := &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Doomed"}}}
-			r.SetError(os.ErrInvalid)
-			return r, nil, nil
-		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui_silent", Description: "Return ui _meta with no content blocks"},
-		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			return &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Quiet card"}}}, nil, nil
-		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui_questions", Description: "Return questions with no card part"},
-		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "just asking"}},
-				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1,
-					"questions": map[string]any{"questions": []any{map[string]any{"id": "pitch",
-						"text": "Which?", "type": "single", "options": []string{"up", "down"}}}}}}}, nil, nil
-		})
-	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask_stop", Description: "Ask for a stop, then return questions"},
-		func(ctx context.Context, req *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
-			// The test plays the stop requestor: one post, awaited, so the
-			// cancel_requested event is committed before the result returns.
-			res, err := http.Post(os.Getenv("HFY_STOP_URL"), "text/plain", nil)
-			if err != nil {
-				return nil, nil, err
-			}
-			res.Body.Close()
-			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "your pizza, pick a size"}},
-				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Order",
-					"questions": map[string]any{"questions": []any{map[string]any{"id": "size",
-						"text": "Which size?", "type": "single", "options": []string{"small", "large"}}}}}}}, nil, nil
-		})
 	sdk.AddTool(s, &sdk.Tool{Name: "boom", Description: "Always fails"},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
 			r := &sdk.CallToolResult{}
@@ -105,6 +73,60 @@ func MaybeRun() {
 			case <-time.After(time.Minute):
 				return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "done"}}}, nil, nil
 			}
+		})
+	// The ui_* tools return real content plus a Meta value under the hfy/ui
+	// key (kept as a raw string here: this package imports nothing).
+	returnRes := func(text string, meta map[string]any) (*sdk.CallToolResult, any, error) {
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}},
+			Meta: map[string]any{"hfy/ui": meta}}, nil, nil
+	}
+	sdk.AddTool(s, &sdk.Tool{Name: "ui", Description: "Return ui _meta next to text content"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "here is your order"}},
+				Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Margherita", "body": "12 EUR"}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask", Description: "Return text plus a card that carries questions"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return returnRes("your pizza, pick a size", fakeCard(map[string]any{"questions": askOne}))
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask3", Description: "Return text plus a card with three questions"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			qs := map[string]any{"questions": []any{
+				map[string]any{"id": "size", "text": "Which size?", "type": "single", "options": []string{"small", "large"}},
+				map[string]any{"id": "extra", "text": "Extra cheese?", "type": "single", "options": []string{"yes", "no"}},
+				map[string]any{"id": "when", "text": "When?", "type": "text", "required": false}}}
+			return returnRes("your pizza, pick a size", fakeCard(map[string]any{
+				"badge": "12 EUR", "image": "https://" + os.Getenv("HFY_IMG_HOST") + "/img.png", "questions": qs}))
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_boom", Description: "Fails and returns ui _meta anyway"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			r := &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Doomed"}}}
+			r.SetError(os.ErrInvalid)
+			return r, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_silent", Description: "Return ui _meta with no content blocks"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{Meta: map[string]any{"hfy/ui": map[string]any{"v": 1, "type": "card", "title": "Quiet card"}}}, nil, nil
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_questions", Description: "Return questions with no card part"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return returnRes("just asking", map[string]any{"v": 1, "questions": askOne})
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_photo", Description: "Return a card with an image"},
+		func(ctx context.Context, _ *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			return returnRes("your margherita", fakeCard(map[string]any{"badge": "12 EUR",
+				"image": "https://" + os.Getenv("HFY_IMG_HOST") + "/img.png"}))
+		})
+	sdk.AddTool(s, &sdk.Tool{Name: "ui_ask_stop", Description: "Ask for a stop, then return questions"},
+		func(ctx context.Context, req *sdk.CallToolRequest, _ noIn) (*sdk.CallToolResult, any, error) {
+			// The test plays the stop requestor: one post, awaited, so the
+			// cancel_requested event is committed before the result returns.
+			res, err := http.Post(os.Getenv("HFY_STOP_URL"), "text/plain", nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			res.Body.Close()
+			return returnRes("your pizza, pick a size", fakeCard(map[string]any{"questions": askOne}))
 		})
 	if err := s.Run(context.Background(), &sdk.StdioTransport{}); err != nil {
 		os.Exit(1)
