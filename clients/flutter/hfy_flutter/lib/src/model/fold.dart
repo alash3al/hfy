@@ -587,7 +587,19 @@ class HfyConversation {
       turn.showTyping = active && firstActive && !busy;
       if (active || turn.state == 'awaiting_approval') firstActive = false;
     }
-    _pendingOwn = List.unmodifiable(pending);
+    if (!_sameRows(_pendingOwn, pending)) {
+      _pendingOwn = List.unmodifiable(pending);
+    }
+  }
+
+  /// Same rows in the same order: the sheet's list stays one instance until
+  /// the fold changes (see [pendingOwnBlocks]).
+  static bool _sameRows(List<_Row> a, List<_Row> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!identical(a[i], b[i])) return false;
+    }
+    return true;
   }
 
   /// The derived conversation state (ui.js:788-809): welcome, ownActive and

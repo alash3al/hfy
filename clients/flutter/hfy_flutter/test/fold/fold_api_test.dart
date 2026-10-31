@@ -864,6 +864,20 @@ void main() {
           reason: 'an unhandled event relayouts nothing');
       expect(() => c.pendingOwnBlocks.clear(), throwsUnsupportedError);
     });
+
+    test('a relayout that moves no pending row keeps the same sheet list', () {
+      final c = twoPending();
+      final list = c.pendingOwnBlocks;
+      final rev = c.revision;
+      c.mergeOlderPage(const <HfyEvent>[], hasMore: false);
+      expect(c.revision, rev, reason: 'an empty merge with hasMore steady');
+      expect(identical(c.pendingOwnBlocks, list), isTrue,
+          reason: 'the rows are the same, so the list is too');
+      c.markSubmitted('c1');
+      expect(identical(c.pendingOwnBlocks, list), isFalse,
+          reason: 'a row left: the list is rebuilt');
+      expect([for (final b in c.pendingOwnBlocks) b.callId], ['c2']);
+    });
   });
 
   group('smoke: 10k-event history folds in a batch (NOT a benchmark)', () {

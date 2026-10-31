@@ -190,6 +190,86 @@ void main() {
     );
   });
 
+  group('a boot that fails while paused, then resume', () {
+    /// Pauses during the first history page, then fails that page with 503:
+    /// the boot dies while paused and connect() records the error.
+    Future<HfyChatController> failFirstBootWhilePaused(
+      Map<String, Object?> page,
+    ) async {
+      final hold = Completer<void>();
+      server.holdRequests = hold;
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      server.scriptedErrors.add(('/v1/conversation/history', 503, 'boom'));
+      server.historyPages[null] = page;
+      await openWith(server);
+      final c = kit.controller;
+      final boot = c.connect();
+      await until(
+        () => server.requests.any(
+          (r) => r.path.contains('/v1/conversation/history'),
+        ),
+      );
+      c.pause();
+      hold.complete();
+      await boot;
+      expect(c.connection, HfyConnectionState.paused);
+      expect(c.connectionError, const HfyMessage.text('boom'));
+      expect(c.showWelcome, isFalse, reason: 'nothing loaded yet');
+      return c;
+    }
+
+    test('resume() redoes the boot: welcome state correct, no stale error',
+        () async {
+      final c = await failFirstBootWhilePaused(emptyPage());
+      c.resume();
+      await until(
+        () => c.connection == HfyConnectionState.live,
+        timeoutMs: 5000,
+      );
+      expect(
+        c.connectionError,
+        isNull,
+        reason: 'the live transition clears the connect() error',
+      );
+      expect(c.showWelcome, isTrue, reason: 'empty, and no older page');
+      expect(c.hasOlder, isFalse);
+    });
+
+    test('resume() redoes the boot: hasOlder and the folded turns are right, '
+        'and load older works', () async {
+      server.historyPages['c1'] = historyPage(
+        turns: [
+          pageTurn([wire('t1', 'turn'), agentText('m1', 't1', 'oldest')]),
+        ],
+        viewer: kViewer,
+      );
+      final c = await failFirstBootWhilePaused(
+        historyPage(
+          turns: [
+            pageTurn([wire('t2', 'turn'), agentText('m3', 't2', 'newest')]),
+          ],
+          next: 'c1',
+          liveAfter: 'la-0',
+          viewer: kViewer,
+        ),
+      );
+      c.resume();
+      await until(
+        () => c.connection == HfyConnectionState.live,
+        timeoutMs: 5000,
+      );
+      expect(c.connectionError, isNull);
+      expect(c.hasOlder, isTrue, reason: 'the redone page carries next');
+      expect(c.showWelcome, isFalse);
+      expect([for (final t in c.turns) t.id], ['t2']);
+      await c.loadOlder();
+      expect([for (final t in c.turns) t.id], ['t1', 't2']);
+      expect(c.hasOlder, isFalse);
+    });
+  });
+
   group('send', () {
     setUp(() async {
       server.historyPages[null] = emptyPage();
@@ -974,9 +1054,10 @@ void main() {
         await openWith(server);
         final c = kit.controller;
         await kit.connectLive();
-        // A paused client's connect() is a real boot, not a no-op on the open
-        // stream.
-        c.pause();
+        // The stream drops, so the connect() below is a real boot, not a no-op
+        // on an open stream.
+        kit.sse.abort();
+        await until(() => c.connection == HfyConnectionState.reconnecting);
         final hold = Completer<void>();
         server.holdRequests = hold;
         addTearDown(() {
@@ -991,7 +1072,7 @@ void main() {
         // it synchronously, before its first request.
         expect(
           c.connection,
-          HfyConnectionState.paused,
+          HfyConnectionState.reconnecting,
           reason: 'the boot has not started: it waits for the older page',
         );
         hold.complete();
@@ -1001,6 +1082,56 @@ void main() {
         expect([for (final t in c.turns) t.id], ['t1', 't2']);
       },
     );
+  });
+
+  test('loadOlder is refused while a connect() is in flight: the boot page '
+      'folds alone and no older request goes out', () async {
+    server.historyPages[null] = historyPage(
+      turns: [
+        pageTurn([wire('t2', 'turn'), agentText('m3', 't2', 'newest')]),
+      ],
+      next: 'c1',
+      liveAfter: 'la-0',
+      viewer: kViewer,
+    );
+    server.historyPages['c1'] = historyPage(
+      turns: [
+        pageTurn([wire('t1', 'turn'), agentText('m1', 't1', 'oldest')]),
+      ],
+      viewer: kViewer,
+    );
+    await openWith(server);
+    final c = kit.controller;
+    await kit.connectLive();
+    // The stream drops, so the retry below is a real boot with the old cursor.
+    kit.sse.abort();
+    await until(() => c.connection == HfyConnectionState.reconnecting);
+    final hold = Completer<void>();
+    server.holdRequests = hold;
+    addTearDown(() {
+      if (!hold.isCompleted) hold.complete();
+    });
+    final boot = c.connect();
+    await until(
+      () => server.requests.any((r) => r.path.contains('/v1/conversation/history')),
+    );
+    final older = c.loadOlder();
+    expect(
+      c.loadingOlder,
+      isFalse,
+      reason: 'refused at once: the boot owns the history pages',
+    );
+    await older;
+    hold.complete();
+    await boot;
+    expect(c.connection, HfyConnectionState.live);
+    expect(
+      server.requests.any((r) => r.path.contains('before=c1')),
+      isFalse,
+      reason: 'no older request while the boot is in flight',
+    );
+    expect([for (final t in c.turns) t.id], ['t2']);
+    expect(c.hasOlder, isTrue);
   });
 
   group('retry', () {

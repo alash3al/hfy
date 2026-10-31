@@ -152,6 +152,9 @@ class HfyChatController extends ChangeNotifier {
   bool _loadingOlder = false;
   HfyMessage? _loadOlderError;
 
+  /// The one in-flight connect(); cleared when it completes.
+  Future<void>? _connectFlight;
+
   /// The send bridge (ui.js _awaitTurn) while no conversation exists yet.
   String? _pendingBridge;
 
@@ -248,9 +251,22 @@ class HfyChatController extends ChangeNotifier {
 
   /// connect() (ui.js:856-858, P-CFG-021): waits for an in-flight loadOlder,
   /// boots the client, then marks the conversation loaded and reads hasOlder.
-  /// A failure is recorded in [connectionError], never thrown.
-  Future<void> connect() async {
-    if (_disposed) return;
+  /// A failure is recorded in [connectionError], never thrown. Racing callers
+  /// share the one in-flight connect().
+  Future<void> connect() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _connectFlight;
+    if (inFlight != null) return inFlight;
+    final flight = _connectOnce();
+    _connectFlight = flight;
+    unawaited(flight.then<void>(
+      (_) => _clearConnectFlight(flight),
+      onError: (Object _) => _clearConnectFlight(flight),
+    ));
+    return flight;
+  }
+
+  Future<void> _connectOnce() async {
     await _settleOlder();
     if (_disposed) return;
     _connectionError = null;
@@ -267,6 +283,10 @@ class HfyChatController extends ChangeNotifier {
     _markDirty();
   }
 
+  void _clearConnectFlight(Future<void> flight) {
+    if (identical(_connectFlight, flight)) _connectFlight = null;
+  }
+
   /// ui.js:861-866 (P-CFG-022): a no-op while live, else connect() again.
   Future<void> retry() async {
     if (_disposed || _client.state.value == HfyConnectionState.live) return;
@@ -274,9 +294,16 @@ class HfyChatController extends ChangeNotifier {
   }
 
   /// ui.js:1210-1248: one older page, collected then merged once. Errors are
-  /// kept in [loadOlderError] (the web swallows them, P-TL-003).
+  /// kept in [loadOlderError] (the web swallows them, P-TL-003). A no-op while
+  /// a connect() is in flight: the boot's own history pages would otherwise
+  /// fold into the older page's collector.
   Future<void> loadOlder() async {
-    if (_disposed || _loadingOlder || !_client.hasOlder) return;
+    if (_disposed ||
+        _loadingOlder ||
+        _connectFlight != null ||
+        !_client.hasOlder) {
+      return;
+    }
     final done = Completer<void>();
     final page = <HfyEvent>[];
     _olderFlight = done.future;
@@ -501,7 +528,19 @@ class HfyChatController extends ChangeNotifier {
     if (stickToBottom.value) _newMessagesPending.value = false;
   }
 
-  void _onConnectionChanged() => _markDirty();
+  /// A boot can finish live after connect() gave up on it: one that failed
+  /// while paused is caught by connect(), then resume() redoes it on its own.
+  /// Reaching live therefore runs connect()'s success steps as well, so the
+  /// welcome state, hasOlder and the stale error are right either way.
+  void _onConnectionChanged() {
+    if (_client.state.value == HfyConnectionState.live) {
+      _connectionError = null;
+      _ensureConv().markLoaded();
+      _flushHistory();
+      _conv!.setHasOlder(_client.hasOlder);
+    }
+    _markDirty();
+  }
 
   void _onProtocolError(HfyProtocolException error) {
     _previousProtocolError?.call(error);
