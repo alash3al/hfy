@@ -1,5 +1,6 @@
 // Shared test kit for the HfyClient suite: token scripts, the paired
 // client/server wiring and common envelope/history fixtures.
+import 'package:dio/dio.dart' show Dio;
 import 'package:hfy_flutter/src/client/client.dart';
 import 'package:hfy_flutter/src/client/connection.dart';
 import 'package:hfy_flutter/src/model/event.dart' show HfyProtocolException;
@@ -99,20 +100,25 @@ class ClientKit {
 
   ClientKit._(this.server, this.timers, this.tokens);
 
+  /// [api] overrides the client's base (review item 2's prefix tests):
+  /// `.../prefix` with [FakeHfyServer.pathPrefix] = '/prefix' set BEFORE
+  /// this call. [dio] rides through to the client so SSE-session wiring
+  /// (interceptors/adapter factory, review item 4) can be asserted.
   static Future<ClientKit> open(FakeHfyServer server,
-      {int ttlMs = 52000}) async {
+      {int ttlMs = 52000, Uri? api, Dio? dio}) async {
     final timers = FakeTimers()..now = 0;
     final tokens = TokenScript()..ttl(ttlMs);
     tokens.clock = () => timers.now;
     final kit = ClientKit._(server, timers, tokens);
     kit.client = HfyClient(
-      api: server.base,
+      api: api ?? server.base,
       tokenProvider: tokens.provider,
       options: HfyClientOptions(
         clock: () => timers.now,
         timerFactory: timers.factory,
         idleTimerFactory: timers.factory,
       ),
+      dio: dio,
     );
     return kit;
   }

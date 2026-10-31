@@ -1,8 +1,10 @@
 // The dio wire layer: one port per endpoint of docs/reference.md "API", with
 // the EXACT request contract of the embedded web client (client.js #request,
 // #loadHistory, readBody — PARITY.md P-CLIENT-018..023):
-//   - Bearer token on every request, `Content-Type: application/json` only
-//     when a body exists, body = JSON string (client.js:203-211);
+//   - Bearer token on every AUTHENTICATED request, `Content-Type:
+//     application/json` only when a body exists, body = JSON string
+//     (client.js:203-211): a request made while close()d and token-less
+//     carries NO header at all, exactly like client.js (client.js:207-209);
 //   - 401 => exactly one token refresh (reason `unauthorized`) and one retry
 //     with retries disabled, only while not close()d (client.js:215-219,
 //     P-CLIENT-021);
@@ -11,16 +13,20 @@
 //   - body reading: text -> JSON.parse, parse failure -> `{error: text}`,
 //     empty -> null treated by callers as `{}` (client.js:319-329);
 //   - history `?limit=50` + `&before=<cursor>`; `next` becomes the cursor;
-//     `viewer` is captured by the client BEFORE any event fires (P-CLIENT-018).
+//     `viewer` is captured by the client BEFORE any event fires (P-CLIENT-018);
+//   - URL building is client.js STRINGS: `api + path` (client.js:127/212) —
+//     an api base WITH a path prefix (https://host/prefix) survives, which
+//     Uri.resolve('/v1/...') would NOT do (it resolves at the host root).
+//     Every endpoint (REST, SSE open, upload PUT) shares joinUri (review
+//     item 2).
 //
 // The SSE request is a dio stream GET on /v1/conversation/events. The token
-// travels ONLY in the Authorization header (dio can set headers, which
-// dart-jvm cannot through EventSource — the web client uses `?token=` for
-// exactly that reason; the header is the safer default here, `_queryToken`
-// stays unused). Deviation is safe by wire contract: withGrant accepts
-// bearer or ?token= (internal/httpapi/server.go:578-585).
+// travels ONLY in the Authorization header (dio can set headers; the web
+// client's EventSource cannot, which is why client.js uses `?token=` there —
+// Dart needs no such deviation). Deviation is safe by wire contract: hfy's
+// withGrant accepts bearer or ?token= (internal/httpapi/server.go:578-585).
 //
-// Tokens never appear in logs or URLs: only in the一览 header above.
+// Tokens never appear in logs or URLs: only in the Authorization header.
 import 'dart:async' show Future, unawaited;
 import 'dart:convert' show jsonDecode, jsonEncode;
 
@@ -131,6 +137,55 @@ class HfyApi {
     }
   }
 
+  /// client.js URL joining, `this.#api + path` (client.js:127/212), shared by
+  /// REST, the SSE open and the upload PUT (review item 2 — one path-join):
+  ///   - an ABSOLUTE [path] (a direct presigned slot) is returned as parsed;
+  ///   - otherwise [base] plus [path] with the base's path PREFIX preserved
+  ///     (https://host/prefix + /v1/... => host/prefix/v1/...), no doubled
+  ///     slashes when the base carries a trailing slash, and any `?query`
+  ///     inside [path] kept verbatim (already wire-encoded).
+  static Uri joinUri(Uri base, String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return Uri.parse(path);
+    }
+    var prefix = base.path;
+    while (prefix.length > 1 && prefix.endsWith('/')) {
+      prefix = prefix.substring(0, prefix.length - 1);
+    }
+    final queryAt = path.indexOf('?');
+    final pathPart = queryAt < 0 ? path : path.substring(0, queryAt);
+    final queryPart =
+        queryAt < 0 ? null : path.substring(queryAt + 1); // already encoded
+    final String joinedPath;
+    if (prefix.isEmpty) {
+      joinedPath = pathPart.startsWith('/') ? pathPart : '/$pathPart';
+    } else {
+      joinedPath =
+          pathPart.startsWith('/') ? '$prefix$pathPart' : '$prefix/$pathPart';
+    }
+    return base.replace(path: joinedPath, query: queryPart);
+  }
+
+  /// The PUT target of an upload slot (client.js:123-131): a `direct` slot's
+  /// presigned URL is used as received; the hfy path is joined onto [base].
+  ///
+  /// SECURITY (review item 2): a NON-direct slot carries the bearer on the
+  /// PUT, so it MUST name a server path (`/...`) — uploads.go:100 always
+  /// produces exactly that. An absolute URL (any other host) in a non-direct
+  /// slot is a protocol violation and throws HfyProtocolException instead of
+  /// putting the grant on the wire for a stranger.
+  Uri uploadUri(String uploadUrl, {required bool direct}) {
+    final absolute =
+        uploadUrl.startsWith('http://') || uploadUrl.startsWith('https://');
+    if (!direct && !uploadUrl.startsWith('/')) {
+      throw const HfyProtocolException(
+          'non-direct upload_url must be a server path starting with "/" '
+          '(an absolute URL would put the bearer token on a foreign host)');
+    }
+    if (absolute) return Uri.parse(uploadUrl);
+    return joinUri(base, uploadUrl);
+  }
+
   // -- REST -----------------------------------------------------------------
 
   /// GET /v1/conversation/history?limit=50[&before=<cursor>] (P-CLIENT-018).
@@ -207,23 +262,19 @@ class HfyApi {
   ///   reads the header before `?after`; either mechanism resumes).
   ///
   /// The client runs this on a session-owned Dio (see HfyClient's
-  /// _SseSession): a cancelled stream then closes its socket via
-  /// adapter.close(force: true) without touching the caller's [dio]. dio's
-  /// own post-completion CancelToken abort is unreliable there — the adapter
-  /// aborts via a WeakReference that can already be gone.
+  /// _SseSession): a cancelled stream then closes ITS OWN cloned adapter via
+  /// adapter.close(force: true) and never touches the caller's [dio] —
+  /// dio's post-completion CancelToken abort is unreliable there (the
+  /// adapter aborts via a WeakReference that can already be gone).
   RequestOptions eventsOptions(
       {required String token, String? after, required String? lastEventId}) {
     final headers = <String, String>{'authorization': 'Bearer $token'};
     final query = <String, String>{};
     if (lastEventId != null) headers['last-event-id'] = lastEventId;
     if (after != null) query['after'] = after;
-    final url = Uri(
-        scheme: base.scheme,
-        host: base.host,
-        port: base.port,
-        userInfo: base.userInfo,
-        pathSegments: [...base.pathSegments, 'v1', 'conversation', 'events'],
-        queryParameters: query.isEmpty ? null : query);
+    final url = joinUri(base, '/v1/conversation/events').replace(
+      queryParameters: query.isEmpty ? null : query,
+    );
     return RequestOptions(
       path: url.toString(),
       method: 'GET',
@@ -240,8 +291,7 @@ class HfyApi {
       Map<String, Object?>? body,
       bool retryOn401 = true}) async {
     if (gate.token == null && !closed) await gate.fetch('initial');
-    final res = await _jsonRequest(method, base.resolve(path).toString(),
-        body);
+    final res = await _jsonRequest(method, joinUri(base, path).toString(), body);
     final status = _status(res);
     final parsed = _readBody(_bodyText(res));
     if (status == 401 && retryOn401 && !closed) {

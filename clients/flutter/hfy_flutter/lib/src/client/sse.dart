@@ -123,8 +123,9 @@ class HfySseParser {
     }
     if (_start) {
       _bomBuf.addAll(bytes);
-      if (_bomBuf.length < 3)
+      if (_bomBuf.length < 3) {
         return <HfySseMessage>[]; // wait for a full BOM-or-not
+      }
       final isBom =
           _bomBuf[0] == 0xEF && _bomBuf[1] == 0xBB && _bomBuf[2] == 0xBF;
       bytes = isBom ? _bomBuf.sublist(3) : List<int>.of(_bomBuf);

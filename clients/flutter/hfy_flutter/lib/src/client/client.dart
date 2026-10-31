@@ -14,23 +14,33 @@
 //     HfyIdleWatchdog fed at connect time and on EVERY byte chunk (>30s of
 //     silence = dead), end-of-stream => fresh token + reconnect resuming
 //     from lastEventId through the [1000,2000,5000] ms ladder, and
-//     HfyProtocolException (parser/envelope) => reconnect instead of a crash
-//     (P-DIFF-005/009, P-NAT-002, P-CLIENT-027/028/030/033);
+//     HfyProtocolException (parser/envelope) => reconnect instead of a crash;
+//   - a LIVE envelope HfyEvent.fromJson REJECTS (actor not an object, a `v`
+//     that is not an int, …) is dropped WITHOUT the reconnect loop: its id
+//     is claimed in the dedupe/cursor so the resume moves past it, and the
+//     failure surfaces only through the onProtocolError diagnostic (review
+//     item 3 — the server replays the same event, so reconnecting here
+//     would trap the client in an endless 1s loop);
 //   - proactive refresh with the client.js skew formula
 //     `max(expires − now − min(skew, remaining/2), 1000)` (P-CLIENT-024/025);
 //   - envelope dedupe (HfyDedupe) gates everything listeners receive:
 //     every id exactly once, live only advances lastEventId (P-CLIENT-015).
 //
-// Deviations from client.js, all native-only and intentional (see the final
-// phase report): the state enum adds `paused`; the SSE token rides the
-// Authorization header instead of `?token=` (client.js needed the query
-// because EventSource cannot set headers); the token provider is
-// single-flight instead of one call per request.
-import 'dart:async' show StreamSubscription, Timer, unawaited;
+// Deviations from client.js, all native-only and intentional (see PARITY.md /
+// the final phase report): the state enum adds `paused`; the SSE token rides
+// the Authorization header instead of `?token=` (dio can set headers); the
+// token provider is single-flight.
+import 'dart:async' show StreamController, StreamSubscription, Timer, unawaited;
 import 'dart:typed_data' show Uint8List;
 
 import 'package:dio/dio.dart'
-    show Dio, RequestOptions, ResponseBody;
+    show
+        BaseOptions,
+        Dio,
+        HttpClientAdapter,
+        RequestOptions,
+        ResponseBody;
+import 'package:dio/io.dart' show IOHttpClientAdapter;
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 
 import '../model/event.dart' show HfyActor, HfyEvent, HfyProtocolException;
@@ -78,6 +88,17 @@ class HfyClientOptions {
   /// so tests can fire the watchdog without disturbing the ladder.
   final HfyTimerFactory idleTimerFactory;
 
+  /// Builds the HttpClientAdapter of EVERY SSE session's own Dio (review
+  /// item 4). The session builds its Dio from the caller Dio's BaseOptions
+  /// (timeouts, headers template, extra, queryParameters) and copies ALL its
+  /// interceptors, so proxy/TLS/test wired in Dart must see the SSE open.
+  /// The ADAPTER always stays session-owned and session-closed
+  /// (adapter.close(force: true) at cancel — the author-verified socket
+  /// teardown), so the factory must return a FRESH adapter per call;
+  /// unchanged (null): a fresh IOHttpClientAdapter copying the caller
+  /// adapter's createHttpClient/validateCertificate knobs.
+  final HttpClientAdapter Function()? sseAdapterFactory;
+
   const HfyClientOptions({
     this.refreshSkew = const Duration(milliseconds: 30000),
     this.idleTimeout = const Duration(milliseconds: 30000),
@@ -85,6 +106,7 @@ class HfyClientOptions {
     HfyClock? clock,
     HfyTimerFactory? timerFactory,
     HfyTimerFactory? idleTimerFactory,
+    this.sseAdapterFactory,
   })  : reconnectBackoff = reconnectBackoff ?? _kBackoff,
         clock = clock ?? _systemClock,
         timerFactory = timerFactory ?? _kRealTimerFactory,
@@ -139,101 +161,6 @@ class HfyUploadsConfig {
   const HfyUploadsConfig({required this.types, required this.maxBytes});
 }
 
-/// The broadcast event stream. client.js fires listeners synchronously from a
-/// snapshot (P-CLIENT-007: unsubscribe mid-dispatch is safe); a broadcast
-/// StreamController can either be async or throw on add-during-dispatch, so
-/// this small custom broadcast Stream keeps the exact semantics: `dispatch`
-/// iterates a snapshot, one throwing listener is routed to its own error
-/// sink alone, and cancelling mid-dispatch is safe.
-class _HfyEventStream extends Stream<HfyEvent> {
-  final List<_EventListener> _listeners = <_EventListener>[];
-
-  @override
-  bool get isBroadcast => true;
-
-  @override
-  StreamSubscription<HfyEvent> listen(void Function(HfyEvent event)? onData,
-      {Function? onError, void Function()? onDone, bool? cancelOnError}) {
-    final listener = _EventListener(this, onData, onError);
-    _listeners.add(listener);
-    return listener;
-  }
-
-  void dispatch(HfyEvent event) {
-    for (final listener in List<_EventListener>.of(_listeners)) {
-      if (listener._cancelled) continue;
-      try {
-        listener._onData?.call(event);
-      } catch (error, stackTrace) {
-        final sink = listener._onError;
-        if (sink == null) {
-          rethrow; // no handler: propagate like a real stream would
-        }
-        sink(error, stackTrace);
-      }
-    }
-  }
-
-  void _remove(_EventListener listener) {
-    listener._cancelled = true;
-    _listeners.remove(listener);
-  }
-}
-
-class _EventListener implements StreamSubscription<HfyEvent> {
-  final _HfyEventStream _stream;
-  final void Function(HfyEvent event)? _onData;
-  final void Function(Object error, StackTrace? stackTrace)? _onError;
-
-  bool _cancelled = false;
-  bool _paused = false;
-
-  _EventListener(this._stream, this._onData, Function? onError)
-      : _onError = _wrapError(onError);
-
-  // Both `(e)` and `(e, st)` handlers are accepted.
-  static void Function(Object, StackTrace?)? _wrapError(Function? onError) {
-    if (onError == null) return null;
-    try {
-      return onError as void Function(Object, StackTrace?)?;
-    } on TypeError {
-      return (Object e, StackTrace? st) => onError(e);
-    }
-  }
-
-  @override
-  void onData(void Function(HfyEvent event)? handleData) {
-    throw UnsupportedError('cannot reassign onData');
-  }
-
-  @override
-  void onError(Function? handleError) {
-    throw UnsupportedError('cannot reassign onError');
-  }
-
-  @override
-  void onDone(void Function()? handleDone) {}
-
-  @override
-  Future<void> cancel() {
-    _stream._remove(this);
-    return Future<void>.value();
-  }
-
-  @override
-  bool get isPaused => _paused;
-
-  @override
-  void pause([Future<void>? resumeSignal]) => _paused = true;
-
-  @override
-  void resume() => _paused = false;
-
-  @override
-  Future<E> asFuture<E>([E? completionValue]) => Future.error(
-      UnsupportedError('asFuture is not supported on the hfy event stream'));
-}
-
 /// The protocol unit of hfy_flutter: broadcast streams ([events], [state])
 /// plus promise methods. Construct with the api base and a token provider,
 /// then drive with connect().
@@ -242,11 +169,29 @@ class HfyClient {
   /// the first SSE open sends it when the history page had no live_after.
   static const String kZeroEventId = _kZeroUuid;
 
-  final Uri _api;
   final HfyClientOptions options;
   final HfyApi _wire;
   final HfyDedupe _dedupe = HfyDedupe();
-  final _HfyEventStream _events = _HfyEventStream();
+
+  /// Every accepted envelope, broadcast, after dedupe (P-CLIENT-015).
+  ///
+  /// A SYNCHRONOUS broadcast controller (client.js fires listeners
+  /// synchronously, P-CLIENT-007: unsubscribe mid-dispatch is safe), and an
+  /// ordinary Dart stream: `.first` / `firstWhere` / `await for` /
+  /// pause+resume all behave like the platform promises (review item 1 —
+  /// the deleted custom stream broke exactly those).
+  ///
+  /// LISTENER ERRORS: a listener's own exception NEVER aborts the
+  /// connection or the other listeners — per Dart's stream rules the
+  /// broadcast delivery isolates each subscription: the others still get
+  /// their events in the same dispatch, LATER frames still arrive, the
+  /// cursor already advanced and resume() still opens past the gap; the
+  /// exception surfaces through the listener's own zone (the same
+  /// Zone.current.handleUncaughtError path every Dart listener callback
+  /// takes). Wrap the client's listen() calls in a zone with
+  /// handleUncaughtError when the listener can throw.
+  final StreamController<HfyEvent> _events = StreamController<HfyEvent>.broadcast(sync: true);
+
   final ValueNotifier<HfyConnectionState> _state =
       ValueNotifier<HfyConnectionState>(HfyConnectionState.idle);
 
@@ -267,17 +212,44 @@ class HfyClient {
   int _reconnectAttempts = 0;
   _SseSession? _stream;
 
-  HfyClient({
+
+
+  /// The Dio this client created itself (dispose() closes it; an injected
+  /// dio stays the caller's property and is never closed here).
+  final Dio? _ownedDio;
+
+  /// Diagnostics for malformed envelopes (review item 3): never reconnects,
+  /// never throws, only reported. See [_fire].
+  void Function(HfyProtocolException error)? onProtocolError;
+
+  factory HfyClient({
     required Uri api,
     required Future<Object?> Function(String reason) tokenProvider,
-    this.options = const HfyClientOptions(),
+    HfyClientOptions options = const HfyClientOptions(),
     Dio? dio,
-  }) : _api = _stripSlashes(api),
-       _wire = HfyApi(
-          dio: dio ?? Dio(),
-          base: _stripSlashes(api),
-          gate: HfyTokenGate(tokenProvider, clock: options.clock),
-        ) {
+    void Function(HfyProtocolException error)? onProtocolError,
+  }) {
+    // One Dio total for the null case: the wire and the owned field share it.
+    final theDio = dio ?? Dio();
+    return HfyClient._(
+      wire: HfyApi(
+        dio: theDio,
+        base: _stripSlashes(api),
+        gate: HfyTokenGate(tokenProvider, clock: options.clock),
+      ),
+      ownedDio: dio == null ? theDio : null,
+      options: options,
+      onProtocolError: onProtocolError,
+    );
+  }
+
+  HfyClient._({
+    required HfyApi wire,
+    required Dio? ownedDio,
+    required this.options,
+    required this.onProtocolError,
+  })  : _wire = wire,
+        _ownedDio = ownedDio {
     // client.js:217 — a refreshed-on-401 token reschedules the refresh timer.
     _wire.onUnauthorizedRefresh = _scheduleRefresh;
   }
@@ -297,7 +269,7 @@ class HfyClient {
   ValueListenable<HfyConnectionState> get state => _state;
 
   /// Every accepted envelope, broadcast, after dedupe (P-CLIENT-015).
-  Stream<HfyEvent> get events => _events;
+  Stream<HfyEvent> get events => _events.stream;
 
   /// The resumption cursor: the newest LIVE envelope id delivered, else the
   /// live_after pin of the last connect() (client.js #lastEventId).
@@ -377,7 +349,10 @@ class HfyClient {
       throw const HfyProtocolException('upload slot lacks file/upload_url');
     }
     final direct = slot['direct'] == true;
-    final putUrl = direct ? Uri.parse(uploadUrl) : _api.resolve(uploadUrl);
+    // A non-direct slot carries the bearer: HfyApi.uploadUri REJECTS an
+    // absolute URL there instead of putting the grant on a foreign host
+    // (review item 2, uploads.go:100 always produces a server path).
+    final putUrl = _wire.uploadUri(uploadUrl, direct: direct);
     await _wire.putUpload(putUrl, mime, bytes, size, withAuth: !direct);
     return HfyAttachmentRef(file: file, mime: mime, name: name);
   }
@@ -414,6 +389,7 @@ class HfyClient {
   /// NEW (P-NAT-004 analog): close the SSE stream and cancel the timers
   /// WITHOUT ending the client. Idempotent; a later wave wires this to
   /// WidgetsBindingObserver.didAppLifecycleChange(paused).
+  ///
   void pause() {
     if (_paused || _closed) return;
     _paused = true;
@@ -427,12 +403,26 @@ class HfyClient {
   /// reconnect path (P-CLIENT-030). Idempotent; no-op when the client never
   /// connected (resume() only runs resume-after-pause) or after close()
   /// (connect() is the revival instead, P-CLIENT-034).
+  ///
   void resume() {
     if (!_paused || _closed || !_everStarted) return;
     _paused = false;
     if (_stream != null) return; // a connect() raced us; it owns the stream
     _setState(HfyConnectionState.reconnecting);
     unawaited(_runReconnect());
+  }
+
+  /// Everything stops AND the client gives up its resources (review item
+  /// 1/9): the event controller closes (listeners get onDone), the state
+  /// notifier disposes, and a Dio the client created ITSELF is closed
+  /// (an injected one belongs to the caller). After dispose() the client
+  /// must no longer be driven — and, unlike [close], a dispose()d client
+  /// cannot merely be revived by another connect(); build a new one.
+  Future<void> dispose() async {
+    close();
+    await _events.close();
+    _state.dispose();
+    _ownedDio?.close();
   }
 
   // -- internals: state ----------------------------------------------------
@@ -448,19 +438,34 @@ class HfyClient {
   /// Fires one envelope through dedupe into the broadcast stream. History
   /// envelopes are seeded without moving the cursor (P-CLIENT-015).
   void _fire(Object? envelope, {required bool isHistory}) {
-    if (_closed || envelope == null || envelope is! Map) return;
+    if (_closed || envelope == null) return;
     final HfyEvent event;
     try {
       event = HfyEvent.fromJson(envelope);
-    } on HfyProtocolException {
-      // The typed model rejects a malformed envelope: dead data. History is
-      // re-fetchable, so a history drop stays silent; a LIVE drop forces the
-      // reconnect ladder so the server replays the gap.
-      if (!isHistory) _scheduleReconnect();
+    } on HfyProtocolException catch (error) {
+      _dropRejectedEnvelope(envelope, isHistory, error);
       return;
     }
     if (!_dedupe.claim(event.id, isHistory: isHistory)) return; // replayed
-    _events.dispatch(event);
+    // Synchronous broadcast: every listener gets it now, a throwing one is
+    // isolated by the stream itself (see [events]) and THE NEXT FRAME of
+    // this same chunk is still processed afterwards (review item 1).
+    if (!_events.isClosed) _events.add(event);
+  }
+
+  /// A typed model rejection: the envelope is dead data (review item 3).
+  /// The server REPLAYS the same envelope, so a reconnect ladder here would
+  /// loop forever with a successful open resetting it — instead the
+  /// envelope's id (if any) is CLAIMED in the dedupe/cursor so resume()
+  /// moves past it, the frame is dropped, delivery of later frames
+  /// continues, and the failure surfaces only through [onProtocolError]
+  /// (diagnostic only).
+  void _dropRejectedEnvelope(
+      Object? envelope, bool isHistory, HfyProtocolException error) {
+    final id =
+        envelope is Map && envelope['id'] is String ? envelope['id'] as String : null;
+    _dedupe.claim(id, isHistory: isHistory);
+    onProtocolError?.call(error);
   }
 
   /// One decoded history page: capture cursor + viewer BEFORE firing, then
@@ -490,12 +495,14 @@ class HfyClient {
   void _openStream() {
     _closeStream();
     final session = _SseSession(
-        client: this,
-        watchdog: HfyIdleWatchdog(
-          idle: options.idleTimeout,
-          onDead: _onStreamDead,
-          timerFactory: options.idleTimerFactory,
-        ));
+      client: this,
+      watchdog: HfyIdleWatchdog(
+        idle: options.idleTimeout,
+        onDead: _onStreamDead,
+        timerFactory: options.idleTimerFactory,
+      ),
+      dio: _newSessionDio(),
+    );
     _stream = session;
     session.start(_wire.eventsOptions(
       token: _wire.gate.token ?? '',
@@ -510,6 +517,56 @@ class HfyClient {
     stream?.cancel();
   }
 
+  /// The SSE session's throwaway Dio built from the CALLER's dio (review
+  /// item 4): BaseOptions copied, ALL interceptors copied, and its own
+  /// HttpClientAdapter — a fresh one from [options.sseAdapterFactory] or an
+  /// IOHttpClientAdapter clone with the caller's createHttpClient /
+  /// validateCertificate knobs (TLS pinning must ride along). The session
+  /// closes its OWN adapter (safe, it shares nothing); the caller's adapter
+  /// and its keep-alive sockets are never touched.
+  Dio _newSessionDio() {
+    final template = _wire.dio;
+    final dio = Dio(_sessionBaseOptions(template.options));
+    dio.interceptors.addAll(template.interceptors);
+    dio.httpClientAdapter = options.sseAdapterFactory?.call() ??
+        _cloneSseAdapter(template.httpClientAdapter);
+    return dio;
+  }
+
+  static BaseOptions _sessionBaseOptions(BaseOptions template) => BaseOptions(
+        baseUrl: template.baseUrl,
+        connectTimeout: template.connectTimeout,
+        sendTimeout: template.sendTimeout,
+        receiveTimeout: template.receiveTimeout,
+        queryParameters: Map<String, dynamic>.of(template.queryParameters),
+        headers: Map<String, dynamic>.of(template.headers),
+        extra: Map<String, dynamic>.of(template.extra),
+        contentType: template.contentType,
+        persistentConnection: template.persistentConnection,
+        preserveHeaderCase: template.preserveHeaderCase,
+        followRedirects: template.followRedirects,
+        maxRedirects: template.maxRedirects,
+        listFormat: template.listFormat,
+        responseDecoder: template.responseDecoder,
+        requestEncoder: template.requestEncoder,
+        // The SSE open OVERRIDES base headers per request (dio merges), so an
+        // app's own 'authorization' template never clobbers the token.
+      );
+
+  // shortcut: only IOHttpClientAdapter is cloned field-wise; any other
+  // adapter type falls back to a default IOHttpClientAdapter — pass
+  // HfyClientOptions.sseAdapterFactory when the app must run a custom
+  // adapter for SSE.
+  static HttpClientAdapter _cloneSseAdapter(HttpClientAdapter template) {
+    if (template is IOHttpClientAdapter) {
+      return IOHttpClientAdapter(
+        createHttpClient: template.createHttpClient,
+        validateCertificate: template.validateCertificate,
+      );
+    }
+    return IOHttpClientAdapter();
+  }
+
   /// The stream's headers arrived — the Dart analog of EventSource's 'open'
   /// event: the ladder restarts at the first step (P-CLIENT-029). Surrogate
   /// for the browser's own reconnection logic (P-DIFF-005/009).
@@ -521,6 +578,9 @@ class HfyClient {
     if (response.status < 200 || response.status >= 300) {
       // A non-2xx open is an EventSource error with readyState CLOSED in the
       // web: an unauthorized refresh, then one ladder reopen (P-CLIENT-030).
+      // A 3xx belongs here too: followRedirects is off, so a token-stealing
+      // or proxy redirect shows up as a non-2xx status, not a silent hop
+      // (review item 11).
       session.cancel();
       _scheduleReconnect();
       return;
@@ -536,13 +596,18 @@ class HfyClient {
     List<HfySseMessage> frames;
     try {
       frames = session.parser.push(bytes);
-    } on HfyProtocolException {      // The parser's size limits (and any framing break) => reconnect ladder,
+    } on HfyProtocolException {
+      // The parser's size limits (and any framing break) => reconnect ladder,
       // never a crash (phase task: "parse errors/HfyProtocolException =>
       // reconnect, surface via state").
       session.cancel();
       _scheduleReconnect();
       return;
     }
+    // Each frame is fired separately, so ONE malformed envelope (dropped by
+    // _fire) cannot orphan the frames that follow it in the same chunk
+    // (review item 3), and a throwing LISTENER cannot orphan them either
+    // (review item 1).
     for (final frame in frames) {
       _fireFrame(frame);
     }
@@ -550,7 +615,8 @@ class HfyClient {
 
   void _fireFrame(HfySseMessage frame) {
     // HfyEvent.tryJson never throws; null means unparseable => P-CLIENT-027's
-    // silently-dropped frame.
+    // silently-dropped frame (no envelope exists, so there is no id to
+    // claim — P-CLIENT-027 stays the contract there).
     final envelope = HfyEvent.tryJson(frame.data);
     _fire(envelope, isHistory: false);
   }
@@ -668,19 +734,28 @@ class HfyClient {
 /// and cancellation — client.js's `eventSource` field under a Dart shape.
 /// Stale sessions' callbacks verify `client._stream == this` before moving
 /// anything (client.js's `this.#eventSource !== es` guards).
+///
+/// Its dio is built per open from the CALLER's dio's BaseOptions + ALL
+/// interceptors, with its own HttpClientAdapter (see HfyClientOptions
+/// .sseAdapterFactory): the app's proxy/TLS/test wiring must see the SSE
+/// request, while the force-close teardown that reliably kills THIS socket
+/// (adapter.close(force: true) — dio's shared CancelToken post-completion
+/// abort is a WeakReference that can already be gone) must NOT tear the
+/// caller's keep-alive sockets. HfyClient._newSessionDio documents exactly
+/// what is copied (BaseOptions and ALL interceptors) and how the adapter is
+/// cloned fresh per session (review item 4).
 class _SseSession {
   final HfyClient client;
   final HfyIdleWatchdog watchdog;
   final HfySseParser parser = HfySseParser();
-
-  /// Throwaway Dio per session: its adapter force-close kills THIS stream's
-  /// socket on cancel (dio's shared CancelToken post-completion abort is
-  /// unreliable — a WeakReference that may already be gone), and the
-  /// caller-provided Dio stays untouched by stream lifecycles.
-  final Dio _dio = Dio();
+  final Dio _dio;
   StreamSubscription<Uint8List>? _sub;
 
-  _SseSession({required this.client, required this.watchdog});
+  _SseSession({
+    required this.client,
+    required this.watchdog,
+    required Dio dio,
+  }) : _dio = dio;
 
   /// Connects; the response headers route to the client when they exist and
   /// failures/cancellations alike route to the client's ladder.
@@ -703,6 +778,9 @@ class _SseSession {
             client._onStreamError(this));
   }
 
+  /// Kills THIS stream's socket for good (force-close), whomever initiated
+  /// the teardown. Superseded/in-flight opens are cancelled likewise: the
+  /// adapter-level close aborts both the hung open and the streaming body.
   void cancel() {
     _sub?.cancel();
     _sub = null;

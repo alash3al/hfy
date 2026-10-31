@@ -126,6 +126,11 @@ class FakeHfyServer {
   /// ({file, upload_url, expires_at, direct}).
   Map<String, Object?> uploadSlot = {};
 
+  /// A path prefix every client request may carry before /v1/... (review
+  /// item 2): routes match the PREFIX-STRIPPED path, records keep the raw
+  /// wire path so callers can assert the prefix survived.
+  String pathPrefix = '';
+
   // -- records --------------------------------------------------------------
 
   final List<RecordedRequest> requests = [];
@@ -180,6 +185,17 @@ class FakeHfyServer {
 
   // -- routing --------------------------------------------------------------
 
+  /// The route-matching path: the recorded raw path minus [pathPrefix] (a
+  /// non-prefixed request passes through unchanged, so prefixed and
+  /// non-prefixed clients share one server).
+  String _effective(String raw) {
+    if (pathPrefix.isEmpty) return raw;
+    if (raw == pathPrefix) return '/';
+    if (!raw.startsWith(pathPrefix)) return raw;
+    final stripped = raw.substring(pathPrefix.length);
+    return stripped.isEmpty ? '/' : stripped;
+  }
+
   Future<void> _onRequest(HttpRequest raw) async {
     final res = raw.response;
     final headers = <String, String>{};
@@ -190,6 +206,7 @@ class FakeHfyServer {
         headers: headers,
         body: await utf8.decoder.bind(raw).join());
     requests.add(record);
+    final effectivePath = _effective(raw.uri.path);
 
     res.headers.set('Content-Type', 'application/json');
     if (_pending401.isNotEmpty) {
@@ -205,7 +222,7 @@ class FakeHfyServer {
       return;
     }
 
-    switch (raw.uri.path) {
+    switch (effectivePath) {
       case '/v1/conversation/history':
         final before = raw.uri.queryParameters['before'];
         final key = before == null || before.isEmpty ? null : before;
@@ -261,7 +278,7 @@ class FakeHfyServer {
         await _json(res, 200, {});
         return;
       default:
-        if (raw.uri.path.startsWith('/v1/conversation/uploads/') &&
+        if (effectivePath.startsWith('/v1/conversation/uploads/') &&
             raw.method == 'PUT') {
           uploadPuts.add(record); // the slot's hfy-path upload_url
           uploadPutBodies.add(record.body);
