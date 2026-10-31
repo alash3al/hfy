@@ -146,6 +146,11 @@ there is no credentials mode.
   only, stored cleaned, at most 255 bytes, no newlines). Every stored file
   is also indexed in `conversation_files` — conversation, message event,
   uploader, key, type, size — written in the message's own transaction.
+- `GET /v1/conversation/config` → `{"uploads": null | {"types": [mime…],
+  "max_bytes": N}}`. What the embed page config injects there: whether to
+  offer attachments at all, and which types and size to check before calling
+  `POST /v1/conversation/uploads` (the server checks again). `null` when no
+  `filesystem:` is configured.
 - `GET /v1/files/{key}` serves a stored file. It is the target of signed
   URLs hfy hands out, not a client API to construct.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.

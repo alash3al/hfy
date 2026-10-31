@@ -74,6 +74,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	// stream takes the token as ?token=, since EventSource cannot set headers.
 	route("POST /v1/conversation/messages", srv.withGrant(false, srv.postMessage))
 	route("GET /v1/conversation/events", srv.withGrant(true, srv.streamEvents))
+	route("GET /v1/conversation/config", srv.withGrant(false, srv.conversationConfig))
 	route("GET /v1/conversation/history", srv.withGrant(false, srv.history))
 	route("POST /v1/conversation/approvals", srv.withGrant(false, srv.approve))
 	route("POST /v1/conversation/stop", srv.withGrant(false, srv.stop))
