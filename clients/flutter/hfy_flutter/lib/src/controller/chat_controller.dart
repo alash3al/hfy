@@ -22,7 +22,9 @@ import 'dart:async'
         unawaited;
 
 import 'package:dio/dio.dart' show Dio;
-import 'package:flutter/foundation.dart' show ChangeNotifier, ValueNotifier;
+import 'package:flutter/foundation.dart'
+    show ChangeNotifier, ValueNotifier, visibleForTesting;
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 import '../client/client.dart'
     show HfyAttachmentRef, HfyClient, HfyClientOptions, HfyUploadsConfig;
@@ -33,6 +35,7 @@ import '../model/event.dart' show HfyEvent, HfyProtocolException;
 import '../model/fold.dart' show HfyConversation;
 import '../model/state.dart'
     show HfyBlock, HfyToolCalls, HfyTurn, HfyTz, HfyViewer;
+import 'lifecycle.dart';
 import 'message.dart';
 
 /// Presentation options, captured once at construction (P-CFG-020: no
@@ -172,6 +175,7 @@ class HfyChatController extends ChangeNotifier {
   bool _notifying = false;
   bool _disposed = false;
   bool _superDisposeDeferred = false;
+  HfyLifecycleBinder? _lifecycle;
 
   // -- readable state ---------------------------------------------------------
 
@@ -408,10 +412,24 @@ class HfyChatController extends ChangeNotifier {
     if (!_disposed) _client.resume();
   }
 
+  /// Pauses the stream in the background and resumes it on return
+  /// (P-NAT-004). The registration ends at [dispose].
+  void attachLifecycle(WidgetsBinding binding) {
+    if (_disposed) return;
+    (_lifecycle ??= HfyLifecycleBinder(
+      onPause: pause,
+      onResume: resume,
+    )).attach(binding);
+  }
+
+  @visibleForTesting
+  bool get lifecycleAttached => _lifecycle?.attached ?? false;
+
   @override
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _lifecycle?.detach();
     unawaited(_eventSub.cancel());
     _client.state.removeListener(_onConnectionChanged);
     stickToBottom.removeListener(_onStickChanged);
