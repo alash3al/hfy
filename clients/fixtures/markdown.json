@@ -1,0 +1,3199 @@
+[
+  {
+    "input": "# one\n## two\n### three\n#### four\n##### five\n###### six\n####### seven",
+    "name": "heading-levels",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "one"
+          }
+        ],
+        "level": 1,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "two"
+          }
+        ],
+        "level": 2,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "three"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "four"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "five"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "six"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "####### seven"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "## Heading ##\n### no ###\n#### deep ####",
+    "name": "heading-trailing-hashes",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "Heading"
+          }
+        ],
+        "level": 2,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "no"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "deep"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "##nospace\nText\n### stillno",
+    "name": "heading-not-heading",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "##nospace"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "Text"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "stillno"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "## *ed* and `code` and [x](https://y.example)",
+    "name": "heading-inline-markup",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "ed"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "code",
+            "v": "code"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "x"
+              }
+            ],
+            "href": "https://y.example/",
+            "t": "a"
+          }
+        ],
+        "level": 2,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "Title\n=====\nnot a heading",
+    "name": "setext-not-supported",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "Title"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "====="
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "not a heading"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "# 🎉 Launch day",
+    "name": "heading-emoji",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "🎉 Launch day"
+          }
+        ],
+        "level": 1,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "#\n## ",
+    "name": "heading-empty",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "#"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "c": [],
+        "level": 2,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "```js\nvar x = 1;\nvar y = 2;\n```",
+    "name": "fence-lang",
+    "tree": [
+      {
+        "lang": "js",
+        "t": "pre",
+        "text": "var x = 1;\nvar y = 2;"
+      }
+    ]
+  },
+  {
+    "input": "~~~\nplain\n~~~",
+    "name": "fence-tilde",
+    "tree": [
+      {
+        "lang": "",
+        "t": "pre",
+        "text": "plain"
+      }
+    ]
+  },
+  {
+    "input": "```py\nprint('streaming')",
+    "name": "fence-unterminated",
+    "tree": [
+      {
+        "lang": "py",
+        "t": "pre",
+        "text": "print('streaming')"
+      }
+    ]
+  },
+  {
+    "input": "   ```\n    four spaces stay-in\n   ```",
+    "name": "fence-indented",
+    "tree": [
+      {
+        "lang": "",
+        "t": "pre",
+        "text": " four spaces stay-in"
+      }
+    ]
+  },
+  {
+    "input": "```js\nx\n``` not a close",
+    "name": "fence-close-with-text",
+    "tree": [
+      {
+        "lang": "js",
+        "t": "pre",
+        "text": "x\n``` not a close"
+      }
+    ]
+  },
+  {
+    "input": "~~~python3\nx = 1\n~~~",
+    "name": "fence-lang-and-q",
+    "tree": [
+      {
+        "lang": "python3",
+        "t": "pre",
+        "text": "x = 1"
+      }
+    ]
+  },
+  {
+    "input": "a `code` b and ``two words`` c",
+    "name": "code-inline-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a "
+          },
+          {
+            "t": "code",
+            "v": "code"
+          },
+          {
+            "t": "text",
+            "v": " b and "
+          },
+          {
+            "t": "code",
+            "v": "two words"
+          },
+          {
+            "t": "text",
+            "v": " c"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "x `no close",
+    "name": "code-inline-unterminated",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "x `no close"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "x ``` y",
+    "name": "code-inline-unmatched-run",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "x ``` y"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "a``b``c",
+    "name": "code-inline-two-run",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "code",
+            "v": "b"
+          },
+          {
+            "t": "text",
+            "v": "c"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "` a ` and `   ` and ` `",
+    "name": "code-inline-padding",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "code",
+            "v": "a"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "code",
+            "v": "   "
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "code",
+            "v": " "
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "`\\n stays` and \\* outside",
+    "name": "code-inline-escapes",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "code",
+            "v": "\\n stays"
+          },
+          {
+            "t": "text",
+            "v": " and * outside"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "### `cmd` title",
+    "name": "code-inline-in-heading",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "code",
+            "v": "cmd"
+          },
+          {
+            "t": "text",
+            "v": " title"
+          }
+        ],
+        "level": 3,
+        "t": "h"
+      }
+    ]
+  },
+  {
+    "input": "*em* **strong** ***both*** and _u_ and __uu__",
+    "name": "em-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "em"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "strong"
+              }
+            ],
+            "t": "b"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "both"
+                  }
+                ],
+                "t": "i"
+              }
+            ],
+            "t": "b"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "u"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "uu"
+              }
+            ],
+            "t": "b"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "a_b_c and snake_case_word stays",
+    "name": "em-underscore-intraword",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a_b_c and snake_case_word stays"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "a*b*c",
+    "name": "em-asterisk-intraword",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "b"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": "c"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "(*em*) and **it.** and *trailing.* end",
+    "name": "em-flanking",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "("
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "em"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": ") and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "it."
+              }
+            ],
+            "t": "b"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "trailing."
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " end"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "never **closes",
+    "name": "em-unterminated",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "never **closes"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "**** four stays",
+    "name": "em-run-four",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "**** four stays"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "one *spanning\nlines* two",
+    "name": "em-multiline",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "one "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "spanning"
+              },
+              {
+                "t": "br"
+              },
+              {
+                "t": "text",
+                "v": "lines"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " two"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "*not em* in `*code*`",
+    "name": "em-in-code",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "not em"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " in "
+          },
+          {
+            "t": "code",
+            "v": "*code*"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "**bold with *italic* inside**",
+    "name": "em-nested",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "bold with "
+              },
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "italic"
+                  }
+                ],
+                "t": "i"
+              },
+              {
+                "t": "text",
+                "v": " inside"
+              }
+            ],
+            "t": "b"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "*[linked](https://x.example) emphasis*",
+    "name": "em-with-link",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "linked"
+                  }
+                ],
+                "href": "https://x.example/",
+                "t": "a"
+              },
+              {
+                "t": "text",
+                "v": " emphasis"
+              }
+            ],
+            "t": "i"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "in_word_ no and out _word_ yes",
+    "name": "em-underscore-close-word",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "in_word_ no and out "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "word"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " yes"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "\\*not em\\*",
+    "name": "escape-emphasis",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "*not em*"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "\\! \\# \\(done\\) robot \\@you",
+    "name": "escape-bang",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "! # (done) robot @you"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "\\[not a link\\](https://x.example)",
+    "name": "escape-link",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "[not a link]("
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "backslash stays before a: \\a and \\end\\",
+    "name": "escape-non-punct",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "backslash stays before a: \\a and \\end\\"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "```\n\\# \\* glyph hunters\n```",
+    "name": "escape-in-fence",
+    "tree": [
+      {
+        "lang": "",
+        "t": "pre",
+        "text": "\\# \\* glyph hunters"
+      }
+    ]
+  },
+  {
+    "input": "[label](https://x.example/a?b=1)",
+    "name": "link-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "label"
+              }
+            ],
+            "href": "https://x.example/a?b=1",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](https://x.example \"title\") and [t2](https://x.example 'sq')",
+    "name": "link-title",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t2"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](<https://x.example/a b>)",
+    "name": "link-angle-dest",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t"
+              }
+            ],
+            "href": "https://x.example/a%20b",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](/relative) [t2](javascript:alert(1)) [t3](data:text/html,x) [t4](//evil) [t5](https://ok.example)",
+    "name": "link-unsafe-dests",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "[t](/relative)"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "t": "text",
+            "v": "[t2](javascript:alert(1))"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "t": "text",
+            "v": "[t3](data:text/html,x)"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "t": "text",
+            "v": "[t4](//evil)"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t5"
+              }
+            ],
+            "href": "https://ok.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[outer [inner] tail](https://x.example)",
+    "name": "link-nested-brackets",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "outer [inner] tail"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](https://x.example/(unbalanced",
+    "name": "link-unbalanced-paren",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "[t]("
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/(unbalanced"
+              }
+            ],
+            "href": "https://x.example/(unbalanced",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](https://x.example/a(b)c)",
+    "name": "link-balanced-parens",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t"
+              }
+            ],
+            "href": "https://x.example/a(b)c",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[ref][x] and [only] stay text",
+    "name": "link-ref-style-text",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "[ref][x] and [only] stay text"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[](https://x.example)",
+    "name": "link-empty-label",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[`code`](https://x.example)",
+    "name": "link-label-code",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "code",
+                "v": "code"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t](https://x.\nexample)",
+    "name": "link-dest-newline",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "[t]("
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x"
+              }
+            ],
+            "href": "https://x/",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": "."
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "example)"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "see *[this](https://x.example/ok) now*",
+    "name": "link-in-em",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "see "
+          },
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "this"
+                  }
+                ],
+                "href": "https://x.example/ok",
+                "t": "a"
+              },
+              {
+                "t": "text",
+                "v": " now"
+              }
+            ],
+            "t": "i"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "[t\nx](https://x.example)",
+    "name": "link-label-multiline-no",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "t"
+              },
+              {
+                "t": "br"
+              },
+              {
+                "t": "text",
+                "v": "x"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "go <https://x.example> now",
+    "name": "autolink-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "go "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " now"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "<mailto:a@x.example>",
+    "name": "autolink-mailto",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "mailto:a@x.example"
+              }
+            ],
+            "href": "mailto:a@x.example",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "<javascript:alert(1)> <ftp://x> stay text",
+    "name": "autolink-unsafe",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "<javascript:alert(1)> <ftp://x> stay text"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "<HTTPS://X.EXAMPLE/OK>",
+    "name": "autolink-uppercase",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "HTTPS://X.EXAMPLE/OK"
+              }
+            ],
+            "href": "https://x.example/OK",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "<https://x.example",
+    "name": "autolink-unterminated",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "<"
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "visit https://x.example/docs?v=1 today",
+    "name": "bare-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "visit "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/docs?v=1"
+              }
+            ],
+            "href": "https://x.example/docs?v=1",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " today"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "go https://x.example/a,b,c. and https://x.example/q! and https://x.org/r*\"",
+    "name": "bare-trailing-punct",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "go "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/a,b,c"
+              }
+            ],
+            "href": "https://x.example/a,b,c",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": ". and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/q"
+              }
+            ],
+            "href": "https://x.example/q",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": "! and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.org/r"
+              }
+            ],
+            "href": "https://x.org/r",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": "*\""
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "(see https://x.example/a_(b)) and https://x.example/closed)",
+    "name": "bare-trailing-paren",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "(see "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/a_(b)"
+              }
+            ],
+            "href": "https://x.example/a_(b)",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": ") and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/closed"
+              }
+            ],
+            "href": "https://x.example/closed",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": ")"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "prefixhttp://x.example stays and httpsok stays, but https://x.example/real works",
+    "name": "bare-midword",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "prefixhttp://x.example stays and httpsok stays, but "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/real"
+              }
+            ],
+            "href": "https://x.example/real",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " works"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "HTTP://X.EXAMPLE/OK and https://X.example",
+    "name": "bare-uppercase",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "HTTP://X.EXAMPLE/OK"
+              }
+            ],
+            "href": "http://x.example/OK",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://X.example"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "ssh://host and ws://x and javascript:alert(2) are text",
+    "name": "unstable-schemes-text",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "ssh://host and ws://x and javascript:alert(2) are text"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "https://x.example/p?a=1#frag",
+    "name": "bare-with-query-hash",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/p?a=1#frag"
+              }
+            ],
+            "href": "https://x.example/p?a=1#frag",
+            "t": "a"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "> quoted\n> more lines",
+    "name": "quote-basic",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "quoted"
+              },
+              {
+                "t": "br"
+              },
+              {
+                "t": "text",
+                "v": "more lines"
+              }
+            ],
+            "t": "p"
+          }
+        ],
+        "t": "quote"
+      }
+    ]
+  },
+  {
+    "input": "> p1\n>\n> p2",
+    "name": "quote-paragraphs",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "p1"
+              }
+            ],
+            "t": "p"
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "p2"
+              }
+            ],
+            "t": "p"
+          }
+        ],
+        "t": "quote"
+      }
+    ]
+  },
+  {
+    "input": "> a\n> > b\n> > > c",
+    "name": "quote-nested",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "a"
+              }
+            ],
+            "t": "p"
+          },
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "b"
+                  }
+                ],
+                "t": "p"
+              },
+              {
+                "c": [
+                  {
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "c"
+                      }
+                    ],
+                    "t": "p"
+                  }
+                ],
+                "t": "quote"
+              }
+            ],
+            "t": "quote"
+          }
+        ],
+        "t": "quote"
+      }
+    ]
+  },
+  {
+    "input": "> quoted\ncontinuation line",
+    "name": "quote-lazy-continuation",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "quoted"
+              }
+            ],
+            "t": "p"
+          }
+        ],
+        "t": "quote"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "continuation line"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "> l1\n> > l2\n> > > l3\n> > > > l4\n> > > > > l5\n> > > > > > l6\n> > > > > > > l7\n> > > > > > > > l8",
+    "name": "quote-depth-limit",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "l1"
+              }
+            ],
+            "t": "p"
+          },
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "l2"
+                  }
+                ],
+                "t": "p"
+              },
+              {
+                "c": [
+                  {
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "l3"
+                      }
+                    ],
+                    "t": "p"
+                  },
+                  {
+                    "c": [
+                      {
+                        "c": [
+                          {
+                            "t": "text",
+                            "v": "l4"
+                          }
+                        ],
+                        "t": "p"
+                      },
+                      {
+                        "c": [
+                          {
+                            "c": [
+                              {
+                                "t": "text",
+                                "v": "l5"
+                              }
+                            ],
+                            "t": "p"
+                          },
+                          {
+                            "c": [
+                              {
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "l6"
+                                  }
+                                ],
+                                "t": "p"
+                              },
+                              {
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "l7"
+                                  },
+                                  {
+                                    "t": "br"
+                                  },
+                                  {
+                                    "t": "text",
+                                    "v": "> l8"
+                                  }
+                                ],
+                                "t": "p"
+                              }
+                            ],
+                            "t": "quote"
+                          }
+                        ],
+                        "t": "quote"
+                      }
+                    ],
+                    "t": "quote"
+                  }
+                ],
+                "t": "quote"
+              }
+            ],
+            "t": "quote"
+          }
+        ],
+        "t": "quote"
+      }
+    ]
+  },
+  {
+    "input": "> **bold** and *em* in quote",
+    "name": "quote-inline-markup",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "bold"
+                  }
+                ],
+                "t": "b"
+              },
+              {
+                "t": "text",
+                "v": " and "
+              },
+              {
+                "c": [
+                  {
+                    "t": "text",
+                    "v": "em"
+                  }
+                ],
+                "t": "i"
+              },
+              {
+                "t": "text",
+                "v": " in quote"
+              }
+            ],
+            "t": "p"
+          }
+        ],
+        "t": "quote"
+      }
+    ]
+  },
+  {
+    "input": "---\n***\n___",
+    "name": "hr-forms",
+    "tree": [
+      {
+        "t": "hr"
+      },
+      {
+        "t": "hr"
+      },
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "input": "- - -\n*  *  *",
+    "name": "hr-spaces",
+    "tree": [
+      {
+        "t": "hr"
+      },
+      {
+        "t": "hr"
+      }
+    ]
+  },
+  {
+    "input": "- item\n***\n- next",
+    "name": "hr-sets-off-list",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "item"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      },
+      {
+        "t": "hr"
+      },
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "next"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- one\n- two\n* star\n+ plus",
+    "name": "ul-basic",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "one"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "two"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "star"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "plus"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "1. one\n2. two\n3. three",
+    "name": "ol-basic",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "one"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "two"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "three"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ol"
+      }
+    ]
+  },
+  {
+    "input": "1) one\n2) two",
+    "name": "ol-paren-marker",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "one"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "two"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ol"
+      }
+    ]
+  },
+  {
+    "input": "5. five\n6. six",
+    "name": "ol-start",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "five"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "six"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 5,
+        "t": "ol"
+      }
+    ]
+  },
+  {
+    "input": "123456789. big start is 123456789",
+    "name": "ol-start-computed",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "big start is 123456789"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 123456789,
+        "t": "ol"
+      }
+    ]
+  },
+  {
+    "input": "1234567890. stays text",
+    "name": "ol-too-many-digits",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "1234567890. stays text"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "- a\n  - a1\n  - a2\n- b",
+    "name": "ul-nested",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ],
+              "t": "p"
+            },
+            {
+              "items": [
+                [
+                  {
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "a1"
+                      }
+                    ],
+                    "t": "p"
+                  }
+                ],
+                [
+                  {
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "a2"
+                      }
+                    ],
+                    "t": "p"
+                  }
+                ]
+              ],
+              "start": 1,
+              "t": "ul"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- 1\n  - 2\n    - 3\n      - 4\n        - 5\n          - 6\n            - 7",
+    "name": "ul-nested-deep",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "1"
+                }
+              ],
+              "t": "p"
+            },
+            {
+              "items": [
+                [
+                  {
+                    "c": [
+                      {
+                        "t": "text",
+                        "v": "2"
+                      }
+                    ],
+                    "t": "p"
+                  },
+                  {
+                    "items": [
+                      [
+                        {
+                          "c": [
+                            {
+                              "t": "text",
+                              "v": "3"
+                            }
+                          ],
+                          "t": "p"
+                        },
+                        {
+                          "items": [
+                            [
+                              {
+                                "c": [
+                                  {
+                                    "t": "text",
+                                    "v": "4"
+                                  }
+                                ],
+                                "t": "p"
+                              },
+                              {
+                                "items": [
+                                  [
+                                    {
+                                      "c": [
+                                        {
+                                          "t": "text",
+                                          "v": "5"
+                                        }
+                                      ],
+                                      "t": "p"
+                                    },
+                                    {
+                                      "items": [
+                                        [
+                                          {
+                                            "c": [
+                                              {
+                                                "t": "text",
+                                                "v": "6"
+                                              }
+                                            ],
+                                            "t": "p"
+                                          },
+                                          {
+                                            "items": [
+                                              [
+                                                {
+                                                  "c": [
+                                                    {
+                                                      "t": "text",
+                                                      "v": "7"
+                                                    }
+                                                  ],
+                                                  "t": "p"
+                                                }
+                                              ]
+                                            ],
+                                            "start": 1,
+                                            "t": "ul"
+                                          }
+                                        ]
+                                      ],
+                                      "start": 1,
+                                      "t": "ul"
+                                    }
+                                  ]
+                                ],
+                                "start": 1,
+                                "t": "ul"
+                              }
+                            ]
+                          ],
+                          "start": 1,
+                          "t": "ul"
+                        }
+                      ]
+                    ],
+                    "start": 1,
+                    "t": "ul"
+                  }
+                ]
+              ],
+              "start": 1,
+              "t": "ul"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- a\n\n- b",
+    "name": "ul-loose-blank-lines",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "b"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- item one\ncontinues here\n- item two",
+    "name": "ul-lazy-continuation",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "item one"
+                },
+                {
+                  "t": "br"
+                },
+                {
+                  "t": "text",
+                  "v": "continues here"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "item two"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "-\n- two",
+    "name": "ul-empty-item",
+    "tree": [
+      {
+        "items": [
+          [],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "two"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "text then\n- bullet (interrupts)\nmore text",
+    "name": "ul-interrupts-paragraph",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "text then"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "bullet (interrupts)"
+                },
+                {
+                  "t": "br"
+                },
+                {
+                  "t": "text",
+                  "v": "more text"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "para one\n2. not an interruption\n- but this is",
+    "name": "ol-cannot-interrupt-paragraph",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "para one"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "2. not an interruption"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "but this is"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- item\n  ```\n  inside fence\n  ```\n- next",
+    "name": "ul-fence-in-item",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "item"
+                }
+              ],
+              "t": "p"
+            },
+            {
+              "lang": "",
+              "t": "pre",
+              "text": "inside fence"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "next"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "- a\n\nnot indented enough",
+    "name": "ul-blank-then-content",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "a"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "not indented enough"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "- *one* and `two`\n- **three**",
+    "name": "ul-with-inline-markup",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "c": [
+                    {
+                      "t": "text",
+                      "v": "one"
+                    }
+                  ],
+                  "t": "i"
+                },
+                {
+                  "t": "text",
+                  "v": " and "
+                },
+                {
+                  "t": "code",
+                  "v": "two"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "c": [
+                    {
+                      "t": "text",
+                      "v": "three"
+                    }
+                  ],
+                  "t": "b"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "one line\nsecond line\nthird",
+    "name": "paragraph-multiline",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "one line"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "second line"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "third"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "a **b** `c` [d](https://x.example) tail",
+    "name": "paragraph-mixed-inline",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "b"
+              }
+            ],
+            "t": "b"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "t": "code",
+            "v": "c"
+          },
+          {
+            "t": "text",
+            "v": " "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "d"
+              }
+            ],
+            "href": "https://x.example/",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " tail"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "Pre text\n\n```\nfenced\n```\n\nPost text",
+    "name": "paragraph-code-then-text",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "Pre text"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "lang": "",
+        "t": "pre",
+        "text": "fenced"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "Post text"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "intro text\n# Head\n\n- l1\n- l2\n\n> quote line\n\n1. num",
+    "name": "mixed-blocks",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "intro text"
+          }
+        ],
+        "t": "p"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "Head"
+          }
+        ],
+        "level": 1,
+        "t": "h"
+      },
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "l1"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "l2"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      },
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "quote line"
+              }
+            ],
+            "t": "p"
+          }
+        ],
+        "t": "quote"
+      },
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "num"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ol"
+      }
+    ]
+  },
+  {
+    "input": "<script>alert(1)</script> and <div> stay characters",
+    "name": "html-stays-text",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "<script>alert(1)</script> and <div> stay characters"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "~~strike~~ stays literal",
+    "name": "strike-not-supported",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "~~strike~~ stays literal"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "- [ ] todo stays bracket text",
+    "name": "task-list-not-special",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "[ ] todo stays bracket text"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "",
+    "name": "empty-input",
+    "tree": []
+  },
+  {
+    "input": " \n  \n\t\n",
+    "name": "blank-lines-only",
+    "tree": []
+  },
+  {
+    "input": "a\r\nb\r\n2. ok",
+    "name": "crlf-normalized",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "a"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "b"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "2. ok"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "para with trailing   \nstill one para",
+    "name": "trailing-whitespace",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "para with trailing"
+          },
+          {
+            "t": "br"
+          },
+          {
+            "t": "text",
+            "v": "still one para"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "مرحبا بالعالم، هذه نص عربي طويل",
+    "name": "ar-paragraph",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "مرحبا بالعالم، هذه نص عربي طويل"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "نص *أهمية* مع `كود` و**غامق**",
+    "name": "ar-inline-markup",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "نص "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "أهمية"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " مع "
+          },
+          {
+            "t": "code",
+            "v": "كود"
+          },
+          {
+            "t": "text",
+            "v": " و"
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "غامق"
+              }
+            ],
+            "t": "b"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "نص مع رابط https://x.example/PATH و*توكيد* بعده",
+    "name": "ar-mixed-url",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "نص مع رابط "
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "https://x.example/PATH"
+              }
+            ],
+            "href": "https://x.example/PATH",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " و"
+          },
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "توكيد"
+              }
+            ],
+            "t": "i"
+          },
+          {
+            "t": "text",
+            "v": " بعده"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "```json\n{\"مفتاح\": \"قيمة\"}\n```",
+    "name": "ar-fence",
+    "tree": [
+      {
+        "lang": "json",
+        "t": "pre",
+        "text": "{\"مفتاح\": \"قيمة\"}"
+      }
+    ]
+  },
+  {
+    "input": "- البند الأول\n- البند الثاني\n2. والثالث",
+    "name": "ar-list",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "البند الأول"
+                }
+              ],
+              "t": "p"
+            }
+          ],
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "البند الثاني"
+                },
+                {
+                  "t": "br"
+                },
+                {
+                  "t": "text",
+                  "v": "2. والثالث"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      }
+    ]
+  },
+  {
+    "input": "[عمل الطلب](https://x.example/order) عبر الويب",
+    "name": "ar-link-label",
+    "tree": [
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "عمل الطلب"
+              }
+            ],
+            "href": "https://x.example/order",
+            "t": "a"
+          },
+          {
+            "t": "text",
+            "v": " عبر الويب"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "- 🍕 pizza item\n## 😊 head\n**🎉 party** with 🥳 inline",
+    "name": "emoji-everywhere",
+    "tree": [
+      {
+        "items": [
+          [
+            {
+              "c": [
+                {
+                  "t": "text",
+                  "v": "🍕 pizza item"
+                }
+              ],
+              "t": "p"
+            }
+          ]
+        ],
+        "start": 1,
+        "t": "ul"
+      },
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "😊 head"
+          }
+        ],
+        "level": 2,
+        "t": "h"
+      },
+      {
+        "c": [
+          {
+            "c": [
+              {
+                "t": "text",
+                "v": "🎉 party"
+              }
+            ],
+            "t": "b"
+          },
+          {
+            "t": "text",
+            "v": " with 🥳 inline"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  },
+  {
+    "input": "🚀🔥✨",
+    "name": "emoji-only-para",
+    "tree": [
+      {
+        "c": [
+          {
+            "t": "text",
+            "v": "🚀🔥✨"
+          }
+        ],
+        "t": "p"
+      }
+    ]
+  }
+]
