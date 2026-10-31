@@ -366,15 +366,25 @@ class HfyConversation {
   /// replaying n events each with a full layout drops to relayout's own O(n).
   /// Safe because relayout() is a full recompute from the folded blocks
   /// alone: grouping, typing dots, ask states and tool visibility depend on
-  /// nothing but folds. The one relayout-derived state a later fold reads
-  /// (a terminal turn's streaming flags) is applied inline by [_foldInto],
-  /// so a batch's folds see exactly what event-at-a-time folding saw.
-  /// Asserted identical to per-event [apply] for every fixture plus
-  /// randomized orderings in test/fold/fold_api_test.dart. The [history]
-  /// flag exists for call-site symmetry with [apply]; both fold the same
-  /// list — pages arrive as data in [mergeOlderPage], not streamed through
-  /// here. Returns whether ANY event changed state (revision bumped at most
-  /// once per batch, once when any event was handled).
+  /// nothing but folds. The two enums are kept exact with two per-fold
+  /// slices:
+  ///
+  ///   - the terminal turn's streaming flags are applied inline by
+  ///     [_foldInto] (not collect mode), so batched folds see exactly what
+  ///     event-at-a-time folding saw;
+  ///   - [_sheetFoldCheck] runs the syncSheet-visible slice of the sheet
+  ///     bookkeeping per fold (a pending call surfaced by this fold gets its
+  ///     _seenPending mark and opens a minimized sheet), because _sheetMin/
+  ///     _seenPending are ORDER-sensitive — the minimized-sheet reopen rule
+  ///     must fire for a call requested and decided in the same batch, as it
+  ///     does event-at-a-time (item 2 regression, fold_api_test.dart).
+  /// Asserted identical to per-event [apply] — with minimize/open interleave
+  /// points — for every fixture plus randomized orderings in
+  /// test/fold/fold_api_test.dart. The [history] flag exists for call-site
+  /// symmetry with [apply]; both fold the same list — pages arrive as data
+  /// in [mergeOlderPage], not streamed through here. Returns whether ANY
+  /// event changed state (revision bumped at most once per batch, once when
+  /// any event was handled).
   bool applyAll(Iterable<HfyEvent> events, {bool history = false}) {
     var hands = false;
     var layout = false;
@@ -385,6 +395,14 @@ class HfyConversation {
       hands = true;
       if (r.changed) changed = true;
       if (r.layout) layout = true;
+      final t = r.turn;
+      if (t != null) {
+        _sheetFoldCheck(
+          t,
+          callRequested: e.type == 'approval.requested',
+          userTextLanded: e.type == 'message.text' && e.actor?.type != 'agent',
+        );
+      }
     }
     if (hands) _bumpRevision();
     if (layout) relayout(); // a batch is laid out once, like a page
@@ -402,12 +420,17 @@ class HfyConversation {
   /// across an await and nulls it in its catch (ui.js:1245); folding into a
   /// local list does that housekeeping structurally: if the fold throws
   /// mid-page the local list is simply dropped, nothing is merged, and
-  /// `_hasOlder`/turns stand exactly as before. DEDUPE stays client-side —
-  /// the caller applies HfyDedupe#claim before handing envelopes here.
+  /// `_hasOlder`/turns stand exactly as before. The page folds run WITHOUT
+  /// the relayout-time kills (ui.js folds collection events and returns
+  /// before relayouting, ui.js:1043) — a page's delta-stream block must stay
+  /// alive until the merge's one relayout, so a page's later durable text
+  /// replaces it in place instead of leaving a dead block behind.
+  /// DEDUPE stays client-side — the caller applies HfyDedupe#claim before
+  /// handing envelopes here.
   void mergeOlderPage(List<HfyEvent> page, {required bool hasMore}) {
     final collected = <_Turn>[];
     for (final e in page) {
-      _foldInto(collected, e);
+      _foldInto(collected, e, collecting: true);
     }
     _mergeCollected(collected, hasMore: hasMore);
   }
@@ -466,18 +489,8 @@ class HfyConversation {
       final terminal = kHfyTerminalStates.contains(turn.state);
       // a turn is the viewer's when its first user text block's actor uuid is
       // the viewer's (ui.js:1095-1098, P-FOLD-021)
-      _Row? starter;
-      for (final b in turn._blocks) {
-        if (b.isText && b.isUser) {
-          starter = b;
-          break;
-        }
-      }
-      turn.own =
-          starter != null &&
-          viewer != null &&
-          hfyTruthy(viewer!.uuid) &&
-          starter.actorUuid == viewer!.uuid;
+      final starter = _starterOf(turn);
+      turn.own = starter != null && _rowOwns(starter);
       turn.userLabel = starter == null ? '' : _actorLabelFor(starter);
       for (final b in turn._blocks) {
         // a terminal turn switches its streaming blocks off (ui.js:1100)
@@ -600,6 +613,47 @@ class HfyConversation {
     _sheetOpen = list.isNotEmpty && !_sheetMin;
   }
 
+  /// applyAll's per-fold slice of syncSheet (ui.js:1481-1485). The sheet's
+  /// fresh/open bookkeeping is order-sensitive (a minimized sheet reopens on
+  /// a NEW pending call), so a batch folds it per event: only two fold kinds
+  /// can surface a pending call at their step — an approval.requested (the
+  /// call itself) and the user text that first makes a turn the viewer's (a
+  /// request sitting on it). Every other kind leaves the pending set as the
+  /// previous step produced it, which the batch's final relayout re-covers.
+  /// Marking here keeps _seenPending/_sheetMin identical to event-at-a-time
+  /// folding — a call requested and decided inside one batch reopens the
+  /// minimized sheet exactly as if the events were applied one by one
+  /// (item 2's regression, test/fold/fold_api_test.dart) — while the
+  /// expensive relayout stays deferred to the batch's end.
+  void _sheetFoldCheck(
+    _Turn t, {
+    required bool callRequested,
+    required bool userTextLanded,
+  }) {
+    // own-ness is relayout-derived, but only THIS turn was folded: derive it
+    // from the blocks right where the fold ran (ui.js:1095-1098, relayout's
+    // own rule) — the field may lag a starter that just landed in this batch.
+    final starter = _starterOf(t);
+    final own = starter != null && _rowOwns(starter);
+    if (userTextLanded) {
+      if (own == t.own) return; // own-ness didn't move at this fold
+      t.own = own; // keep the field honest for the folds to come
+      if (!own) return;
+    } else if (callRequested) {
+      if (!own) return; // other people's requests never surface (ui.js:1104)
+    } else {
+      return;
+    }
+    for (final b in t._blocks) {
+      // pendingOwn's make (ui.js:1104-1110): showApproval calls of the
+      // viewer's turns, question sets included — ask rows gate the sheet too
+      if (!b.isTool || !b.showApproval || b.submitted) continue;
+      if (_seenPending.add(b.callId)) {
+        _sheetMin = false; // a new request surfaces the sheet (ui.js:1485)
+      }
+    }
+  }
+
   // ---- fold internals ---------------------------------------------------------
 
   /// The switch under ui.js:963-1044 into one target list. `hands` says the
@@ -610,10 +664,17 @@ class HfyConversation {
   /// default true, because ui.js still relayouts for those), `changed`
   /// whether the fold moved a row/block at all, and [turn] the turn the fold
   /// acted on (null for unknown types).
+  ///
+  /// [collecting] marks the loadOlder page collector (ui.js's `_collecting`
+  /// list): there ui.js folds and returns BEFORE any relayout (ui.js:1043),
+  /// so the RELAYOUT-time kills stay out — a collected terminal turn keeps
+  /// its stream blocks alive until the merge's one layout, exactly where a
+  /// later page event's durable text replaces them in place.
   ({bool hands, bool layout, bool changed, _Turn? turn}) _foldInto(
     List<_Turn> list,
-    HfyEvent e,
-  ) {
+    HfyEvent e, {
+    bool collecting = false,
+  }) {
     var layout = true;
     _Turn? turn;
     final d = e.data;
@@ -635,13 +696,16 @@ class HfyConversation {
         // a turn that ends takes its as-yet-undecided calls with it; ui.js
         // additionally switches its streaming blocks off at RELAYOUT level
         // (ui.js:1100, right after this fold) — moved into the fold so the
-        // batched folds of applyAll/mergeOlderPage see the same thing
-        // event-at-a-time folding saw (a dead stream block must never be
-        // merged-into by a later durable text)
+        // batched folds of applyAll match event-at-a-time folding (a dead
+        // stream block must never be merged-into by a later durable text).
+        // The loadOlder collector has NO per-event relayout, so there the
+        // kill stays out and the page folds exactly as ui.js's collector did.
         if (kHfyTerminalStates.contains(turn.state)) {
           _settleCalls(turn);
-          for (final b in turn._blocks) {
-            if (b.streaming) b.streaming = false;
+          if (!collecting) {
+            for (final b in turn._blocks) {
+              if (b.streaming) b.streaming = false;
+            }
           }
         }
         break;
@@ -675,8 +739,11 @@ class HfyConversation {
           // turn's streaming flag off (ui.js:1100) — a fresh stream block on
           // an already-terminal turn is thus born dead (its text still
           // lands, its id is still the synthetic one). Inlined so the
-          // batched folds of applyAll/mergeOlderPage match event-at-a-time.
-          fresh.streaming = !kHfyTerminalStates.contains(turn.state);
+          // batched folds of applyAll match event-at-a-time; the loadOlder
+          // collector has no per-event relayout, so there ui.js's plain
+          // `streaming = true` stands and a later page event can still
+          // replace the block durably.
+          fresh.streaming = collecting || !kHfyTerminalStates.contains(turn.state);
           fresh.text = hfyOr(d['text'], '');
           turn.addBlock(fresh);
         } else {
@@ -690,8 +757,9 @@ class HfyConversation {
         if (b2 == null) {
           final fresh = _baseBlock(e, 'reasoning');
           fresh.id = '$turnId:rstream'; // ui.js:992
-          // as in text.delta: born dead on a terminal turn (ui.js:1100)
-          fresh.streaming = !kHfyTerminalStates.contains(turn.state);
+          // as in text.delta: born dead on a terminal turn (ui.js:1100);
+          // collecting keeps ui.js's plain `streaming = true`.
+          fresh.streaming = collecting || !kHfyTerminalStates.contains(turn.state);
           fresh.text = hfyOr(d['text'], '');
           turn.addBlock(fresh);
         } else {
@@ -848,6 +916,21 @@ class HfyConversation {
     }
     return null;
   }
+
+  /// The turn's first user text block (ui.js:1095) — relayout's and the
+  /// sheet bookkeeping's own-ness starter.
+  _Row? _starterOf(_Turn turn) {
+    for (final b in turn._blocks) {
+      if (b.isText && b.isUser) return b;
+    }
+    return null;
+  }
+
+  /// ui.js:1097: the starter's actor uuid is the viewer's.
+  bool _rowOwns(_Row starter) =>
+      viewer != null &&
+      hfyTruthy(viewer!.uuid) &&
+      starter.actorUuid == viewer!.uuid;
 
   /// `_baseBlock` (ui.js:889-906): timestamps parse from `created_at` with a
   /// Date.now() fallback for unparsable stamps (ui.js:891; the fixture

@@ -97,6 +97,87 @@ List<HfyEvent> tenKEvents() {
   return events;
 }
 
+/// A seeded grammar over everything the sheet bookkeeping reacts to:
+/// requests, decisions, interrupts and results for the SAME call ids
+/// (known and ghost), terminal states, user-text starters and stream
+/// appends. Returns flat events cut into chunks plus the per-boundary
+/// user action ('min', 'open' or '').
+(List<List<HfyEvent>>, List<String>) _randomChunks(Random rng) {
+  final flat = <HfyEvent>[
+    ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}),
+    ev('b1', 'message.text', data: {'text': 'hello'}),
+  ];
+  const cids = ['c1', 'c2', 'c3', 'ghost'];
+  const states = ['queued', 'running', 'completed', 'stopped'];
+  for (var i = 0; i < 12 + rng.nextInt(14); i++) {
+    final cid = cids[rng.nextInt(cids.length)];
+    switch (rng.nextInt(9)) {
+      case 0:
+        flat.add(ev('u$i', 'message.text', data: {'text': 'more'}, when: at(i + 1)));
+      case 1:
+        flat.add(ev('d$i', 'text.delta', actor: agentActor,
+            data: {'text': ' chunk '}, when: at(i + 1)));
+      case 2:
+        flat.add(ev('m$i', 'message.text', actor: agentActor,
+            data: {'text': 'reply $i'}, when: at(i + 1)));
+      case 3:
+        flat.add(ev('c$i', 'tool_call', actor: agentActor,
+            data: {'name': 'shop.pay', 'call_id': cid, 'arguments': {'n': i}},
+            when: at(i + 1)));
+      case 4:
+        flat.add(ev('r$i', 'tool_result', actor: agentActor,
+            data: {'call_id': cid, 'content': 'ok'}, when: at(i + 1)));
+      case 5:
+        flat.add(ev('q$i', 'approval.requested', actor: agentActor,
+            data: {'call_id': cid}, when: at(i + 1)));
+      case 6:
+        flat.add(ev('x$i', 'approval.decided', actor: agentActor,
+            data: {'call_id': cid, 'approve': rng.nextBool()}, when: at(i + 1)));
+      case 7:
+        flat.add(ev('n$i', 'tool_call.interrupted', actor: agentActor,
+            data: {'call_id': cid}, when: at(i + 1)));
+      case 8:
+        flat.add(ev('s$i', 'turn.state', actor: agentActor,
+            data: {'state': states[rng.nextInt(states.length)]},
+            when: at(i + 1)));
+    }
+  }
+  final chunks = <List<HfyEvent>>[];
+  final actions = <String>[];
+  var i = 0;
+  while (i < flat.length) {
+    final end = (i + 1 + rng.nextInt(3)).clamp(0, flat.length);
+    chunks.add(flat.sublist(i, end));
+    i = end;
+    actions.add(const ['', 'min', 'open'][rng.nextInt(3)]);
+  }
+  return (chunks, actions);
+}
+
+/// The fold's public story to compare across the two paths: sheet outlets,
+/// pending order and per-turn shape. [revision] deliberately stays out —
+/// one batch bumps once while n applies bump n times, by contract.
+Map<String, Object?> _viewStory(HfyConversation c) => <String, Object?>{
+      'pendingOwn': c.pendingOwn,
+      'sheetOpen': c.sheetOpen,
+      'showActionPill': c.showActionPill,
+      'ownActive': c.ownActive,
+      'showWelcome': c.showWelcome,
+      'turns': [
+        for (final t in c.turns)
+          <String, Object?>{
+            'id': t.id,
+            'state': t.state,
+            'own': t.own,
+            'showTyping': t.showTyping,
+            'blocks': [
+              for (final b in t.blocks)
+                <String, Object?>{'id': b.id, 'streaming': b.streaming},
+            ],
+          },
+      ],
+    };
+
 void main() {
   group('immutable fold views', () {
     HfyConversation folded() {
@@ -357,6 +438,135 @@ void main() {
     });
   });
 
+  group('batch folding with minimize interleave (P-FOLD-049 order rules)', () {
+    // Sheet bookkeeping (_sheetMin/_seenPending) is the ONE order-sensitive
+    // sheet state, so applyAll folds it per event via _sheetFoldCheck while
+    // deferring the expensive relayout. These tests pin event-at-a-time
+    // equivalence WITH minimize/open points; revision is deliberately not
+    // compared (one batch bumps once, n applies bump n times — by contract).
+    HfyConversation prepped() {
+      final c = foldOf();
+      c.apply(ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}));
+      c.apply(ev('b1', 'message.text', data: {'text': 'pay please'}));
+      c.apply(
+        ev('ta', 'tool_call', actor: agentActor,
+            data: {'name': 'shop.pay', 'call_id': 'c1'}),
+      );
+      c.apply(
+        ev('ra', 'approval.requested', actor: agentActor, data: {'call_id': 'c1'}),
+      );
+      c.minimizeSheet();
+      c.relayout();
+      c.syncDerived();
+      expect(c.pendingOwn, ['c1'],
+          reason: 'prestate: c1 pends and the sheet sits minimized');
+      expect(c.sheetOpen, isFalse);
+      expect(c.showActionPill, isTrue);
+      return c;
+    }
+
+    final batch = [
+      ev('tb', 'tool_call', actor: agentActor,
+          data: {'name': 'shop.pay', 'call_id': 'c2'}),
+      ev('rb', 'approval.requested', actor: agentActor, data: {'call_id': 'c2'}),
+      ev('db', 'approval.decided', actor: agentActor,
+          data: {'call_id': 'c2', 'approve': false}),
+    ];
+
+    test('a fresh request inside the batch reopens the minimized sheet', () {
+      // the exact review repro: per-event folding surfaces the fresh request
+      // (reopening the sheet), decides it, and ends with c1 pending, OPEN.
+      // Seeing only the end state would leave the sheet minimized.
+      final batched = prepped();
+      final perEvent = prepped();
+      batched.applyAll(batch);
+      for (final e in batch) {
+        perEvent.apply(e);
+      }
+      for (final (label, c) in [('batch', batched), ('per-event', perEvent)]) {
+        expect(c.pendingOwn, ['c1'], reason: '$label: c2 was decided in-batch');
+        expect(c.sheetOpen, isTrue, reason: '$label: the fresh request opened');
+        expect(c.showActionPill, isFalse, reason: '$label: not minimized');
+      }
+    });
+
+    test('a re-request after a batched decided is NOT fresh (seen-ness '
+        'survives the batch)', () {
+      // the fate that pins the per-fold bookkeeping: batch1 requests and
+      // decides c2 on turn-1; a later batch re-requests the same call id on
+      // turn-2. Event-at-a-time, c2 entered _seenPending at its request —
+      // the sheet must stay minimized (just the pill). A fold that only saw
+      // the end state would never have marked c2 and would wrongly reopen.
+      final batched = prepped();
+      final perEvent = prepped();
+      batched.applyAll(batch);
+      for (final e in batch) {
+        perEvent.apply(e);
+      }
+      final second = [
+        ev('tu', 'turn', parent: '', data: {'agent': 'main'}),
+        ev('bu', 'message.text', parent: 'turn-2', data: {'text': 'again'}),
+        ev('tc2', 'tool_call', parent: 'turn-2', actor: agentActor,
+            data: {'name': 'shop.pay', 'call_id': 'c2'}),
+        ev('rq2', 'approval.requested', parent: 'turn-2', actor: agentActor,
+            data: {'call_id': 'c2'}),
+      ];
+      batched.minimizeSheet(); // the user re-faced the pill in between
+      batched.relayout();
+      batched.syncDerived();
+      perEvent.minimizeSheet();
+      perEvent.relayout();
+      perEvent.syncDerived();
+      batched.applyAll(second);
+      for (final e in second) {
+        perEvent.apply(e);
+      }
+      for (final (label, c) in [('batch', batched), ('per-event', perEvent)]) {
+        expect(c.pendingOwn, ['c1', 'c2'], reason: '$label: c2 pends again');
+        expect(c.sheetOpen, isFalse, reason: '$label: c2 is long seen');
+        expect(c.showActionPill, isTrue, reason: label);
+      }
+    });
+
+    test('randomized chunks with the SAME minimize/open points land identical',
+        () {
+      final rng = Random(20261031); // deterministic: failures replay exactly
+      for (var trial = 0; trial < 40; trial++) {
+        final (chunks, actions) = _randomChunks(rng);
+        final batched = foldOf();
+        final perEvent = foldOf();
+        for (var i = 0; i < chunks.length; i++) {
+          batched.applyAll(chunks[i]);
+          for (final e in chunks[i]) {
+            perEvent.apply(e);
+          }
+          if (actions[i] == 'min') {
+            batched.minimizeSheet();
+            perEvent.minimizeSheet();
+          } else if (actions[i] == 'open') {
+            batched.openSheet();
+            perEvent.openSheet();
+          }
+          for (final c in [batched, perEvent]) {
+            c.relayout();
+            c.syncDerived();
+          }
+        }
+        batched.relayout();
+        batched.syncDerived();
+        perEvent.relayout();
+        perEvent.syncDerived();
+        final diff = firstJsonDifference(_viewStory(batched), _viewStory(perEvent));
+        expect(
+          diff,
+          isNull,
+          reason: 'trial #$trial: the same chunk boundaries and sheet actions '
+              'must not split the paths; first diff: $diff',
+        );
+      }
+    });
+  });
+
   group('batch folding: applyAll == per-event apply (fixtures + randomized orders)',
       () {
     test('every shared fixture projects identically through both paths', () {
@@ -523,6 +733,61 @@ void main() {
       ], hasMore: false);
       expect([for (final t in c.turns) t.id], ['turn-0', 'turn-1']);
       expect(c.t1.blocks.map((b) => b.id), contains('old-stamp'));
+    });
+  });
+
+  group('mergeOlderPage folds like the ui.js collector (no per-event relayout)',
+      () {
+    // ui.js folds collection events and returns BEFORE relayouting them
+    // (ui.js:1043), so a page's terminal state does not kill a ranked-in
+    // stream block at fold time — a later page event's durable text still
+    // finds it alive and replaces it in place, like ui.js's merged pages.
+    test('delta → terminal → durable lands in ONE block, as ui.js folds pages',
+        () {
+      final c = foldOf();
+      c.mergeOlderPage([
+        ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}),
+        ev('d1', 'text.delta', actor: agentActor, data: {'text': 'Hel'}),
+        ev('s1', 'turn.state', actor: agentActor, data: {'state': 'cancelled'}),
+        ev('m1', 'message.text', actor: agentActor,
+            data: {'text': 'Hello, world!'}),
+      ], hasMore: false);
+      // the collector kept the stream block alive for the in-page durable
+      // text (ui.js replacement, ui.js:975-979) instead of leaving a dead
+      // ':stream' twin behind
+      expect(c.t1.blocks.map((b) => b.id), ['m1']);
+      expect(c.t1.blocks.single.text, 'Hello, world!');
+      expect(c.t1.blocks.single.streaming, isFalse,
+          reason: 'the merge relayout killed the streaming flag');
+      expect(c.t1.state, 'cancelled');
+    });
+
+    test('a page delta after the terminal state is born alive and dies at the '
+        'one relayout (the synthetic block stays, like ui.js)', () {
+      final c = foldOf();
+      c.mergeOlderPage([
+        ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}),
+        ev('s1', 'turn.state', actor: agentActor, data: {'state': 'cancelled'}),
+        ev('d1', 'text.delta', actor: agentActor, data: {'text': 'Hel'}),
+      ], hasMore: false);
+      expect(c.t1.blocks.map((b) => b.id), ['turn-1:stream']);
+      expect(c.t1.blocks.single.text, 'Hel');
+      expect(c.t1.blocks.single.streaming, isFalse,
+          reason: 'only the merge relayout settles it — no per-event kill');
+    });
+
+    test('the same collector rule covers reasoning deltas', () {
+      final c = foldOf();
+      c.mergeOlderPage([
+        ev('turn-1', 'turn', parent: '', data: {'agent': 'main'}),
+        ev('r1', 'reasoning.delta', actor: agentActor, data: {'text': 'think'}),
+        ev('s1', 'turn.state', actor: agentActor, data: {'state': 'completed'}),
+        ev('rr', 'reasoning', actor: agentActor,
+            data: {'text': 'the full thought'}),
+      ], hasMore: false);
+      expect(c.t1.blocks.map((b) => b.id), ['rr']);
+      expect(c.t1.blocks.single.text, 'the full thought');
+      expect(c.t1.blocks.single.streaming, isFalse);
     });
   });
 
