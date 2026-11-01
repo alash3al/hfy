@@ -2,11 +2,15 @@ package db_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
+	"time"
+	"uuid"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
 )
 
@@ -109,9 +113,11 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 	}
 }
 
-// 00004 gives every grant that exists a chain of its own named by its uuid,
-// not renewable, and leaves room for the previous release to keep inserting
-// grants during a rolling deploy. Its Down drops what it added.
+// 00004 only adds nullable columns, so it is metadata-only: no table rewrite.
+// Grants that exist, or that the previous release keeps inserting during a rolling
+// deploy, have no root_id and are chains of one named by their uuid; new grants
+// and their exchanges carry one. Its Down ends the later rows of every chain,
+// which the previous release could not revoke, and drops what it added.
 func TestGrantExchangeMigration(t *testing.T) {
 	s := dbtest.New(t)
 	ctx := context.Background()
@@ -126,35 +132,79 @@ func TestGrantExchangeMigration(t *testing.T) {
 	}
 	exec(`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`)
 	exec(`INSERT INTO conversations SELECT FROM generate_series(1, 1)`)
-	for i := range 3 { // grants as the previous release made them: none of the new columns
-		exec(`INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at)
-			VALUES ($1, 1, 1, 'u1', '', now() + interval '1 hour')`, []byte{byte(i)})
+	oldGrant := func(hash byte) (id uuid.UUID) { // as the previous release made it: none of the new columns
+		t.Helper()
+		if err := s.Pool.QueryRow(ctx, `INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at)
+			VALUES ($1, 1, 1, 'u1', '', now() + interval '1 hour') RETURNING uuid`, []byte{hash}).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
 	}
+	before := oldGrant(1)
+
+	// the table keeps its rows as they are: a rewrite would change the relation's file
+	var fileBefore int64
+	s.Pool.QueryRow(ctx, `SELECT relfilenode FROM pg_class WHERE oid = 'grants'::regclass`).Scan(&fileBefore)
 	if _, err := s.Migrate(ctx, "up"); err != nil {
 		t.Fatal(err)
 	}
-	var same, total, renewable int
-	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE root_id = uuid), count(*),
-		count(renew_until) + count(renew_secs) FROM grants`).Scan(&same, &total, &renewable); err != nil {
+	var fileAfter int64
+	s.Pool.QueryRow(ctx, `SELECT relfilenode FROM pg_class WHERE oid = 'grants'::regclass`).Scan(&fileAfter)
+	if fileBefore != fileAfter {
+		t.Fatal("00004 rewrote the grants table")
+	}
+	var nulls, extras int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE root_id IS NULL), count(renew_until) + count(renew_secs) FROM grants`).Scan(&nulls, &extras); err != nil {
 		t.Fatal(err)
 	}
-	if same != 3 || total != 3 || renewable != 0 {
-		t.Fatalf("backfill: root_id = uuid on %d of %d rows, %d renewable values", same, total, renewable)
+	if nulls != 1 || extras != 0 {
+		t.Fatalf("existing grants: %d without root_id of 1, %d renewable values", nulls, extras)
 	}
-	// the previous release inserts without root_id: it must still work, as a chain of one
-	exec(`INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at)
-		VALUES ('\x09', 1, 1, 'u1', '', now() + interval '1 hour')`)
-	var nullable string
-	if err := s.Pool.QueryRow(ctx, `SELECT is_nullable FROM information_schema.columns
-		WHERE table_schema = current_schema() AND table_name = 'grants' AND column_name = 'root_id'`).Scan(&nullable); err != nil || nullable != "NO" {
-		t.Fatalf("root_id nullable %q: %v", nullable, err)
-	}
-	var indexed bool
-	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()
-		AND tablename = 'grants' AND indexdef LIKE '%(root_id)')`).Scan(&indexed); err != nil || !indexed {
-		t.Fatalf("no index on root_id: %v", err)
+	var defaults int
+	s.Pool.QueryRow(ctx, `SELECT count(column_default) FROM information_schema.columns WHERE table_schema = current_schema()
+		AND table_name = 'grants' AND column_name IN ('renew_until', 'renew_secs', 'root_id')`).Scan(&defaults)
+	if defaults != 0 {
+		t.Fatalf("%d of the new columns have a default: adding them would rewrite the table", defaults)
 	}
 
+	// the previous release still inserts; its grants revoke by their own uuid, and only theirs
+	late := oldGrant(2)
+	other := oldGrant(3)
+	if err := s.RevokeGrant(ctx, late); err != nil {
+		t.Fatalf("revoke a grant without root_id: %v", err)
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT uuid FROM grants WHERE expires_at > now() AND root_id IS NULL ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveOld, _ := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if !slices.Equal(liveOld, []uuid.UUID{before, other}) {
+		t.Fatalf("live old grants %v, want %v and %v", liveOld, before, other)
+	}
+	if err := s.RevokeGrant(ctx, uuid.New()); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("unknown id: %v", err)
+	}
+
+	// a new grant and its exchanges: one chain, revoked by the first id
+	id, _, err := s.CreateGrant(ctx, db.NewGrant{TokenHash: []byte("c0"), ConversationID: 1, ActorID: 1, Scope: "u1",
+		ExpiresIn: time.Minute, MaxLifetime: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"c1", "c2"} {
+		prev := "c" + string(rune(h[1]-1))
+		if _, err := s.ExchangeGrant(ctx, []byte(prev), []byte(h), time.Minute, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var roots int
+	s.Pool.QueryRow(ctx, `SELECT count(*) FROM grants WHERE root_id = $1`, id).Scan(&roots)
+	if roots != 3 {
+		t.Fatalf("%d rows in the chain", roots)
+	}
+
+	// Down: the chain's later rows end (the first stays, no longer renewable), the
+	// grants of the previous release are untouched
 	if _, err := s.Migrate(ctx, "down"); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +212,15 @@ func TestGrantExchangeMigration(t *testing.T) {
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema()
 		AND table_name = 'grants' AND column_name IN ('renew_until', 'renew_secs', 'root_id')`).Scan(&left); err != nil || left != 0 {
 		t.Fatalf("down left %d columns: %v", left, err)
+	}
+	rows, err = s.Pool.Query(ctx, `SELECT encode(token_hash, 'hex') FROM grants WHERE expires_at > now() ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	// c0, the first row, was only retired into its grace; c1 and c2 are the later rows
+	if err != nil || !slices.Equal(live, []string{"01", "03", "6330"}) {
+		t.Fatalf("live after down: %q (%v)", live, err)
 	}
 	if _, err := s.Migrate(ctx, "up"); err != nil { // and up works over rows that exist
 		t.Fatal(err)

@@ -269,9 +269,12 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	_ = writeJSON(w, code, errorBody{Error: msg}) // the client is gone; nothing to do
 }
 
+// bearer is the token of an "Authorization: Bearer <token>" header; the scheme
+// is case-insensitive (RFC 9110). With several headers, the first one counts.
 func bearer(r *http.Request) string {
-	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimSpace(h[len("Bearer "):])
+	const scheme = "Bearer "
+	if h := r.Header.Get("Authorization"); len(h) >= len(scheme) && strings.EqualFold(h[:len(scheme)], scheme) {
+		return strings.TrimSpace(h[len(scheme):])
 	}
 	return ""
 }

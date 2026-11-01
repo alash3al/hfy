@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"uuid"
@@ -112,19 +113,35 @@ type exchangeGrantResponse struct {
 // exchangeGrant swaps a renewable grant's token for a fresh one, the same
 // identity with a new lifetime, capped at the grant's max_lifetime. The old
 // token works for exchangeGrace more seconds (requests in flight, a second tab)
-// but cannot be exchanged again. A live grant that is not renewable is 409; any
-// other token is the same 401 as everywhere, so nothing is learned about dead ones.
+// but cannot be exchanged again. A live grant that is not renewable, or has
+// reached its cap, is 409; one asking before a quarter of its lifetime has
+// passed is 429 with the seconds to wait; any other token is the same 401 as
+// everywhere, so nothing is learned about dead ones.
 //
 // shortcut: a retired token presented after its exchange is simply refused;
 // the rows would allow telling a replay (theft) from a lost response, and
 // revoking the chain on it, when that is wanted.
 func (s *Server) exchangeGrant(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error {
+	ctx := r.Context()
+	old := hashToken(bearer(r))
 	token, hash := newToken()
-	got, err := s.store.ExchangeGrant(r.Context(), hashToken(bearer(r)), hash, exchangeGrace)
+	got, err := s.store.ExchangeGrant(ctx, old, hash, exchangeGrace, exchangeGap)
 	switch {
 	case db.IsNotFound(err) && !g.Renewable:
-		return &httpError{http.StatusConflict, "grant is not renewable"}
-	case db.IsNotFound(err): // retired, revoked or lost a race: dead for exchange
+		return errNotRenewable
+	case db.IsNotFound(err):
+		miss, err := s.store.ExchangeMiss(ctx, old, exchangeGap)
+		switch {
+		case db.IsNotFound(err), err == nil && miss.Retired: // dead, retired or lost a race
+			return &httpError{http.StatusUnauthorized, "invalid or expired token"}
+		case err != nil:
+			return err
+		case miss.Capped:
+			return errNotRenewable
+		case miss.Wait > 0:
+			w.Header().Set("Retry-After", strconv.Itoa(miss.Wait))
+			return writeJSON(w, http.StatusTooManyRequests, tooEarlyBody{Error: "too early to renew", RetryAfter: miss.Wait}) // the body too: a page cannot read the header cross-origin
+		}
 		return &httpError{http.StatusUnauthorized, "invalid or expired token"}
 	case err != nil:
 		return err
@@ -133,9 +150,21 @@ func (s *Server) exchangeGrant(w http.ResponseWriter, r *http.Request, g *db.Gra
 	return writeJSON(w, http.StatusOK, exchangeGrantResponse{ID: got.ChainID, Token: token, ExpiresAt: got.ExpiresAt, Renewable: got.Renewable})
 }
 
-// exchangeGrace is how long a retired token keeps working. A variable only so
-// tests can shorten it; it is not a setting.
-var exchangeGrace = 30 * time.Second
+var errNotRenewable = &httpError{http.StatusConflict, "grant is not renewable"}
+
+type tooEarlyBody struct {
+	Error      string `json:"error"`
+	RetryAfter int    `json:"retry_after"` // seconds
+}
+
+// exchangeGrace is how long a retired token keeps working, and exchangeGap the
+// share of a grant's lifetime that must pass before it is exchanged (the
+// client asks at half or later). Variables only so tests can change them;
+// they are not settings.
+var (
+	exchangeGrace = 30 * time.Second
+	exchangeGap   = 0.25
+)
 
 // revokeGrant ends a grant now, and every token it was exchanged for, open
 // streams included.

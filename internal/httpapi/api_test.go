@@ -30,6 +30,7 @@ import (
 func TestMain(m *testing.M) {
 	slog.SetLogLoggerLevel(slog.LevelError)
 	httpapi.SetGrantCheckEvery(100 * time.Millisecond)
+	httpapi.SetExchangeGap(0) // tests exchange at once; the rate limit has its own tests
 	os.Exit(m.Run())
 }
 

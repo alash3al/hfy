@@ -81,32 +81,57 @@ type Exchanged struct {
 // ExchangeGrant retires the live renewable grant behind oldHash and creates its
 // successor with newHash, in one statement, so exactly one of any number of
 // concurrent exchanges wins and a failed insert leaves the old grant as it was.
-// The old token keeps working for grace. No match is pgx.ErrNoRows.
+// The old token keeps working for grace. A grant is exchanged only once it is
+// gap of its renewal lifetime old (0.25: a quarter), and not once it has reached
+// its cap, which bounds how fast anyone, honest or not, can grow a chain.
+// No match is pgx.ErrNoRows.
 //
 // The chain lock orders it against RevokeGrant: without it a revoke that began
 // before the exchange committed would not see the successor and leave it live.
-func (s *Store) ExchangeGrant(ctx context.Context, oldHash, newHash []byte, grace time.Duration) (Exchanged, error) {
+func (s *Store) ExchangeGrant(ctx context.Context, oldHash, newHash []byte, grace time.Duration, gap float64) (Exchanged, error) {
 	var out Exchanged
 	err := s.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, s.q("LockGrantChainOfToken"), pgx.NamedArgs{"token_hash": oldHash}); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, s.q("ExchangeGrant"), pgx.NamedArgs{
-			"old": oldHash, "new": newHash, "grace": grace.Seconds(),
+			"old": oldHash, "new": newHash, "grace": grace.Seconds(), "gap": gap,
 		}).Scan(&out.ChainID, &out.ExpiresAt, &out.Renewable)
 	})
 	return out, err
 }
 
+// ExchangeMissed is why a live token was not exchanged: it was already retired
+// or revoked, it sits at its cap, or it is too young, Wait whole seconds short.
+// Neither is set when it lost a race or ended meanwhile.
+type ExchangeMissed struct {
+	Retired bool
+	Capped  bool
+	Wait    int
+}
+
+// ExchangeMiss looks the reason up after ExchangeGrant found nothing. A token
+// that is not live is pgx.ErrNoRows.
+func (s *Store) ExchangeMiss(ctx context.Context, tokenHash []byte, gap float64) (ExchangeMissed, error) {
+	var m ExchangeMissed
+	err := s.Pool.QueryRow(ctx, s.q("ExchangeMiss"), pgx.NamedArgs{"token_hash": tokenHash, "gap": gap}).Scan(&m.Retired, &m.Capped, &m.Wait)
+	return m, err
+}
+
 // RevokeGrant ends a grant now, and every grant its exchanges made; revoking
-// it again changes nothing. id is the one CreateGrant returned. An unknown id
-// is pgx.ErrNoRows.
+// it again changes nothing. id is the one CreateGrant returned (a grant made
+// without a root_id is its own chain). An unknown id is pgx.ErrNoRows.
 func (s *Store) RevokeGrant(ctx context.Context, id uuid.UUID) error {
 	return s.Tx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, s.q("LockGrantChain"), pgx.NamedArgs{"chain": id}); err != nil {
+		var chain uuid.UUID
+		if err := tx.QueryRow(ctx, s.q("ResolveGrantChain"), pgx.NamedArgs{"id": id}).Scan(&chain); err != nil {
 			return err
 		}
-		var chain uuid.UUID
-		return tx.QueryRow(ctx, s.q("RevokeGrant"), pgx.NamedArgs{"id": id}).Scan(&chain)
+		// the lock key is the chain's, as ExchangeGrant's is, whatever id named it
+		if _, err := tx.Exec(ctx, s.q("LockGrantChain"), pgx.NamedArgs{"chain": chain}); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, s.q("RevokeGrant"), pgx.NamedArgs{"chain": chain})
+		return err
 	})
 }

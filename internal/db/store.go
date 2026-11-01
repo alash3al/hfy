@@ -54,7 +54,7 @@ var queryNames = []string{
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
 	"CancelQueuedTurnJobs", "PendingTurnJob", "SelectConversationByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
 	"DeleteExpiredOutbound", "DeleteExpiredGrants", "InsertOutbound",
-	"InsertGrant", "SelectGrantByToken", "GrantLive", "RevokeGrant", "ExchangeGrant", "LockGrantChain", "LockGrantChainOfToken",
+	"InsertGrant", "SelectGrantByToken", "GrantLive", "RevokeGrant", "ExchangeGrant", "ExchangeMiss", "ResolveGrantChain", "LockGrantChain", "LockGrantChainOfToken",
 	"InsertConversationFile",
 }
 

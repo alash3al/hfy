@@ -38,7 +38,7 @@ func TestFailedExchangeLeavesTheOldGrantAlone(t *testing.T) {
 	var before, after time.Time
 	s.Pool.QueryRow(ctx, "SELECT expires_at FROM grants WHERE uuid = $1", id).Scan(&before)
 
-	_, err := s.ExchangeGrant(ctx, []byte("old"), []byte("taken"), 30*time.Second)
+	_, err := s.ExchangeGrant(ctx, []byte("old"), []byte("taken"), 30*time.Second, 0)
 	if !db.IsUniqueViolation(err) {
 		t.Fatalf("want a unique violation, got %v", err)
 	}
@@ -52,7 +52,7 @@ func TestFailedExchangeLeavesTheOldGrantAlone(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("%d grants", n)
 	}
-	if _, err := s.ExchangeGrant(ctx, []byte("old"), []byte("fresh"), 30*time.Second); err != nil {
+	if _, err := s.ExchangeGrant(ctx, []byte("old"), []byte("fresh"), 30*time.Second, 0); err != nil {
 		t.Fatalf("the grant must still exchange: %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestRetentionKeepsALiveChainRevocable(t *testing.T) {
 	id := renewableGrant(t, s, "t0")
 	for _, h := range []string{"t1", "t2", "t3"} {
 		prev := map[string]string{"t1": "t0", "t2": "t1", "t3": "t2"}[h]
-		if _, err := s.ExchangeGrant(ctx, []byte(prev), []byte(h), 0); err != nil {
+		if _, err := s.ExchangeGrant(ctx, []byte(prev), []byte(h), 0, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -134,7 +134,7 @@ func TestExchangeWhileRetentionRuns(t *testing.T) {
 	prev := "c0"
 	for i := 1; i <= 60; i++ {
 		next := "c" + string(rune('a'+i%26)) + string(rune('A'+i/26))
-		if _, err := s.ExchangeGrant(ctx, []byte(prev), []byte(next), 0); err != nil {
+		if _, err := s.ExchangeGrant(ctx, []byte(prev), []byte(next), 0, 0); err != nil {
 			t.Fatalf("exchange %d: %v", i, err)
 		}
 		prev = next

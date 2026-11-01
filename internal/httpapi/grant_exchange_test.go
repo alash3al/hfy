@@ -370,7 +370,16 @@ func TestRevokeWinsAgainstExchange(t *testing.T) {
 	conv := a.newConversation()
 	for round := range 25 {
 		func() {
-			tok, id := a.renewable(conv, 60, 3600)
+			tok, chain := a.renewable(conv, 60, 3600)
+			id := chain       // what the revoke names
+			if round%2 == 1 { // name the chain by a later row's uuid: the lock is the chain's, whichever id is given
+				if code, out := a.swap(tok); code != 200 {
+					t.Fatalf("exchange: %d %v", code, out)
+				} else {
+					tok = out["token"].(string)
+				}
+				a.rt.Store.Pool.QueryRow(context.Background(), "SELECT uuid::text FROM grants WHERE root_id = $1 AND uuid <> root_id", chain).Scan(&id)
+			}
 			var wg sync.WaitGroup
 			stop := make(chan struct{})
 			var once sync.Once
@@ -402,13 +411,13 @@ func TestRevokeWinsAgainstExchange(t *testing.T) {
 			if code, _ := a.do("DELETE", "/v1/grants/"+id, secret, nil); code != 204 {
 				t.Errorf("revoke: %d", code)
 			}
-			if n := a.live(id); n != 0 {
+			if n := a.live(chain); n != 0 {
 				t.Errorf("round %d: %d live rows right after the revoke returned", round, n)
 			}
 			time.Sleep(30 * time.Millisecond) // exchanges keep coming
 			halt()
 			wg.Wait()
-			if n := a.live(id); n != 0 {
+			if n := a.live(chain); n != 0 {
 				t.Errorf("round %d: %d live rows after the exchanges stopped", round, n)
 			}
 		}()
@@ -418,8 +427,9 @@ func TestRevokeWinsAgainstExchange(t *testing.T) {
 	}
 }
 
-// A token never lives past the grant's cap: the last one is cut to it, says
-// it cannot renew, and exchanging at the cap still rotates.
+// A token never lives past the grant's cap: the last one is cut to it and says
+// it cannot renew; at the cap the grant is simply not renewable (409), however
+// often it is asked, until the cap passes and it is dead.
 func TestExchangeStopsAtTheCap(t *testing.T) {
 	a := start(t, nil)
 	withGrace(t, 30*time.Second)
@@ -430,27 +440,194 @@ func TestExchangeStopsAtTheCap(t *testing.T) {
 	if _, err := pool.Exec(ctx, "UPDATE grants SET renew_until = now() + interval '20 seconds', expires_at = now() + interval '10 seconds' WHERE root_id = $1", id); err != nil {
 		t.Fatal(err)
 	}
-	for i := range 2 { // the cut one, then one made at the cap
-		code, out := a.swap(tok)
-		if code != 200 || out["renewable"] != false {
-			t.Fatalf("exchange %d: %d %v", i, code, out)
-		}
-		tok = out["token"].(string)
-		exp, _ := time.Parse(time.RFC3339Nano, out["expires_at"].(string))
-		if d := time.Until(exp); d < 15*time.Second || d > 21*time.Second {
-			t.Fatalf("exchange %d expires in %s, want the cap (about 20s)", i, d)
+	code, out := a.swap(tok)
+	if code != 200 || out["renewable"] != false {
+		t.Fatalf("the cut exchange: %d %v", code, out)
+	}
+	exp, _ := time.Parse(time.RFC3339Nano, out["expires_at"].(string))
+	if d := time.Until(exp); d < 15*time.Second || d > 21*time.Second {
+		t.Fatalf("expires in %s, want the cap (about 20s)", d)
+	}
+	tok = out["token"].(string)
+	for range 50 { // at the cap: the same answer as a grant that never renewed, and nothing grows
+		if code, out := a.swap(tok); code != 409 || out["error"] != "grant is not renewable" {
+			t.Fatalf("at the cap: %d %v", code, out)
 		}
 	}
-	var over int
-	pool.QueryRow(ctx, "SELECT count(*) FROM grants WHERE expires_at > renew_until").Scan(&over)
-	if over != 0 {
-		t.Fatalf("%d grants outlive the cap", over)
+	var over, rows int
+	pool.QueryRow(ctx, "SELECT count(*) FILTER (WHERE expires_at > renew_until), count(*) FROM grants").Scan(&over, &rows)
+	if over != 0 || rows != 2 {
+		t.Fatalf("%d grants outlive the cap, %d rows", over, rows)
+	}
+	if code, _ := a.do("GET", client+"/history", tok, nil); code != 200 {
+		t.Fatalf("the capped token still works: %d", code)
 	}
 	if _, err := pool.Exec(ctx, "UPDATE grants SET expires_at = now() - interval '1 second', renew_until = now() - interval '1 second' WHERE root_id = $1", id); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := a.swap(tok); code != 401 {
 		t.Fatalf("past the cap: %d", code)
+	}
+}
+
+func withGap(t *testing.T, f float64) {
+	t.Helper()
+	old := httpapi.SetExchangeGap(f)
+	t.Cleanup(func() { httpapi.SetExchangeGap(old) })
+}
+
+// A grant is exchanged once a quarter of its lifetime has passed; asking sooner
+// is a 429 that says how long to wait, in the body and in Retry-After.
+func TestExchangeIsRateLimited(t *testing.T) {
+	a := start(t, nil)
+	withGap(t, 0.25)
+	withGrace(t, 30*time.Second)
+	tok, id := a.renewable(a.newConversation(), 60, 3600)
+	pool := a.rt.Store.Pool
+	age := func(secs float64) {
+		t.Helper()
+		if _, err := pool.Exec(context.Background(), "UPDATE grants SET created_at = now() - make_interval(secs => $2) WHERE root_id = $1 AND revoked_at IS NULL", id, secs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	try := func() (int, map[string]any, string) {
+		req, _ := http.NewRequest(http.MethodPost, a.url+exchange, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out, resp.Header.Get("Retry-After")
+	}
+	wait := func(secs float64, header string, out map[string]any) {
+		t.Helper()
+		got, _ := out["retry_after"].(float64)
+		if out["error"] != "too early to renew" || got < secs-1 || got > secs || header != fmt.Sprint(int(got)) {
+			t.Fatalf("want %v..%v seconds in the body and Retry-After, got %v / %q", secs-1, secs, out, header)
+		}
+	}
+
+	code, out, hdr := try() // a quarter of 60 s
+	if code != 429 {
+		t.Fatalf("a fresh grant: %d %v", code, out)
+	}
+	wait(15, hdr, out)
+	age(10)
+	code, out, hdr = try()
+	if code != 429 {
+		t.Fatalf("at 10 s: %d %v", code, out)
+	}
+	wait(5, hdr, out)
+	age(14.5)
+	if code, out, hdr = try(); code != 429 {
+		t.Fatalf("at 14.5 s: %d %v", code, out)
+	} else if wait(1, hdr, out); out["retry_after"] != 1.0 {
+		t.Fatalf("half a second short must say 1: %v", out)
+	}
+	if n := a.live(id); n != 1 {
+		t.Fatalf("a refused exchange rotated: %d live", n)
+	}
+	// the real client asks at half the lifetime or later, and a clock up to half
+	// a lifetime fast brings that to a quarter at worst: this must pass
+	age(15.5)
+	if code, out, _ = try(); code != 200 {
+		t.Fatalf("at a quarter: %d %v", code, out)
+	}
+	tok = out["token"].(string)
+	// the new token starts its own wait
+	if code, out, hdr = try(); code != 429 {
+		t.Fatalf("right after: %d %v", code, out)
+	} else {
+		wait(15, hdr, out)
+	}
+	// dead tokens are not told how long to wait: 401, as ever
+	if code, out := a.swap("hfy_nope"); code != 401 || out["retry_after"] != nil {
+		t.Fatalf("unknown token: %d %v", code, out)
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE grants SET revoked_at = now() WHERE token_hash = sha256($1::bytea)", tok); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := try(); code != 401 || out["retry_after"] != nil {
+		t.Fatalf("a retired token: %d %v", code, out)
+	}
+}
+
+// However hard a token is hammered, a chain does not grow: one exchange per
+// quarter lifetime at most, so at most the head and the one in its grace are live.
+func TestExchangeHammeringDoesNotGrowAChain(t *testing.T) {
+	a := start(t, nil)
+	withGap(t, 0.25)
+	withGrace(t, 30*time.Second)
+	tok, id := a.renewable(a.newConversation(), 60, 3600)
+	pool := a.rt.Store.Pool
+	if _, err := pool.Exec(context.Background(), "UPDATE grants SET created_at = now() - interval '20 seconds' WHERE root_id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+	var ok, early int
+	for range 1000 {
+		code, out := a.swap(tok)
+		switch code {
+		case 200:
+			ok++
+			tok = out["token"].(string) // a client that always follows the chain
+		case 429:
+			early++
+		default:
+			t.Fatalf("%d %v", code, out)
+		}
+	}
+	var rows int
+	pool.QueryRow(context.Background(), "SELECT count(*) FROM grants WHERE root_id = $1", id).Scan(&rows)
+	if ok != 1 || early != 999 || rows != 2 || a.live(id) > 3 {
+		t.Fatalf("%d exchanges, %d refused, %d rows, %d live", ok, early, rows, a.live(id))
+	}
+}
+
+// Scheme names are case-insensitive, on every route that takes a token.
+func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+	a := start(t, nil)
+	conv := a.newConversation()
+	tok, _ := a.grant(conv, nil)
+	call := func(method, path string, headers ...string) int {
+		t.Helper()
+		req, _ := http.NewRequest(method, a.url+path, strings.NewReader("{}"))
+		for _, h := range headers {
+			req.Header.Add("Authorization", h)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for _, scheme := range []string{"Bearer", "bearer", "BEARER", "bEaReR"} {
+		if code := call("GET", client+"/history", scheme+" "+tok); code != 200 {
+			t.Errorf("%s with a grant token: %d", scheme, code)
+		}
+		if code := call("POST", "/v1/conversations", scheme+" "+secret); code != 201 {
+			t.Errorf("%s with the secret: %d", scheme, code)
+		}
+	}
+	for name, hs := range map[string][]string{
+		"no token":           {"Bearer"},
+		"scheme, space":      {"bearer "},
+		"another scheme":     {"Basic " + tok},
+		"bare token":         {tok},
+		"short header":       {"Bear"},
+		"first is wrong":     {"Bearer hfy_nope", "Bearer " + tok},
+		"tab is not a space": {"Bearer	" + tok},
+	} {
+		if code := call("GET", client+"/history", hs...); code != 401 {
+			t.Errorf("%s: %d, want 401", name, code)
+		}
+	}
+	if code := call("GET", client+"/history", "bearer "+tok, "Bearer hfy_nope"); code != 200 {
+		t.Errorf("the first header counts: %d", code)
 	}
 }
 
