@@ -56,16 +56,16 @@ func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, e
 		inst.close()
 		return nil, err
 	}
-	if cfg.Filesystem != nil {
-		bucket, err := files.Open(ctx, cfg.Filesystem.DSN)
+	if cfg.Files.Uploads() {
+		bucket, err := files.Open(ctx, cfg.Files.DSN)
 		if err != nil {
 			inst.close()
-			return nil, fmt.Errorf("filesystem: %w", err)
+			return nil, fmt.Errorf("files: %w", err)
 		}
 		inst.bucket = bucket
 		inst.rt.EnableFilesystem(bucket)
-		if !files.Direct(files.Scheme(cfg.Filesystem.DSN)) && cfg.Filesystem.PublicURL == "" {
-			slog.Warn("filesystem.public_url is unset: providers cannot fetch stored images (they arrive as placeholders)")
+		if !files.Direct(files.Scheme(cfg.Files.DSN)) && cfg.Files.PublicURL == "" {
+			slog.Warn("files.public_url is unset: providers cannot fetch stored images (they arrive as placeholders)")
 		}
 	}
 	if err := inst.rt.Boot(ctx); err != nil {

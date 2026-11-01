@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path"
@@ -26,19 +27,18 @@ import (
 var ExampleYAML string
 
 type Config struct {
-	Server      Server               `yaml:"server"`
-	Database    Database             `yaml:"database"`
-	Queue       Queue                `yaml:"queue"`
-	Retention   Retention            `yaml:"retention"`
-	Providers   map[string]Provider  `yaml:"providers"`
-	MCP         map[string]MCPServer `yaml:"mcp"`
-	Attachments *Attachments         `yaml:"attachments"`
-	Filesystem  *Filesystem          `yaml:"filesystem"`
-	Agents      map[string]*Agent    `yaml:"agents"` // required: "main" answers a grant that names no agent
-	Subagents   map[string]Subagent  `yaml:"subagents"`
-	Summarizer  *Summarizer          `yaml:"summarizer"`
-	Metrics     *Metrics             `yaml:"metrics"`
-	Embed       Embed                `yaml:"embed"`
+	Server     Server               `yaml:"server"`
+	Database   Database             `yaml:"database"`
+	Queue      Queue                `yaml:"queue"`
+	Retention  Retention            `yaml:"retention"`
+	Providers  map[string]Provider  `yaml:"providers"`
+	MCP        map[string]MCPServer `yaml:"mcp"`
+	Files      *Files               `yaml:"files"`
+	Agents     map[string]*Agent    `yaml:"agents"` // required: "main" answers a grant that names no agent
+	Subagents  map[string]Subagent  `yaml:"subagents"`
+	Summarizer *Summarizer          `yaml:"summarizer"`
+	Metrics    *Metrics             `yaml:"metrics"`
+	Embed      Embed                `yaml:"embed"`
 }
 
 type Embed struct {
@@ -138,21 +138,25 @@ type UI struct {
 	ImageHosts []string `yaml:"image_hosts"`
 }
 
-type Attachments struct {
-	AllowedHosts []string `yaml:"allowed_hosts"`
+// Files is everything that lets files reach a conversation. Two sources share
+// Types and MaxCount: URL attachments (AllowedHosts set; hfy never fetches
+// them, so MaxBytes does not apply) and uploads (DSN set; hfy stores them).
+type Files struct {
 	Types        []string `yaml:"types"`
-	MaxBytes     ByteSize `yaml:"max_bytes"`
-	MaxCount     int      `yaml:"max_count"` // per message
+	MaxCount     int      `yaml:"max_count"` // per message, both sources
+	MaxBytes     ByteSize `yaml:"max_bytes"` // per uploaded file
+	AllowedHosts []string `yaml:"allowed_hosts"`
+	DSN          string   `yaml:"dsn"`
+	PublicURL    string   `yaml:"public_url"`
+	UploadTTL    Duration `yaml:"upload_ttl"`
+	DownloadTTL  Duration `yaml:"download_ttl"`
 }
 
-type Filesystem struct {
-	DSN         string   `yaml:"dsn"`
-	PublicURL   string   `yaml:"public_url"`
-	MaxBytes    ByteSize `yaml:"max_bytes"`
-	Types       []string `yaml:"types"`
-	UploadTTL   Duration `yaml:"upload_ttl"`
-	DownloadTTL Duration `yaml:"download_ttl"`
-}
+// URLs reports whether URL attachments are on.
+func (f *Files) URLs() bool { return f != nil && len(f.AllowedHosts) > 0 }
+
+// Uploads reports whether file uploads are on.
+func (f *Files) Uploads() bool { return f != nil && f.DSN != "" }
 
 // Settings are one agent's model settings; sub-agents and the summarizer have
 // the same. The request controls are optional: unset, nothing is sent.
@@ -262,6 +266,10 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 	if err := expandNode(&root, lookup); err != nil {
 		return nil, err
 	}
+	if v := lookupKey(root.Content[0], "files", "dsn"); v != nil && v.Kind == yaml.ScalarNode && v.Value == "" {
+		// dsn is the uploads switch: an empty ${VAR} must not turn uploads off quietly.
+		return nil, fmt.Errorf("line %d: files.dsn is empty; remove the key to turn uploads off", v.Line)
+	}
 	var c Config
 	if err := root.Decode(&c); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
@@ -271,6 +279,23 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// lookupKey follows mapping keys from n, or returns nil.
+func lookupKey(n *yaml.Node, keys ...string) *yaml.Node {
+	for _, k := range keys {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return nil
+		}
+		next := (*yaml.Node)(nil)
+		for kv := range slices.Chunk(n.Content, 2) {
+			if kv[0].Value == k {
+				next = kv[1]
+			}
+		}
+		n = next
+	}
+	return n
 }
 
 // expandNode expands ${VAR} in string values only, never in keys or structure.
@@ -352,7 +377,22 @@ var (
 	accentRe      = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	langRe        = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 	hostPatternRe = regexp.MustCompile(`^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$`)
+	mimeRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9.+_-]*/[a-z0-9][a-z0-9.+_-]*$`)
+	hostLabelsRe  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 )
+
+// validAllowedHost accepts what url.Hostname() can return for an http(s) URL:
+// a lowercase DNS name (localhost included), an IP, or "*.name" with at least
+// two labels so "*.com" cannot happen by accident.
+func validAllowedHost(h string) bool {
+	if net.ParseIP(h) != nil {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(h, "*."); ok {
+		return strings.Contains(suffix, ".") && hostLabelsRe.MatchString(suffix)
+	}
+	return hostLabelsRe.MatchString(h)
+}
 
 // Render substitutes {{var}} placeholders; unknown names are left as written.
 func Render(tmpl string, vars map[string]string) string {
@@ -413,22 +453,12 @@ func (c *Config) SetDefaults() {
 	if c.Summarizer != nil && c.Summarizer.KeepRecent == 0 {
 		c.Summarizer.KeepRecent = 3
 	}
-	if c.Attachments != nil && c.Attachments.MaxBytes == 0 {
-		c.Attachments.MaxBytes = 5 << 20
-	}
-	if c.Attachments != nil && c.Attachments.MaxCount == 0 {
-		c.Attachments.MaxCount = 10
-	}
-	if f := c.Filesystem; f != nil {
-		if f.MaxBytes == 0 {
-			if c.Attachments != nil && c.Attachments.MaxBytes != 0 {
-				f.MaxBytes = c.Attachments.MaxBytes
-			} else {
-				f.MaxBytes = 10 << 20
-			}
+	if f := c.Files; f != nil {
+		if f.MaxCount == 0 {
+			f.MaxCount = 10
 		}
-		if len(f.Types) == 0 && c.Attachments != nil {
-			f.Types = slices.Clone(c.Attachments.Types)
+		if f.MaxBytes == 0 {
+			f.MaxBytes = 10 << 20
 		}
 		if f.UploadTTL == 0 {
 			f.UploadTTL = Duration(5 * time.Minute)
@@ -630,34 +660,51 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if a := c.Attachments; a != nil {
-		if len(a.AllowedHosts) == 0 || len(a.Types) == 0 {
-			bad("attachments needs allowed_hosts and types")
-		}
-	}
-	if f := c.Filesystem; f != nil {
-		if f.DSN == "" {
-			bad("filesystem.dsn is required")
-		} else if scheme, _, _ := strings.Cut(f.DSN, "://"); !slices.Contains([]string{"s3", "file"}, scheme) {
-			bad("filesystem.dsn must use s3:// or file:// (mem:// is for tests, injected directly)")
-		} else if scheme == "s3" && !dsnHasRegion(f.DSN) {
-			bad("filesystem.dsn: an s3:// DSN must carry region=<region> in its query, e.g. s3://bucket?region=eu-west-1")
-		}
+	if f := c.Files; f != nil {
 		if len(f.Types) == 0 {
-			bad("filesystem.types is required")
+			bad("files.types is required")
+		}
+		for i, t := range f.Types {
+			if !mimeRe.MatchString(t) {
+				bad("files.types: %q must be a lowercase type/subtype like image/png (no wildcards or parameters)", t)
+			} else if slices.Contains(f.Types[:i], t) {
+				bad("files.types: %q is listed twice", t)
+			}
+		}
+		if !f.URLs() && !f.Uploads() {
+			bad("files needs allowed_hosts (URL attachments) or dsn (uploads)")
+		}
+		for i, h := range f.AllowedHosts {
+			if !validAllowedHost(h) {
+				bad(`files.allowed_hosts: %q must be a lowercase host like cdn.example.com, "*.example.com" or an IP (no scheme, port or path; IDN as punycode)`, h)
+			} else if slices.Contains(f.AllowedHosts[:i], h) {
+				bad("files.allowed_hosts: %q is listed twice", h)
+			}
+		}
+		if f.MaxCount <= 0 {
+			bad("files.max_count must be greater than 0")
 		}
 		if f.MaxBytes <= 0 {
-			bad("filesystem.max_bytes must be greater than 0")
+			bad("files.max_bytes must be greater than 0")
+		}
+		if f.DSN != "" {
+			if scheme, _, _ := strings.Cut(f.DSN, "://"); !slices.Contains([]string{"s3", "file"}, scheme) {
+				bad("files.dsn must use s3:// or file:// (mem:// is for tests, injected directly)")
+			} else if scheme == "s3" && !dsnHasRegion(f.DSN) {
+				bad("files.dsn: an s3:// DSN must carry region=<region> in its query, e.g. s3://bucket?region=eu-west-1")
+			}
+		} else if f.PublicURL != "" {
+			bad("files.public_url needs files.dsn (it is the download base for uploads)")
 		}
 		if f.UploadTTL <= 0 || f.UploadTTL > Duration(time.Hour) {
-			bad("filesystem.upload_ttl must be greater than 0 and at most 1h")
+			bad("files.upload_ttl must be greater than 0 and at most 1h")
 		}
 		if f.DownloadTTL <= 0 || f.DownloadTTL > Duration(24*time.Hour) {
-			bad("filesystem.download_ttl must be greater than 0 and at most 24h")
+			bad("files.download_ttl must be greater than 0 and at most 24h")
 		}
 		if f.PublicURL != "" {
 			if u, err := url.Parse(f.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-				bad("filesystem.public_url must be an http(s) URL with a host")
+				bad("files.public_url must be an http(s) URL with a host")
 			}
 		}
 	}

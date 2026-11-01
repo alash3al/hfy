@@ -25,15 +25,15 @@ import (
 // startFiles is the upload harness: the same server start() builds, minus the
 // provider runtime, with a mem:// bucket enabled — slots, proxied PUTs,
 // serving and history need only storage, grants and the store.
-func startFiles(t *testing.T, fs config.Filesystem) *fsapi {
+func startFiles(t *testing.T, fs config.Files) *fsapi {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	cfg := &config.Config{
-		Server:     config.Server{Secret: secret},
-		Providers:  map[string]config.Provider{"fake": {Type: "mock", Mock: config.MockProvider{Reply: "hi"}}},
-		Agents:     map[string]*config.Agent{"main": {Model: "fake/m", System: "You help.", Settings: config.Settings{ContextWindow: 1000, Vision: true}}},
-		Filesystem: &fs,
+		Server:    config.Server{Secret: secret},
+		Providers: map[string]config.Provider{"fake": {Type: "mock", Mock: config.MockProvider{Reply: "hi"}}},
+		Agents:    map[string]*config.Agent{"main": {Model: "fake/m", System: "You help.", Settings: config.Settings{ContextWindow: 1000, Vision: true}}},
+		Files:     &fs,
 	}
 	cfg.SetDefaults()
 	store := dbtest.New(t)
@@ -123,26 +123,39 @@ func slotPath(key, mime string, exp time.Time) string {
 }
 
 func TestUploadsDisabled(t *testing.T) {
-	a := start(t, nil)
+	// No files block, and a hosts-only one (URL attachments, no dsn): both
+	// leave uploads off.
+	for name, tweak := range map[string]func(*config.Config){
+		"no files": nil,
+		"hosts only": func(c *config.Config) {
+			c.Files = &config.Files{Types: []string{"text/plain"}, AllowedHosts: []string{"cdn.example.com"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) { uploadsDisabled(t, tweak) })
+	}
+}
+
+func uploadsDisabled(t *testing.T, tweak func(*config.Config)) {
+	a := start(t, tweak)
 	token := a.newToken()
 
 	code, out := a.do("POST", client+"/uploads", token, map[string]any{"mime": "image/png", "size": 10})
 	if code != http.StatusNotFound || out["error"] != "file uploads are not configured" {
-		t.Fatalf("upload slot without filesystem: %d %v", code, out)
+		t.Fatalf("upload slot without files.dsn: %d %v", code, out)
 	}
 	code, out = a.do("POST", client+"/messages", token, map[string]any{
 		"text":        "hi",
 		"attachments": []map[string]any{{"file": "uploads/x/a.txt", "mime": "text/plain"}},
 	})
 	if code != http.StatusBadRequest || out["error"] != "file uploads are not configured" {
-		t.Fatalf("message with file attachment without filesystem: %d %v", code, out)
+		t.Fatalf("message with file attachment without files.dsn: %d %v", code, out)
 	}
 }
 
 // A slot is a fresh key under the conversation's uploads/ prefix, size-bounded
-// by filesystem.max_bytes, with an hfy-served PUT URL carrying exp and sig.
+// by files.max_bytes, with an hfy-served PUT URL carrying exp and sig.
 func TestRequestUploadSlots(t *testing.T) {
-	a := startFiles(t, config.Filesystem{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
 	token, conv := a.granted()
 
 	// the embed page tells its composer what it may upload
@@ -194,7 +207,7 @@ func TestRequestUploadSlots(t *testing.T) {
 // is checked, the size is bounded, the slot is immutable once written, and an
 // oversized upload commits nothing.
 func TestPutUploadRules(t *testing.T) {
-	a := startFiles(t, config.Filesystem{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
 	token, conv := a.granted()
 	_, other := a.granted() // a conversation this token is not granted to
 	exp := time.Now().Add(time.Minute)
@@ -231,7 +244,7 @@ func TestPutUploadRules(t *testing.T) {
 // A message names its slot; the stored event names a fresh verified copy
 // under conversations/, and only the served history carries a URL.
 func TestPostMessageWithFile(t *testing.T) {
-	a := startFiles(t, config.Filesystem{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
 	token, conv := a.granted()
 	_, other := a.granted()
 	slot := "uploads/" + conv + "/n.txt"
@@ -287,11 +300,36 @@ func TestPostMessageWithFile(t *testing.T) {
 	}
 }
 
+// files.max_count caps a message's attachments, and files.types is the
+// upload allowlist, with only files.dsn set (no allowed_hosts).
+func TestFilesCountAndTypesApplyToUploads(t *testing.T) {
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain"}, MaxCount: 2})
+	token, conv := a.granted()
+	var atts []map[string]any
+	for i := range 3 {
+		slot := "uploads/" + conv + "/n" + strconv.Itoa(i) + ".txt"
+		if code, out := a.put(token, slotPath(slot, "text/plain", time.Now().Add(time.Minute)), "text/plain", "hi"); code != 204 {
+			t.Fatalf("put slot: %d %v", code, out)
+		}
+		atts = append(atts, map[string]any{"file": slot, "mime": "text/plain"})
+	}
+	code, out := a.do("POST", client+"/messages", token, map[string]any{"text": "hi", "attachments": atts})
+	if code != 400 || out["error"] != "at most 2 attachments per message" {
+		t.Fatalf("three files with max_count 2: %d %v", code, out)
+	}
+	if code, out = a.do("POST", client+"/messages", token, map[string]any{"text": "hi", "attachments": atts[:2]}); code != 202 {
+		t.Fatalf("two files with max_count 2: %d %v", code, out)
+	}
+	if code, out = a.do("POST", client+"/uploads", token, map[string]any{"mime": "image/png", "size": 10}); code != 400 || out["error"] != "file type is not allowed" {
+		t.Fatalf("a type outside files.types: %d %v", code, out)
+	}
+}
+
 // A posted file is indexed in conversation_files: exactly one row, naming the
 // verified copy (never the slot), with the stored size and the original
 // name, tied to the message's event, the conversation and the uploader.
 func TestPostMessageFileIndex(t *testing.T) {
-	a := startFiles(t, config.Filesystem{DSN: "mem://", Types: []string{"text/plain"}, MaxBytes: 4096})
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain"}, MaxBytes: 4096})
 	token, conv := a.granted()
 	slot := "uploads/" + conv + "/n.txt"
 	if code, out := a.put(token, slotPath(slot, "text/plain", time.Now().Add(time.Minute)), "text/plain", "hi"); code != 204 {
@@ -371,10 +409,10 @@ func servedAttachments(t *testing.T, hist map[string]any) []map[string]any {
 	return nil
 }
 
-// filesystem.public_url makes download URLs absolute for providers that
+// files.public_url makes download URLs absolute for providers that
 // cannot reach hfy itself (file:// storage).
 func TestDownloadURLPublicPrefix(t *testing.T) {
-	a := startFiles(t, config.Filesystem{
+	a := startFiles(t, config.Files{
 		DSN: "mem://", Types: []string{"text/plain"}, MaxBytes: 4096, PublicURL: "https://pub.example.com/",
 	})
 	token, conv := a.granted()
@@ -401,8 +439,8 @@ func TestDownloadURLPublicPrefix(t *testing.T) {
 // signature must not work as a GET signature: the domains differ.
 func TestServeFileSignedURL(t *testing.T) {
 	cfg := &config.Config{
-		Server:     config.Server{Secret: secret},
-		Filesystem: &config.Filesystem{DSN: "mem://", Types: []string{"image/png", "text/plain"}},
+		Server: config.Server{Secret: secret},
+		Files:  &config.Files{DSN: "mem://", Types: []string{"image/png", "text/plain"}},
 	}
 	cfg.SetDefaults()
 	ctx := context.Background()

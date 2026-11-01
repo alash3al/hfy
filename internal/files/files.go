@@ -34,7 +34,7 @@ func Open(ctx context.Context, dsn string) (*blob.Bucket, error) {
 	switch Scheme(dsn) {
 	case "s3", "file", "mem":
 	default:
-		return nil, fmt.Errorf("filesystem.dsn: unsupported scheme %q (want s3, file or mem)", Scheme(dsn))
+		return nil, fmt.Errorf("files.dsn: unsupported scheme %q (want s3, file or mem)", Scheme(dsn))
 	}
 	return blob.OpenBucket(ctx, dsn)
 }

@@ -15,6 +15,10 @@ import (
 var removedKeys = map[string]string{
 	"config.embeddings": "embeddings was removed in v2; expose memory as an MCP tool",
 	"config.agent":      "agent was removed in v2; move it to agents.main",
+	"config.attachments": "attachments was removed in v2; merge it into files: allowed_hosts, types and max_count move there " +
+		"(max_bytes never limited anything, so it is dropped)",
+	"config.filesystem": "filesystem was removed in v2; merge it into files: dsn, public_url, types, max_bytes, upload_ttl and " +
+		"download_ttl move there unchanged",
 }
 
 // checkKeys rejects keys that match no config field, with the line they are
@@ -44,11 +48,15 @@ func checkKeys(n *yaml.Node, t reflect.Type, path string) error {
 				fields[name] = field.Type
 			}
 		}
+		// Removed keys first: an old key must be reported even when the new
+		// block beside it has a mistake that comes earlier in the file.
+		for kv := range slices.Chunk(n.Content, 2) {
+			if msg, gone := removedKeys[path+"."+kv[0].Value]; gone {
+				return fmt.Errorf("line %d: %s", kv[0].Line, msg)
+			}
+		}
 		for kv := range slices.Chunk(n.Content, 2) {
 			k := kv[0]
-			if msg, gone := removedKeys[path+"."+k.Value]; gone {
-				return fmt.Errorf("line %d: %s", k.Line, msg)
-			}
 			ft, ok := fields[k.Value]
 			if !ok {
 				return fmt.Errorf("line %d: unknown key %q in %s (known: %s)", k.Line, k.Value,

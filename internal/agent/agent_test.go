@@ -477,7 +477,7 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 
 	e := setup(t, func(c *config.Config) {
 		c.Main().Settings.Vision = true
-		c.Attachments = &config.Attachments{AllowedHosts: []string{host}, Types: []string{"image/png"}, MaxBytes: 1 << 20}
+		c.Files = &config.Files{AllowedHosts: []string{host}, Types: []string{"image/png"}}
 	}, fakeprov.Step{Content: "nice picture"}, fakeprov.Step{Content: "still here"})
 
 	post := func(text string, atts ...types.Attachment) int64 {

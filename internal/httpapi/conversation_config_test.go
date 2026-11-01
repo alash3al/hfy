@@ -11,7 +11,7 @@ import (
 
 // GET /v1/conversation/config is what a client (with no page to embed) reads
 // instead of the embed config: 401 like every client route, null uploads
-// without a filesystem, the exact limits with one, and never the secret.
+// without files.dsn, the exact limits with one, and never the secret.
 func TestConversationConfig(t *testing.T) {
 	a := start(t, nil)
 	for name, tok := range map[string]string{"none": "", "bad": "hfy_nope", "the secret": secret} {
@@ -26,7 +26,7 @@ func TestConversationConfig(t *testing.T) {
 	}
 	uploads, present := out["uploads"]
 	if !present || uploads != nil {
-		t.Fatalf("uploads must be null without a filesystem: %v %v", present, uploads)
+		t.Fatalf("uploads must be null without files.dsn: %v %v", present, uploads)
 	}
 
 	stale, _ := a.grant(a.newConversation(), map[string]any{"expires_in": 1})
@@ -52,9 +52,20 @@ func TestConversationConfig(t *testing.T) {
 	}
 }
 
-// With a filesystem the answer is the embed page's uploads config, exactly.
+// allowed_hosts alone (URL attachments, no dsn) advertises no uploads.
+func TestConversationConfigHostsOnly(t *testing.T) {
+	a := start(t, func(c *config.Config) {
+		c.Files = &config.Files{Types: []string{"image/png"}, AllowedHosts: []string{"cdn.example.com"}}
+	})
+	code, out := a.do("GET", client+"/config", a.newToken(), nil)
+	if uploads, present := out["uploads"]; code != http.StatusOK || !present || uploads != nil {
+		t.Fatalf("hosts-only files: %d %v", code, out)
+	}
+}
+
+// With files.dsn the answer is the embed page's uploads config, exactly.
 func TestConversationConfigUploads(t *testing.T) {
-	a := startFiles(t, config.Filesystem{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
+	a := startFiles(t, config.Files{DSN: "mem://", Types: []string{"text/plain", "image/png"}, MaxBytes: 4096})
 	token, _ := a.granted()
 	code, out := a.do("GET", client+"/config", token, nil)
 	if code != http.StatusOK {

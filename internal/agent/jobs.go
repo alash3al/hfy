@@ -60,10 +60,10 @@ func (rt *Runtime) retention(ctx context.Context) error {
 // upload_ttl + 1h: upload slots whose turn never stored them. An error is
 // logged, not fatal to the rest of the retention job.
 func (rt *Runtime) cleanupUploads(ctx context.Context, now time.Time) {
-	if rt.bucket == nil || rt.Cfg.Filesystem == nil {
+	if rt.bucket == nil || !rt.Cfg.Files.Uploads() {
 		return
 	}
-	before := now.Add(-rt.Cfg.Filesystem.UploadTTL.D() - time.Hour)
+	before := now.Add(-rt.Cfg.Files.UploadTTL.D() - time.Hour)
 	iter := rt.bucket.List(&blob.ListOptions{Prefix: "uploads/"})
 	var deleted int
 	for {

@@ -9,7 +9,7 @@ import (
 type conversationConfigResponse struct {
 	// Uploads is what the embed page's config injects there: the composer's
 	// limits, so a client offers attachments only within them. Null when no
-	// filesystem is configured.
+	// files.dsn is configured.
 	Uploads *embedUploads `json:"uploads"`
 }
 

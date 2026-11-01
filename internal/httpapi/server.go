@@ -103,7 +103,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	}))
 	// MaxBytesHandler copies the request, so it stays outside observe, which
 	// reads the pattern the mux sets on the request it was handed. Proxied
-	// uploads bound themselves by the filesystem limit instead.
+	// uploads bound themselves by files.max_bytes instead.
 	inner := observe(srv.cors(mux))
 	limited := http.MaxBytesHandler(inner, maxBody)
 	srv.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

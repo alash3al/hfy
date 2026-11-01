@@ -53,20 +53,16 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #     url: https://search.example.com/mcp
 #     headers: { Authorization: "Bearer ${SEARCH_TOKEN}" }
 
-# attachments:                       # optional; omit = attachments are rejected
-#   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]
-#   types: [image/png, image/jpeg, image/webp]
-#   max_bytes: 5MB
-#   max_count: 10                    # per message
-
-# filesystem:                        # optional; omit = file uploads are disabled
-#   dsn: s3://hfy-uploads?region=eu-central-1  # region= is required for s3 dsn
+# files:                             # optional; omit = no attachments at all
+#   types: [image/png, image/jpeg, application/pdf]  # required; lowercase MIME, for URLs and uploads
+#   max_count: 10                    # default; per message, URLs and files together
+#   max_bytes: 10MB                  # default; largest uploaded file (hfy never fetches URLs)
+#   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]  # set = URL attachments allowed
+#   dsn: s3://hfy-uploads?region=eu-central-1  # set = uploads on; region= is required for s3
 #   # dsn: file:///var/lib/hfy/files # alternative; requires public_url below
 #   public_url: https://hfy.example.com        # http(s) base of hfy-served file URLs; required for file://
-#   types: [image/png, image/jpeg, application/pdf]
-#   max_bytes: 10MB                   # also bounds upload slot sizes
-#   upload_ttl: 5m                    # default; slots are deleted after this + 1h
-#   download_ttl: 15m                 # default; download signature lifetime
+#   upload_ttl: 5m                   # default, at most 1h; slots are deleted after this + 1h
+#   download_ttl: 15m                # default, at most 24h; download signature lifetime
 
 agents:                              # required; "main" is the default agent
   main:

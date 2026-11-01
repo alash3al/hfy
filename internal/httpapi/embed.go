@@ -55,12 +55,12 @@ type embedUploads struct {
 	MaxBytes int64    `json:"max_bytes"`
 }
 
-// embedUploads is nil when the page cannot upload (no filesystem configured).
+// embedUploads is nil when the page cannot upload (no files.dsn configured).
 func (s *Server) embedUploads() *embedUploads {
 	if !s.fsEnabled() {
 		return nil
 	}
-	return &embedUploads{Types: s.cfg.Filesystem.Types, MaxBytes: int64(s.cfg.Filesystem.MaxBytes)}
+	return &embedUploads{Types: s.cfg.Files.Types, MaxBytes: int64(s.cfg.Files.MaxBytes)}
 }
 
 // embedPage is the document for this server's config, built by Handler.
@@ -112,9 +112,9 @@ func (s *Server) buildPage() (*content, string, error) {
 	// script-src stays 'self' without 'unsafe-inline'.
 	scriptHash := sha256.Sum256(append(append([]byte("window.__HFY_EMBED__="), payload...), ';'))
 	connectSrc := "'self'"
-	if s.cfg.Filesystem != nil {
+	if s.cfg.Files.Uploads() {
 		// Direct (S3) uploads/downloads go from the page to storage.
-		if origins := files.StorageOrigins(s.cfg.Filesystem.DSN); len(origins) > 0 {
+		if origins := files.StorageOrigins(s.cfg.Files.DSN); len(origins) > 0 {
 			connectSrc += " " + strings.Join(origins, " ")
 		}
 	}

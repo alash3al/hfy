@@ -172,7 +172,7 @@ func (rt *Runtime) Boot(ctx context.Context) error {
 }
 
 // EnableFilesystem sets the bucket attachment downloads are signed against;
-// nil (no filesystem configured) leaves stored files unexpanded.
+// nil (no files.dsn configured) leaves stored files unexpanded.
 func (rt *Runtime) EnableFilesystem(b *blob.Bucket) { rt.bucket = b }
 
 type signedURL struct {
@@ -185,8 +185,8 @@ type signedURL struct {
 // URLs are cached until near expiry: a URL that changed on every step
 // would bust the provider's prompt cache for the rest of the conversation.
 func (rt *Runtime) downloadURL(ctx context.Context, key string) string {
-	fs := rt.Cfg.Filesystem
-	if rt.bucket == nil || fs == nil {
+	fs := rt.Cfg.Files
+	if rt.bucket == nil || !fs.Uploads() {
 		return ""
 	}
 	if v, ok := rt.signedURLs.Load(key); ok && time.Until(v.(signedURL).exp) > time.Minute {

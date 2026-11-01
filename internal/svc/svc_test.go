@@ -52,7 +52,7 @@ func TestCheckVars(t *testing.T) {
 
 func TestValidateAttachments(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]*config.Agent{"main": {Settings: config.Settings{Vision: true}}},
-		Attachments: &config.Attachments{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
+		Files: &config.Files{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
 	cfg.SetDefaults()
 	ok := []types.Attachment{{URL: "https://cdn.example.com/a.png", Mime: "image/png"}, {URL: "https://b.s3.amazonaws.com/x.pdf", Mime: "application/pdf"}}
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), ok); err != nil {
@@ -83,15 +83,15 @@ func TestValidateAttachments(t *testing.T) {
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), many); err == nil || !strings.Contains(err.Error(), "at most 10") {
 		t.Errorf("11 attachments must be refused: %v", err)
 	}
-	cfg.Attachments = nil
+	cfg.Files = nil
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), ok); err == nil {
-		t.Error("no attachments config means rejected")
+		t.Error("no files config means rejected")
 	}
 	// File attachments: no host/type/count checks here (httpapi checks the
-	// filesystem config), but vision and url/file exclusivity still apply.
+	// storage config), but vision and url/file exclusivity still apply.
 	fileOK := []types.Attachment{{File: "conversations/c/a.png", Mime: "image/png"}}
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileOK); err != nil {
-		t.Errorf("file-only with nil attachments config: %v", err)
+		t.Errorf("file-only with nil files config: %v", err)
 	}
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{{File: "conversations/c/a.png", URL: "https://cdn.example.com/a.png", Mime: "image/png"}}); err == nil {
 		t.Error("file+url must be rejected")
@@ -101,12 +101,31 @@ func TestValidateAttachments(t *testing.T) {
 		t.Errorf("file images need vision: %v", err)
 	}
 	cfg.Main().Settings.Vision = true
-	cfg.Attachments = &config.Attachments{AllowedHosts: []string{"cdn.example.com"}, Types: []string{"image/png", "application/pdf"}, MaxCount: 10}
+	cfg.Files = &config.Files{AllowedHosts: []string{"cdn.example.com"}, Types: []string{"image/png", "application/pdf"}, MaxCount: 10}
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileOK); err != nil {
-		t.Errorf("file attachment with attachments config: %v", err)
+		t.Errorf("file attachment with a files config: %v", err)
 	}
-	// types is a filesystem concern, not an attachments one
+	// a file's type is checked against files.types in httpapi, next to its storage
 	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{{File: "conversations/c/a.gif", Mime: "image/gif"}}); err != nil {
-		t.Errorf("file type outside attachments.types is httpapi's call, not svc's: %v", err)
+		t.Errorf("file type outside files.types is httpapi's call, not svc's: %v", err)
+	}
+}
+
+// files.dsn alone turns uploads on and URL attachments off; the per-message
+// count still caps the files (it used to be a hardcoded 10 outside svc).
+func TestValidateAttachmentsUploadsOnly(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]*config.Agent{"main": {Settings: config.Settings{Vision: true}}},
+		Files: &config.Files{DSN: "file:///tmp/f", Types: []string{"image/png"}, MaxCount: 2}}
+	cfg.SetDefaults()
+	file := types.Attachment{File: "conversations/c/a.png", Mime: "image/png"}
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{file, file}); err != nil {
+		t.Errorf("two files within max_count: %v", err)
+	}
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{file, file, file}); err == nil || !strings.Contains(err.Error(), "at most 2") {
+		t.Errorf("three files must exceed max_count 2: %v", err)
+	}
+	url := types.Attachment{URL: "https://cdn.example.com/a.png", Mime: "image/png"}
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{url}); err == nil || !strings.Contains(err.Error(), "URL attachments are not enabled") {
+		t.Errorf("a URL without allowed_hosts: %v", err)
 	}
 }

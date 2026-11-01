@@ -77,44 +77,27 @@ func ValidateAttachments(cfg *config.Config, agent *config.Agent, atts []types.A
 			return badf("attachment name contains a newline")
 		}
 	}
-	a := cfg.Attachments
-	if a == nil {
-		// No attachments config: only file attachments (checked in httpapi
-		// against the filesystem config) and their vision rule can still be
-		// meaningful here.
-		for _, at := range atts {
-			if at.File == "" {
-				return badf("attachments are not enabled")
-			}
-			if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
-				return badf("the agent cannot see images (settings.vision is false)")
-			}
-		}
-		return nil
-	}
-	if len(atts) > a.MaxCount {
-		return badf("at most %d attachments per message", a.MaxCount)
+	f := cfg.Files
+	if f != nil && len(atts) > f.MaxCount {
+		return badf("at most %d attachments per message", f.MaxCount)
 	}
 	for _, at := range atts {
-		if at.File != "" {
-			// File attachments are checked against the filesystem config in
-			// httpapi; here only the vision rule stays (and url/file
-			// exclusivity, above).
-			if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
-				return badf("the agent cannot see images (settings.vision is false)")
+		if at.File == "" {
+			if !f.URLs() {
+				return badf("URL attachments are not enabled")
 			}
-			continue
+			u, err := parseHTTPURL(at.URL)
+			if err != nil {
+				return badf("attachment %q: %v", at.URL, err)
+			}
+			if !HostAllowed(f.AllowedHosts, u.Hostname()) {
+				return badf("attachment host %q is not allowed", u.Hostname())
+			}
+			if !slices.ContainsFunc(f.Types, func(t string) bool { return strings.EqualFold(t, at.Mime) }) {
+				return badf("attachment type %q is not allowed", at.Mime)
+			}
 		}
-		u, err := parseHTTPURL(at.URL)
-		if err != nil {
-			return badf("attachment %q: %v", at.URL, err)
-		}
-		if !HostAllowed(a.AllowedHosts, u.Hostname()) {
-			return badf("attachment host %q is not allowed", u.Hostname())
-		}
-		if !slices.ContainsFunc(a.Types, func(t string) bool { return strings.EqualFold(t, at.Mime) }) {
-			return badf("attachment type %q is not allowed", at.Mime)
-		}
+		// A file's type and storage are checked in httpapi.
 		if strings.HasPrefix(at.Mime, "image/") && !agent.Settings.Vision {
 			return badf("the agent cannot see images (settings.vision is false)")
 		}

@@ -27,7 +27,7 @@ import (
 // fsEnabled reports whether filesystem uploads are usable: configured and
 // EnableFilesystem was called with a bucket.
 func (s *Server) fsEnabled() bool {
-	return s != nil && s.cfg != nil && s.cfg.Filesystem != nil && s.bucket != nil
+	return s != nil && s.cfg != nil && s.cfg.Files.Uploads() && s.bucket != nil
 }
 
 func allowedMime(types []string, mime string) bool {
@@ -63,25 +63,25 @@ func (s *Server) requestUpload(w http.ResponseWriter, r *http.Request, g *db.Gra
 		return err
 	}
 	mime := strings.ToLower(strings.TrimSpace(req.Mime))
-	if !allowedMime(s.cfg.Filesystem.Types, mime) {
+	if !allowedMime(s.cfg.Files.Types, mime) {
 		return &httpError{http.StatusBadRequest, "file type is not allowed"}
 	}
 	if req.Size <= 0 {
 		return &httpError{http.StatusBadRequest, "size is required (bytes, greater than 0)"}
 	}
-	if req.Size > int64(s.cfg.Filesystem.MaxBytes) {
+	if req.Size > int64(s.cfg.Files.MaxBytes) {
 		return &httpError{http.StatusBadRequest, "file too large"}
 	}
 	// Slots are temporary; the verified copies events name live under
 	// conversations/ and are made by verifyFileAttachments.
 	key := "uploads/" + g.ConversationUUID.String() + "/" + newUploadToken() + files.ExtForMIME(mime)
-	expires := time.Now().Add(s.cfg.Filesystem.UploadTTL.D())
+	expires := time.Now().Add(s.cfg.Files.UploadTTL.D())
 	resp := requestUploadResponse{File: key, ExpiresAt: expires}
-	if files.Direct(files.Scheme(s.cfg.Filesystem.DSN)) {
+	if files.Direct(files.Scheme(s.cfg.Files.DSN)) {
 		u, err := s.bucket.SignedURL(r.Context(), key, &blob.SignedURLOptions{
-			Method: http.MethodPut, Expiry: s.cfg.Filesystem.UploadTTL.D(), ContentType: mime,
+			Method: http.MethodPut, Expiry: s.cfg.Files.UploadTTL.D(), ContentType: mime,
 			// Pin the content length: S3 would otherwise accept a body of
-			// any size, past filesystem.max_bytes included.
+			// any size, past files.max_bytes included.
 			BeforeSign: func(as func(any) bool) error {
 				var in *s3.PutObjectInput
 				if as(&in) {
@@ -107,7 +107,7 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, g *db.GrantRo
 	if !s.fsEnabled() {
 		return &httpError{http.StatusNotFound, "file uploads are not configured"}
 	}
-	if files.Direct(files.Scheme(s.cfg.Filesystem.DSN)) {
+	if files.Direct(files.Scheme(s.cfg.Files.DSN)) {
 		return &httpError{http.StatusBadRequest, "use the presigned URL"}
 	}
 	key := r.PathValue("key")
@@ -116,7 +116,7 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, g *db.GrantRo
 	}
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
 	mime := strings.ToLower(strings.TrimSpace(ct))
-	if !allowedMime(s.cfg.Filesystem.Types, mime) {
+	if !allowedMime(s.cfg.Files.Types, mime) {
 		return &httpError{http.StatusBadRequest, "file type is not allowed"}
 	}
 	expUnix, err := strconv.ParseInt(r.URL.Query().Get("exp"), 10, 64)
@@ -130,7 +130,7 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, g *db.GrantRo
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(10 * time.Minute))
 	// Stream: an upload must never be buffered whole. If it proves oversized,
 	// cancel the writer's own context before Close so nothing is committed.
-	max := int64(s.cfg.Filesystem.MaxBytes)
+	max := int64(s.cfg.Files.MaxBytes)
 	wctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	bw, err := s.bucket.NewWriter(wctx, key, &blob.WriterOptions{ContentType: mime, IfNotExist: true})
@@ -207,9 +207,9 @@ func (s *Server) downloadURL(key string) string {
 	if !s.fsEnabled() {
 		return ""
 	}
-	if files.Direct(files.Scheme(s.cfg.Filesystem.DSN)) {
+	if files.Direct(files.Scheme(s.cfg.Files.DSN)) {
 		u, err := s.bucket.SignedURL(context.Background(), key, &blob.SignedURLOptions{
-			Method: http.MethodGet, Expiry: s.cfg.Filesystem.DownloadTTL.D(),
+			Method: http.MethodGet, Expiry: s.cfg.Files.DownloadTTL.D(),
 		})
 		if err != nil {
 			slog.Error("signing a download URL failed", "err", err)
@@ -217,13 +217,13 @@ func (s *Server) downloadURL(key string) string {
 		}
 		return u
 	}
-	exp := time.Now().Add(s.cfg.Filesystem.DownloadTTL.D())
+	exp := time.Now().Add(s.cfg.Files.DownloadTTL.D())
 	path := "/v1/files/" + key + "?exp=" + strconv.FormatInt(exp.Unix(), 10) + "&sig=" +
 		files.SignGet(s.cfg.Server.Secret, key, exp)
-	if s.cfg.Filesystem.PublicURL != "" {
+	if s.cfg.Files.PublicURL != "" {
 		// A provider that cannot reach hfy (file:// storage on another
 		// machine) needs the URL the config vouches for.
-		return strings.TrimRight(s.cfg.Filesystem.PublicURL, "/") + path
+		return strings.TrimRight(s.cfg.Files.PublicURL, "/") + path
 	}
 	return path
 }
@@ -287,23 +287,10 @@ func (s *Server) verifyFileAttachments(r *http.Request, g *db.GrantRow, atts []t
 	if !s.fsEnabled() {
 		return nil, nil, &httpError{http.StatusBadRequest, "file uploads are not configured"}
 	}
-	limit := 10
-	if s.cfg.Attachments != nil && s.cfg.Attachments.MaxCount > 0 {
-		limit = s.cfg.Attachments.MaxCount
-	}
-	fileCount := 0
-	for _, at := range atts {
-		if at.File != "" {
-			fileCount++
-		}
-	}
-	if fileCount > limit {
-		return nil, nil, &httpError{http.StatusBadRequest, "too many file attachments"}
-	}
 	out := slices.Clone(atts)
 	slotPrefix := "uploads/" + g.ConversationUUID.String() + "/"
 	prefix := "conversations/" + g.ConversationUUID.String() + "/"
-	max := int64(s.cfg.Filesystem.MaxBytes)
+	max := int64(s.cfg.Files.MaxBytes)
 	var made []string
 	var posted []svc.PostedFile
 	// verifyAll leaves verified keys in made so any failure can clean up.
@@ -315,7 +302,7 @@ func (s *Server) verifyFileAttachments(r *http.Request, g *db.GrantRow, atts []t
 			if !strings.HasPrefix(at.File, slotPrefix) || !validFileKey(at.File) {
 				return &httpError{http.StatusBadRequest, "attachment file is outside this conversation"}
 			}
-			if !allowedMime(s.cfg.Filesystem.Types, at.Mime) {
+			if !allowedMime(s.cfg.Files.Types, at.Mime) {
 				return &httpError{http.StatusBadRequest, "attachment type is not allowed"}
 			}
 			attrs, err := s.bucket.Attributes(r.Context(), at.File)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -115,8 +116,13 @@ func TestUnits(t *testing.T) {
 			}
 		}
 	}
-	if _, err := ParseBytes("lots"); err == nil {
-		t.Error("garbage must be rejected")
+	for _, in := range []string{"lots", "", "-1", "1e3", "1.5MB", "9999999999GB", "9223372036854775807KB"} {
+		if got, err := ParseBytes(in); err == nil {
+			t.Errorf("ParseBytes(%q) = %d: must be rejected", in, got)
+		}
+	}
+	if got, err := ParseBytes("8191GB"); err != nil || got != 8191<<30 {
+		t.Errorf("a large size still fits: %d %v", got, err)
 	}
 }
 
@@ -353,27 +359,195 @@ func TestRemovedEmbeddingsKeyFailsWithTailoredError(t *testing.T) {
 	}
 }
 
-func TestFilesystemDefaults(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
-	c, err := Parse([]byte(base+"filesystem: {dsn: file:///tmp/hfy-files, types: [image/png]}\n"), env(nil))
+const filesBase = agentsBase + "agents: {main: {model: p/m, settings: {context_window: 1}}}\n"
+
+func TestFilesDefaults(t *testing.T) {
+	c, err := Parse([]byte(filesBase+"files: {types: [image/png], dsn: file:///tmp/hfy-files}\n"), env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := c.Filesystem; f.MaxBytes != 10<<20 || f.UploadTTL.D() != 5*time.Minute || f.DownloadTTL.D() != 15*time.Minute {
-		t.Errorf("filesystem defaults: %+v", f)
+	if f := c.Files; f.MaxBytes != 10<<20 || f.MaxCount != 10 || f.UploadTTL.D() != 5*time.Minute || f.DownloadTTL.D() != 15*time.Minute {
+		t.Errorf("files defaults: %+v", f)
 	}
-	for yaml, want := range map[string]string{
-		"filesystem: {dsn: ftp://bucket, types: [image/png]}\n":                            "filesystem.dsn",
-		"filesystem: {dsn: file:///tmp/hfy-files}\n":                                       "filesystem.types", // no attachments to inherit from
-		"filesystem: {dsn: \"s3://bucket\", types: [image/png]}\n":                         "region=<region>",
-		"filesystem: {dsn: \"s3://bucket?endpoint=http://s3:9000\", types: [image/png]}\n": "region=<region>",
+	// The v1 quirk is gone: the URL source never moves the upload limit.
+	c, err = Parse([]byte(filesBase+"files: {types: [image/png], allowed_hosts: [cdn.example.com], dsn: file:///tmp/hfy-files}\n"), env(nil))
+	if err != nil || c.Files.MaxBytes != 10<<20 {
+		t.Errorf("max_bytes with both sources: %v %+v", err, c.Files)
+	}
+}
+
+func TestFilesPredicates(t *testing.T) {
+	var none *Files
+	if none.URLs() || none.Uploads() || (&Files{}).URLs() || (&Files{}).Uploads() {
+		t.Error("nil and empty Files turn nothing on")
+	}
+	if f := (&Files{AllowedHosts: []string{"a.example"}}); !f.URLs() || f.Uploads() {
+		t.Error("allowed_hosts alone is URL attachments only")
+	}
+	if f := (&Files{DSN: "file://"}); f.URLs() || !f.Uploads() {
+		t.Error("dsn alone is uploads only")
+	}
+	if c, err := Parse([]byte(filesBase+"files: {types: [image/png], allowed_hosts: [cdn.example.com]}\n"), env(nil)); err != nil || !c.Files.URLs() || c.Files.Uploads() {
+		t.Errorf("hosts-only config: %v", err)
+	}
+}
+
+func TestFilesValidation(t *testing.T) {
+	ok := "types: [image/png], dsn: file:///tmp/f"
+	for name, tc := range map[string]struct{ files, want string }{
+		"empty map":            {"{}", "files.types is required"},
+		"empty map needs src":  {"{}", "files needs allowed_hosts (URL attachments) or dsn (uploads)"},
+		"no source":            {"{types: [image/png]}", "files needs allowed_hosts (URL attachments) or dsn (uploads)"},
+		"no types":             {"{dsn: file:///tmp/f}", "files.types is required"},
+		"empty types":          {"{types: [], dsn: file:///tmp/f}", "files.types is required"},
+		"scalar":               {"5", "decode config"},
+		"list":                 {"[a]", "decode config"},
+		"unknown nested":       {"{" + ok + ", dns: x}", `unknown key "dns" in config.files (known: allowed_hosts, download_ttl, dsn, max_bytes, max_count, public_url, types, upload_ttl)`},
+		"case variant":         {"{" + ok + ", DSN: x}", `unknown key "DSN"`},
+		"duplicate key":        {"{" + ok + ", dsn: file:///other}", "already defined"},
+		"wildcard type":        {"{types: [image/*], dsn: file:///tmp/f}", `"image/*"`},
+		"uppercase type":       {"{types: [IMAGE/PNG], dsn: file:///tmp/f}", `"IMAGE/PNG"`},
+		"param type":           {"{types: [\"image/png; charset=x\"], dsn: file:///tmp/f}", "image/png; charset=x"},
+		"bare type":            {"{types: [png], dsn: file:///tmp/f}", `"png"`},
+		"empty type":           {"{types: [\"\"], dsn: file:///tmp/f}", "files.types"},
+		"dup type":             {"{types: [image/png, image/png], dsn: file:///tmp/f}", `"image/png" is listed twice`},
+		"host scheme":          {"{types: [image/png], allowed_hosts: [\"https://cdn.x.com\"]}", "files.allowed_hosts"},
+		"host path":            {"{types: [image/png], allowed_hosts: [cdn.x.com/a]}", "files.allowed_hosts"},
+		"host port":            {"{types: [image/png], allowed_hosts: [\"cdn.x.com:443\"]}", "files.allowed_hosts"},
+		"host star":            {"{types: [image/png], allowed_hosts: [\"*\"]}", "files.allowed_hosts"},
+		"host star dot":        {"{types: [image/png], allowed_hosts: [\"*.\"]}", "files.allowed_hosts"},
+		"host tld wildcard":    {"{types: [image/png], allowed_hosts: [\"*.com\"]}", "files.allowed_hosts"},
+		"host uppercase":       {"{types: [image/png], allowed_hosts: [CDN.x.com]}", "files.allowed_hosts"},
+		"host trailing dot":    {"{types: [image/png], allowed_hosts: [\"cdn.x.com.\"]}", "files.allowed_hosts"},
+		"host idn":             {"{types: [image/png], allowed_hosts: [bücher.de]}", "punycode"},
+		"host empty":           {"{types: [image/png], allowed_hosts: [\"\"]}", "files.allowed_hosts"},
+		"host bracket ipv6":    {"{types: [image/png], allowed_hosts: [\"[::1]\"]}", "files.allowed_hosts"},
+		"host dup":             {"{types: [image/png], allowed_hosts: [a.x.com, a.x.com]}", "listed twice"},
+		"max_bytes negative":   {"{" + ok + ", max_bytes: -1}", "invalid size"},
+		"max_bytes text":       {"{" + ok + ", max_bytes: lots}", "invalid size"},
+		"max_bytes float":      {"{" + ok + ", max_bytes: 1e3}", "invalid size"},
+		"max_bytes overflow":   {"{" + ok + ", max_bytes: 9999999999GB}", "invalid size"},
+		"max_count negative":   {"{" + ok + ", max_count: -1}", "files.max_count must be greater than 0"},
+		"ttl negative":         {"{" + ok + ", upload_ttl: -5m}", "files.upload_ttl"},
+		"ttl too long":         {"{" + ok + ", upload_ttl: 2h}", "files.upload_ttl"},
+		"ttl days":             {"{" + ok + ", download_ttl: 30d}", "files.download_ttl"},
+		"dsn scheme":           {"{types: [image/png], dsn: ftp://bucket}", "files.dsn must use s3:// or file://"},
+		"dsn mem":              {"{types: [image/png], dsn: mem://}", "files.dsn must use s3:// or file://"},
+		"s3 without region":    {"{types: [image/png], dsn: \"s3://bucket\"}", "region=<region>"},
+		"public_url bad":       {"{" + ok + ", public_url: ftp://x}", "files.public_url must be an http(s) URL"},
+		"public_url no dsn":    {"{types: [image/png], allowed_hosts: [cdn.x.com], public_url: https://h.example}", "files.public_url needs files.dsn"},
+		"dsn empty string":     {"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: \"\"}", "files.dsn is empty"},
+		"dsn bare":             {"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: }", "files.dsn is empty"},
+		"dsn empty env":        {"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: \"${EMPTY}\"}", "files.dsn is empty"},
+		"dsn unset env":        {"{types: [image/png], dsn: \"${NOPE}\"}", "NOPE"},
+		"public_url empty env": {"{" + ok + ", public_url: \"${EMPTY}\"}", ""},
 	} {
-		if _, err := Parse([]byte(base+yaml), env(nil)); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: want %q, got %v", yaml, want, err)
+		_, err := Parse([]byte(filesBase+"files: "+tc.files+"\n"), env(map[string]string{"EMPTY": ""}))
+		switch {
+		case name == "public_url empty env":
+			if err != nil {
+				t.Errorf("%s: an empty public_url is just unset, got %v", name, err)
+			}
+		case err == nil || !strings.Contains(err.Error(), tc.want):
+			t.Errorf("%s: want %q, got %v", name, tc.want, err)
 		}
 	}
-	if _, err := Parse([]byte(base+"filesystem: {dsn: \"s3://bucket?region=eu-west-1\", types: [image/png]}\n"), env(nil)); err != nil {
-		t.Errorf("s3 DSN with region: %v", err)
+	for name, files := range map[string]string{
+		"null":           "null",
+		"bare":           "",
+		"unset env host": "{types: [image/png], allowed_hosts: [\"${H:-cdn.x.com}\"]}",
+		"s3":             "{types: [image/png], dsn: \"s3://b?region=eu-west-1\"}",
+		"hosts":          "{types: [image/png, application/pdf, image/svg+xml], allowed_hosts: [localhost, 127.0.0.1, \"::1\", xn--bcher-kva.de, cdn.example.com, \"*.s3.amazonaws.com\"]}",
+		"size forms":     "{" + ok + ", max_bytes: \"5 mb\"}",
+		"size int":       "{" + ok + ", max_bytes: 4096}",
+	} {
+		if _, err := Parse([]byte(filesBase+"files: "+files+"\n"), env(nil)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if c, _ := Parse([]byte(filesBase+"files:\n"), env(nil)); c.Files != nil {
+		t.Error("a bare files: is off, as if omitted")
+	}
+	if c, _ := Parse([]byte(filesBase+"files: {"+ok+", max_bytes: 5 mb}\n"), env(nil)); c.Files.MaxBytes != 5<<20 {
+		t.Errorf("5 mb: %+v", c.Files)
+	}
+	// Case variant of the block itself.
+	if _, err := Parse([]byte(filesBase+"Files: {"+ok+"}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), `unknown key "Files"`) {
+		t.Errorf("Files: %v", err)
+	}
+	// 0 means unset (the default), as it always did.
+	if c, err := Parse([]byte(filesBase+"files: {"+ok+", max_bytes: 0, max_count: 0}\n"), env(nil)); err != nil || c.Files.MaxBytes != 10<<20 || c.Files.MaxCount != 10 {
+		t.Errorf("zero means default: %v %+v", err, c.Files)
+	}
+}
+
+// The v1 blocks fail startup with one tailored message each, whatever their
+// shape or value, and an old key beats a mistake in the new block.
+func TestRemovedAttachmentsAndFilesystemKeys(t *testing.T) {
+	const (
+		att = "attachments was removed in v2; merge it into files: allowed_hosts, types and max_count move there (max_bytes never limited anything, so it is dropped)"
+		fsm = "filesystem was removed in v2; merge it into files: dsn, public_url, types, max_bytes, upload_ttl and download_ttl move there unchanged"
+	)
+	if _, err := Parse([]byte(filesBase), env(nil)); err != nil {
+		t.Fatalf("the base config must parse: %v", err)
+	}
+	line := strings.Count(filesBase, "\n") + 1
+	shapes := map[string]string{
+		"map":       " {types: [image/png], allowed_hosts: [a.example.com]}\n",
+		"empty map": " {}\n",
+		"null":      " null\n",
+		"bare":      "\n",
+		"scalar":    " yes\n",
+		"list":      " [a]\n",
+		"unset env": " ${NOPE}\n", // refused before ${VAR} expansion could fail first
+	}
+	for key, want := range map[string]string{"attachments": att, "filesystem": fsm} {
+		for name, set := range shapes {
+			for where, y := range map[string]string{
+				"alone":     filesBase + key + ":" + set,
+				"after":     filesBase + "files: {types: [image/png], dsn: file:///f}\n" + key + ":" + set,
+				"bad files": filesBase + "files: {typos: 1}\n" + key + ":" + set, // old key wins over an earlier mistake
+			} {
+				l := line
+				if where != "alone" {
+					l++
+				}
+				_, err := Parse([]byte(y), env(nil))
+				if err == nil || err.Error() != fmt.Sprintf("line %d: %s", l, want) {
+					t.Errorf("%s %s (%s): want line %d: %q, got %v", key, name, where, l, want, err)
+				}
+			}
+		}
+	}
+	// Both old keys: the first in file order is reported.
+	_, err := Parse([]byte(filesBase+"filesystem: {}\nattachments: {}\n"), env(nil))
+	if err == nil || !strings.HasSuffix(err.Error(), fsm) {
+		t.Errorf("both keys: want the filesystem message first, got %v", err)
+	}
+	// Case variants are just unknown keys; nested ones are not special.
+	for _, y := range []string{"Attachments: {}\n", "Filesystem: {}\n", "files: {attachments: 1}\n", "embed: {filesystem: 1}\n"} {
+		_, err := Parse([]byte(filesBase+y), env(nil))
+		if err == nil || !strings.Contains(err.Error(), "unknown key") || strings.Contains(err.Error(), "removed in v2") {
+			t.Errorf("%q: want the generic unknown-key error, got %v", y, err)
+		}
+	}
+}
+
+func TestExampleFilesUncommented(t *testing.T) {
+	lines := strings.Split(ExampleYAML, "\n")
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "# files:") })
+	if start < 0 {
+		t.Fatal("example.yaml: no commented files: block")
+	}
+	for i := start; lines[i] != ""; i++ {
+		lines[i] = strings.Replace(lines[i], "# ", "", 1)
+	}
+	c, err := Parse([]byte(strings.Join(lines, "\n")), env(map[string]string{"HFY_SERVER_SECRET": "s", "DATABASE_URL": "u"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := c.Files; !f.URLs() || !f.Uploads() || f.MaxBytes != 10<<20 || f.MaxCount != 10 || len(f.Types) != 3 {
+		t.Fatalf("uncommented files: %+v", f)
 	}
 }
 

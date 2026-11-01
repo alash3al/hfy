@@ -18,7 +18,7 @@ func signingRuntime(t *testing.T) *Runtime {
 	t.Helper()
 	return &Runtime{Cfg: &config.Config{
 		Server: config.Server{Secret: "s"},
-		Filesystem: &config.Filesystem{DSN: "file://", PublicURL: "https://h.example",
+		Files: &config.Files{DSN: "file://", PublicURL: "https://h.example",
 			DownloadTTL: config.Duration(15 * time.Minute)},
 	}, bucket: memblob.OpenBucket(nil)}
 }
@@ -138,7 +138,7 @@ func TestAskUserIsOptInAndTopOnly(t *testing.T) {
 func TestCleanupUploads(t *testing.T) {
 	ctx := t.Context()
 	rt := signingRuntime(t)
-	rt.Cfg.Filesystem.UploadTTL = config.Duration(time.Hour)
+	rt.Cfg.Files.UploadTTL = config.Duration(time.Hour)
 	b := rt.bucket
 	write := func(key string) {
 		if err := b.WriteAll(ctx, key, []byte("x"), nil); err != nil {
@@ -167,4 +167,16 @@ func TestCleanupUploads(t *testing.T) {
 
 	// without a bucket the cleanup is a no-op
 	(&Runtime{Cfg: rt.Cfg}).cleanupUploads(ctx, time.Now().Add(3*time.Hour))
+
+	// a files block with no dsn (URL attachments only) has no storage to
+	// clean or sign for, even with a bucket injected
+	hostsOnly := &Runtime{Cfg: &config.Config{Files: &config.Files{AllowedHosts: []string{"cdn.example.com"}}}, bucket: b}
+	write("uploads/kept.png")
+	hostsOnly.cleanupUploads(ctx, time.Now().Add(3*time.Hour))
+	if !read("uploads/kept.png") {
+		t.Fatal("cleanup ran without files.dsn")
+	}
+	if u := hostsOnly.downloadURL(ctx, "conversations/c/x.png"); u != "" {
+		t.Fatalf("download URL without files.dsn: %q", u)
+	}
 }
