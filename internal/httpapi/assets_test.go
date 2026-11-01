@@ -525,16 +525,27 @@ func TestBrotliIsRealAndPreferred(t *testing.T) {
 	}
 }
 
-// The first-load weight of the UI is a budget: brotli bytes of everything the
-// page needs before it can run. Exceeding it fails the build; raise it only on purpose.
-const shellBudget = 60 << 10
+// The first-load weight of the UI is a budget: the brotli bytes of the page
+// and every file it names, which is all a viewer downloads before the widget
+// runs. Exceeding it fails the build; raise it only on purpose.
+const (
+	shellBudget  = 60 << 10 // 61,440 B
+	layoutBudget = 4 << 10  // a non-default layout's CSS, fetched only when configured
+)
 
 func TestShellSizeBudget(t *testing.T) {
 	h := testServer(t)
-	shell := []string{"/embed", "/embed/alpine.min.js", "/embed/client.js", "/embed/ui.js", "/embed/ui.css"}
+	page := get(h, http.MethodGet, "/embed", "Accept-Encoding", "br")
+	targets := []string{"/embed"}
+	for _, m := range embedRef.FindAllStringSubmatch(get(h, http.MethodGet, "/embed").Body.String(), -1) {
+		targets = append(targets, m[1])
+	}
+	if len(targets) < 5 || page.Code != 200 {
+		t.Fatalf("the page names too few files: %v", targets)
+	}
 	var raw, gz, br int
 	var report strings.Builder
-	for _, target := range shell {
+	for _, target := range targets {
 		size := func(ae string) int {
 			w := get(h, http.MethodGet, target, "Accept-Encoding", ae)
 			if w.Code != 200 {
@@ -544,11 +555,49 @@ func TestShellSizeBudget(t *testing.T) {
 		}
 		r, g, b := size("identity"), size("gzip"), size("br")
 		raw, gz, br = raw+r, gz+g, br+b
-		fmt.Fprintf(&report, "\n  %-22s raw %6d  gzip %6d  brotli %6d", target, r, g, b)
+		fmt.Fprintf(&report, "\n  %-48s raw %6d  gzip %6d  brotli %6d", target, r, g, b)
 	}
-	t.Logf("shell:%s\n  %-22s raw %6d  gzip %6d  brotli %6d (budget %d)", report.String(), "total", raw, gz, br, shellBudget)
+	t.Logf("first load:%s\n  %-48s raw %6d  gzip %6d  brotli %6d (budget %d)", report.String(), "total", raw, gz, br, shellBudget)
 	if br > shellBudget {
-		t.Errorf("shell is %d bytes of brotli, over the %d budget (gzip %d, raw %d):%s", br, shellBudget, gz, raw, report.String())
+		t.Errorf("the first load is %d bytes of brotli, %d over the %d budget (gzip %d, raw %d):%s", br, br-shellBudget, shellBudget, gz, raw, report.String())
+	}
+}
+
+// layoutsOverBudget lists the layout sheets (layouts/*.css) over layoutBudget
+// brotli bytes, with their sizes, and how many sheets it measured.
+func layoutsOverBudget(a *assets) (over []string, measured int) {
+	for _, name := range slices.Sorted(maps.Keys(a.byName)) {
+		if !strings.HasPrefix(name, "layouts/") || path.Ext(name) != ".css" {
+			continue
+		}
+		measured++
+		c := a.byName[name].content
+		size := len(c.identity.body)
+		if i := slices.IndexFunc(c.encoded, func(r representation) bool { return r.coding == "br" }); i >= 0 {
+			size = len(c.encoded[i].body)
+		}
+		if size > layoutBudget {
+			over = append(over, fmt.Sprintf("%s is %d bytes of brotli, %d over the %d budget", name, size, size-layoutBudget, layoutBudget))
+		}
+	}
+	return over, measured
+}
+
+// Layout sheets are fetched on top of the first load, only by pages that
+// configure them: each stays small.
+func TestLayoutSizeBudget(t *testing.T) {
+	a, _ := embeddedAssets()
+	over, n := layoutsOverBudget(a)
+	t.Logf("%d layout sheets measured", n)
+	for _, msg := range over {
+		t.Error(msg)
+	}
+	// The check sees files as they are added to the tree.
+	css := strings.Repeat(".a-class-name:hover > .child { color: #123456; margin: 3px 7px; }\n", 400)
+	fsys := fstest.MapFS{"layouts/small.css": {Data: []byte(".a{}")}, "layouts/wide.css": {Data: []byte(css + string(noise(8000)))}, "ui.css": {Data: []byte(css)}}
+	over, n = layoutsOverBudget(mustAssets(t, fsys))
+	if n != 2 || len(over) != 1 || !strings.HasPrefix(over[0], "layouts/wide.css is ") {
+		t.Errorf("measured %d, over %v", n, over)
 	}
 }
 
