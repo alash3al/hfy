@@ -96,24 +96,32 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 four optional controls. Each is sent only when set, and none has a default:
 
 - `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
-  sent as `reasoning_effort`. Each model accepts only some of them; a value it
-  refuses fails the turn with the provider's error.
+  sent as `reasoning_effort`. Providers and models accept different subsets; see
+  [Provider notes](#provider-notes).
 - `max_output_tokens`: caps each call's output, reasoning included. It is sent as
-  `max_tokens`, which most OpenAI-compatible servers (Ollama included) read. OpenAI
-  o-series models reject `max_tokens`: set `max_tokens_param: max_completion_tokens`
-  on that provider.
+  `max_tokens`, or as `max_completion_tokens` when the provider sets
+  `max_tokens_param: max_completion_tokens`.
 - `call_timeout`: the longest a whole chat call may take, retries included. Past it
   the turn fails with "model call exceeded call_timeout" and the call is not retried,
-  since the budget is spent. Embeddings are not chat calls and are not affected. The
-  provider's `timeout` is a different limit: the longest silence, which a long answer
-  that keeps streaming never hits.
+  since the budget is spent. If it fires mid-stream, the text already streamed to
+  clients stays and the turn fails, as it does on the provider's idle timeout.
+  Embeddings are not chat calls and are not affected. The provider's `timeout` is a
+  different limit: the longest silence, which a long answer that keeps streaming never
+  hits.
 - `extra`: a map merged into the request body after hfy's own fields, for the
-  vendor's extra fields. It cannot set `model`, `messages`, `tools`, `stream` or
-  `stream_options`, nor a field the settings above already send; startup names the
-  key that clashes. Values must be JSON. `extra` is stored with the request in
+  vendor's extra fields. It cannot set `model`, `messages`, `tools`, `stream`,
+  `stream_options` or `n` (in any letter case), nor a field the settings above already
+  send; startup names the key that clashes, and two keys that differ only in case are
+  refused. Values must be JSON. `extra` is stored with the request in
   `outbound_requests` (kept for `retention.trace`), so never put a secret in it. The
   trace keeps the body only, never headers; inline base64 images and signed-URL
   credentials are redacted.
+  - `tool_choice`, `parallel_tool_calls`, `response_format`, `store` and `user` are
+    not reserved, so they pass through unchecked. `tool_choice: required` (or a forced
+    named tool) makes every reply call a tool, so the turn never ends on a text answer:
+    it runs until a `limits` field stops it. Anthropic's OpenAI-compatible endpoint
+    returns 400 on a forced `tool_choice` for the Claude 5.5 models, and Ollama ignores
+    `tool_choice`.
 
 ```yaml
 agent:
@@ -125,8 +133,35 @@ agent:
     extra: { cache_control: { type: ephemeral }, reasoning: { effort: low } }
 ```
 
-OpenRouter takes its own `reasoning` object and top-level `cache_control`, so it
-goes in `extra`, not in `reasoning_effort`.
+OpenRouter reads `reasoning_effort` and also its own `reasoning` object (options such
+as `exclude`, or a token budget). Put that object and top-level `cache_control` in
+`extra`; set one or the other, not both. The example above sets no `reasoning_effort`.
+
+#### Provider notes
+
+- **Anthropic** (its OpenAI-compatible endpoint) silently ignores `reasoning_effort`.
+  Enable thinking with `extra: {thinking: {type: enabled, budget_tokens: N}}`, where N
+  is at least 1024 and below `max_output_tokens`.
+- **DeepSeek**: a `thinking` object in `extra` overrides `reasoning_effort`, so set one
+  or the other.
+- **Reasoning models**: the output cap covers reasoning too, so a small
+  `max_output_tokens` can return an empty reply with `finish_reason: length`.
+- **Output-cap field**: Ollama and DeepSeek read only `max_tokens`. OpenAI prefers
+  `max_completion_tokens`: `max_tokens` is deprecated there and o-series models reject
+  it, so set `max_tokens_param: max_completion_tokens` on that provider. OpenRouter
+  accepts both.
+- **Effort values**: a value the model does not support is either rejected (the turn
+  fails with the provider's error) or silently ignored or mapped, depending on the
+  provider.
+- **Alias values**: the `reasoning_effort` list is strict. For a value it does not
+  list, leave `reasoning_effort` unset and send `extra: {reasoning_effort: <value>}`;
+  hfy does not check it.
+- **Sampling**: newer reasoning models and Claude 4.7+ reject `temperature` below 1 or
+  `top_p` other than 0.99. Leave both unset for them.
+- **Gemini** (its OpenAI-compatible endpoint): vendor extras nest, as in
+  `extra: {extra_body: {google: {...}}}`. `none` effort works only on the 2.5 models.
+- **`mock`**: the mock provider ignores the controls and `call_timeout`; config
+  validation still runs.
 
 ## API
 
