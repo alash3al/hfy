@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -19,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
@@ -81,6 +83,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	route("GET /embed/{name...}", http.HandlerFunc(srv.serveEmbedAsset))
 
 	route("POST /v1/conversations", srv.requireSecret(srv.createConversation))
+	route("POST /v1/conversations/{id}/events", srv.requireSecret(srv.postHostEvent))
 	route("POST /v1/grants", srv.requireSecret(srv.createGrant))
 	route("DELETE /v1/grants/{id}", srv.requireSecret(srv.revokeGrant))
 
@@ -174,7 +177,7 @@ func observe(next http.Handler) http.Handler {
 			route = "unmatched"
 		}
 		metrics.HTTPRequests.WithLabelValues(route, r.Method, strconv.Itoa(cmp.Or(sw.code, http.StatusOK))).Inc()
-		if !strings.HasSuffix(route, "/events") { // streams last minutes; not latency
+		if route != "/v1/conversation/events" { // the stream lasts minutes; not latency
 			metrics.Since(metrics.HTTPDuration.WithLabelValues(route, r.Method), start)
 		}
 	})
@@ -251,6 +254,65 @@ func bindJSON(r *http.Request, v any) error {
 	return nil
 }
 
+// bindStrictJSON is bindJSON for a body whose every byte counts: one JSON
+// object and nothing after it, no key twice, no key that v does not name. An
+// empty body is an empty object. max bounds the body.
+//
+// encoding/json matches a key to a field by Unicode case folding ("ſource" and
+// the Kelvin sign fold to "source" and "key"), so a key is exact ASCII or refused,
+// and ASCII lowering is then the whole folding there is, for both the repeat
+// check and the unknown-key check.
+func bindStrictJSON(w http.ResponseWriter, r *http.Request, max int64, v any) error {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, max))
+	if _, tooBig := errors.AsType[*http.MaxBytesError](err); tooBig {
+		return &httpError{http.StatusRequestEntityTooLarge, fmt.Sprintf("body over %d KiB", max>>10)}
+	}
+	if err != nil {
+		return &httpError{http.StatusBadRequest, "unreadable body"}
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		body = []byte("{}")
+	}
+	bad := &httpError{http.StatusBadRequest, "invalid json body: one object, each key once, only known keys"}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return bad
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		key, isKey := tok.(string)
+		if err != nil || !isKey || !isASCII(key) || seen[strings.ToLower(key)] {
+			return bad
+		}
+		seen[strings.ToLower(key)] = true
+		if err := dec.Decode(new(json.RawMessage)); err != nil { // skip the value
+			return bad
+		}
+	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return bad
+	}
+	if _, err := dec.Token(); err != io.EOF { // anything after it
+		return bad
+	}
+	strict := json.NewDecoder(bytes.NewReader(body))
+	strict.DisallowUnknownFields()
+	if strict.Decode(v) != nil {
+		return bad
+	}
+	return nil
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
 // handler is an endpoint. The error it returns is answered in JSON, unless
 // the response has started (a stream).
 type handler func(w http.ResponseWriter, r *http.Request) error
@@ -283,6 +345,10 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		code, msg = he.code, he.msg
 	case isBad:
 		code, msg = http.StatusBadRequest, bad.Msg
+	case errors.Is(err, svc.ErrNoTurn):
+		code, msg = http.StatusConflict, "the conversation has no turn yet: static context belongs in grant vars"
+	case errors.Is(err, svc.ErrTooManyHostEvents):
+		code, msg = http.StatusTooManyRequests, fmt.Sprintf("a turn takes at most %d host events", svc.MaxHostEventsPerTurn)
 	case errors.Is(err, svc.ErrNoPendingApproval):
 		code, msg = http.StatusConflict, svc.ErrNoPendingApproval.Error()
 	case errors.Is(err, svc.ErrNotTurnOwner):

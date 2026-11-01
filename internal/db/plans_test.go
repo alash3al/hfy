@@ -32,6 +32,11 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 		     (VALUES ('message.text', false), ('turn.state', false), ('model.usage', false),
 		             ('text.delta', true), ('text.delta', true), ('text.delta', true), ('text.delta', true)) AS k(type, eph)
 		WHERE t.type = 'turn'`)
+	// hosts' keyed notes: one per ten turns, under the turn, from a host actor
+	mustExec(`INSERT INTO actors (type, ref) VALUES ('host', 'crm')`)
+	mustExec(`INSERT INTO conversation_events (conversation_id, parent_id, actor_id, scope, type, data, key)
+		SELECT t.conversation_id, t.id, 2, 'u1', 'context.note', '{"text":"x"}', 'k' || t.id
+		FROM conversation_events t WHERE t.type = 'turn' AND t.id % 10 = 0`)
 	mustExec(`INSERT INTO jobs (type, queue, payload, state, concurrency_key)
 		SELECT 'run_turn', 'turns', '{}', CASE WHEN g % 50 = 0 THEN 'queued' ELSE 'done' END, 'conversation:' || (g % 5)
 		FROM generate_series(1, 20000) g`)
@@ -56,6 +61,10 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 		{"HistoryTurns", pgx.NamedArgs{"conversation": 1, "before": last, "limit": 20}, []string{"Seq Scan on conversation_events"}},
 		{"HistoryEvents", pgx.NamedArgs{"conversation": 1, "turns": []int64{mid, mid + 1, mid + 2}}, []string{"Seq Scan on conversation_events"}},
 		{"TurnEvents", pgx.NamedArgs{"turn": mid}, []string{"Seq Scan on conversation_events"}},
+		{"InsertEventOnce", pgx.NamedArgs{"conversation_id": 1, "parent_id": mid, "actor_id": 2, "scope": "u1", "type": "context.note",
+			"data": []byte(`{"text":"x"}`), "v": 1, "ephemeral": false, "request_id": nil, "key": "new"}, []string{"Seq Scan on conversation_events"}},
+		{"SelectEventByKey", pgx.NamedArgs{"conversation": 1, "actor": 2, "key": "k10"}, []string{"Seq Scan on conversation_events"}},
+		{"CountHostEvents", pgx.NamedArgs{"turn": mid}, []string{"Seq Scan on conversation_events"}},
 		{"EventIDByUUID", pgx.NamedArgs{"uuid": "00000000-0000-4000-8000-000000000000", "conversation": 1}, []string{"Seq Scan on conversation_events"}},
 		{"LatestEventID", pgx.NamedArgs{"conversation": 1}, []string{"Seq Scan on conversation_events"}},
 		{"ClaimJob", pgx.NamedArgs{"queue": "turns", "lease": "30s"}, []string{"Seq Scan on jobs"}},
@@ -84,6 +93,9 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := strings.Join(plan, "\n")
+			if c.name == "InsertEventOnce" && !strings.Contains(text, "conversation_events_key_idx") {
+				t.Errorf("the key's unique index is not the conflict arbiter:\n%s", text)
+			}
 			for _, bad := range c.bad {
 				if strings.Contains(text, bad) {
 					t.Errorf("%s uses %q:\n%s", c.name, bad, text)

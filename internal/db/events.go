@@ -30,6 +30,13 @@ func (s *Store) FindOrCreateActor(ctx context.Context, q DBTX, typ types.ActorTy
 	return id, nil
 }
 
+// FindActor returns an actor's internal id without creating it (pgx.ErrNoRows
+// if there is none).
+func (s *Store) FindActor(ctx context.Context, q DBTX, typ types.ActorType, ref string) (id int64, err error) {
+	err = q.QueryRow(ctx, s.q("SelectActor"), pgx.NamedArgs{"type": string(typ), "ref": ref}).Scan(&id)
+	return id, err
+}
+
 // NewEvent describes an event to append.
 type NewEvent struct {
 	ConversationID int64
@@ -84,6 +91,75 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 	}
 	_, err = q.Exec(ctx, "SELECT pg_notify($1, $2)", ChanEvents, fmt.Sprintf("%d:%d", row.ConversationID, row.ID))
 	return row, err
+}
+
+// AppendEventOnce is AppendEvent for an event the caller may send again: key
+// names it within (conversation, actor), and a second append with the same key
+// stores nothing and returns the first event, with created false. The new
+// payload is ignored, whatever it holds. Plain AppendEvent stays on its own
+// query, so events without a key cost what they always did.
+func (s *Store) AppendEventOnce(ctx context.Context, q DBTX, in NewEvent, key string) (EventRow, bool, error) {
+	if _, ok := q.(pgx.Tx); !ok {
+		var row EventRow
+		var created bool
+		err := s.Tx(ctx, func(tx pgx.Tx) error {
+			var err error
+			row, created, err = s.AppendEventOnce(ctx, tx, in, key)
+			return err
+		})
+		return row, created, err
+	}
+	if _, err := q.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", in.ConversationID); err != nil {
+		return EventRow{}, false, err
+	}
+	if err := in.Payload.Validate(); err != nil {
+		return EventRow{}, false, err
+	}
+	data, err := json.Marshal(in.Payload)
+	if err != nil {
+		return EventRow{}, false, fmt.Errorf("encode %s: %w", in.Payload.EventType(), err)
+	}
+	typ := in.Payload.EventType()
+	v := types.Version(typ)
+	if v == 0 {
+		return EventRow{}, false, fmt.Errorf("event type %q is not registered", typ)
+	}
+	rows, err := events(q.Query(ctx, s.q("InsertEventOnce"), pgx.NamedArgs{
+		"conversation_id": in.ConversationID, "parent_id": in.ParentID, "actor_id": in.ActorID,
+		"scope": in.Scope, "type": string(typ), "data": data, "v": v,
+		"ephemeral": types.Ephemeral(typ), "request_id": in.RequestID, "key": key,
+	}))
+	if err != nil {
+		return EventRow{}, false, err
+	}
+	if len(rows) == 0 { // the key is taken: answer with the event that took it
+		row, err := s.EventByKey(ctx, q, in.ConversationID, in.ActorID, key)
+		return row, false, err
+	}
+	if _, err := q.Exec(ctx, "SELECT pg_notify($1, $2)", ChanEvents, fmt.Sprintf("%d:%d", rows[0].ConversationID, rows[0].ID)); err != nil {
+		return EventRow{}, false, err
+	}
+	return rows[0], true, nil
+}
+
+// EventByKey returns the event an actor sent to a conversation under key
+// (pgx.ErrNoRows if none).
+func (s *Store) EventByKey(ctx context.Context, q DBTX, conversation, actor int64, key string) (EventRow, error) {
+	rows, err := events(q.Query(ctx, s.q("SelectEventByKey"),
+		pgx.NamedArgs{"conversation": conversation, "actor": actor, "key": key}))
+	if err == nil && len(rows) == 0 {
+		err = pgx.ErrNoRows
+	}
+	if err != nil {
+		return EventRow{}, err
+	}
+	return rows[0], nil
+}
+
+// CountHostEvents counts the notes and messages hosts filed under a turn.
+func (s *Store) CountHostEvents(ctx context.Context, q DBTX, turn int64) (n int, err error) {
+	err = q.QueryRow(ctx, s.q("CountHostEvents"), pgx.NamedArgs{"turn": turn}).Scan(&n)
+	return n, err
 }
 
 func (s *Store) EventByID(ctx context.Context, q DBTX, id int64) (EventRow, error) {

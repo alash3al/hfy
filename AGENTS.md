@@ -93,7 +93,7 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && make -C "$d" check
 
 ## Migrations
 
-- `internal/db/migrations/NNNNN_name.sql`, embedded and run by goose (`internal/db/store.go`; `hfy migrate up|down|status`). Each existing file has `-- +goose Up` and `-- +goose Down`. The highest is `00004_grant_exchange.sql`, so the next free number is `00005`.
+- `internal/db/migrations/NNNNN_name.sql`, embedded and run by goose (`internal/db/store.go`; `hfy migrate up|down|status`). Each existing file has `-- +goose Up` and `-- +goose Down`. The highest is `00005_event_key.sql`, so the next free number is `00006`. `00005` runs outside a transaction (`-- +goose NO TRANSACTION`) so its index is built `CONCURRENTLY`; see its comments.
 - One new file per schema change. Migrations stay compatible with the previous release: add first, remove in a later release (`docs/reference.md`, Conventions).
 - Do not edit a migration that a tagged release has run (`git tag`). `76753b0` folded seven migrations into `00001_init.sql`; its message says nothing stored before needed keeping.
 - No code creates embeddings tables any more: `00003_drop_embeddings.sql` dropped the old `embeddings_<dims>` ones.

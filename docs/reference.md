@@ -211,6 +211,49 @@ Your backend (`Authorization: Bearer <server.secret>`; the scheme name is case-i
 
   The token is returned once; hfy keeps only its SHA-256. A lost token cannot
   be recovered: create another grant.
+- `POST /v1/conversations/{id}/events` `{type, text, key, source?}` → `201` with
+  the event (the shared envelope under "Events"). Tell the model something about
+  a conversation without a client: your backend files a durable event as a
+  **host**, an actor of type `host` whose `ref` is `source` (a name for the
+  sender, such as `crm`; default `host`). It never starts a turn and nothing
+  waits on it: it is filed under the turn that is running (or paused), else the
+  oldest still open, else the newest (see "Prompt notes"), and the model reads
+  it at its next step or turn.
+  - `type`: `note` is a `context.note`, text for the model that a client may
+    show or hide; `message` is a `host.message`, shown to the user
+    and read by the model too. Both reach the model as data in a labelled block,
+    never as instructions or as a person's words (see "Prompt notes").
+  - `text`: 1 byte to 16 KiB of text after cleaning (NUL dropped, invalid UTF-8
+    replaced, a leading BOM removed); blank, a longer text, or a value that is
+    not a string is `400`.
+  - `key`: required, 1 to 128 bytes of ASCII letters, digits and `. _ : / @ + = -`
+    (an order id, a uuid, `order-17:paid`); anything else is `400`. Keys are
+    case-sensitive and belong to one (conversation, source): the same key from
+    two sources is two events. Send the same request again after a timeout and
+    nothing is added: a key already used answers `200` with the **first** event,
+    byte for byte (same `id`, same `created_at`), and the new `type` and `text`
+    are ignored, even when they differ. A request is still checked first, so an
+    invalid repeat is `400`. Hosts that retry should reuse one key per fact.
+  - `source`: 1 to 64 of ASCII letters, digits, `_` and `-` (the rule for names
+    in the config). It names the speaker in the prompt (`from="crm"`), so
+    anything else (spaces, quotes, newlines, bidi controls, non-ASCII, `.`) is
+    `400`. Absent, `null` and `""` mean `host`. Sources compare exactly:
+    `CRM` and `crm` are two hosts.
+  - The body is one JSON object of at most 128 KiB (`413` over it): no key twice
+    (in any letter case), no other key, nothing after it, or `400`. Keys are
+    ASCII: a key like `ſource`, which a JSON decoder would fold into `source`,
+    is `400`. `Content-Type`
+    is not read. Other methods on the path are `405`.
+  - `401` without the server secret: a grant's token is not accepted here, and
+    the secret is not accepted on client routes. `404`: unknown conversation (or
+    an id that is not a uuid). `409`: the conversation has no turn yet, so
+    there is nothing to file the event under; static context belongs in grant
+    `vars`, and a host event waits for the first message. `429`: the turn
+    already holds 100 host events, counted across all sources together (a turn ends
+    at 5000 events, and a runaway host must not spend them); there is no `Retry-After`: the next turn takes
+    events again, and a repeat of an earlier key is still answered `200`.
+    Host events appear in `/history` and on the stream like any durable event,
+    with `actor: {uuid, type: "host", ref}`; the key is not shown.
 - `DELETE /v1/grants/{id}` → `204`. Ends the grant now (revoking twice is fine;
   an unknown id is `404`). Open streams end within 15 s. Pass the `id` the
   mint returned: for a renewable grant that ends every token it was exchanged
@@ -837,9 +880,10 @@ event as stored.
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
 - **Prompt notes.** A `context.note` or `host.message` is durable text put
-  in front of the model; neither starts a turn, and there is no API to write
-  them yet (the host events API will). Who wrote one is the event's actor, never
-  a field of its payload. The model reads each as a user message holding one
+  in front of the model; neither starts a turn. Your backend writes them with
+  `POST /v1/conversations/{id}/events` (see "API"), as an actor of type `host`
+  whose ref is the source name it chose. Who wrote one is the event's actor,
+  never a field of its payload. The model reads each as a user message holding one
   labelled data block, `<context from="crm" kind="host">…</context>` or
   `<host_message from="crm" kind="host">…</host_message>`, with the text
   escaped (`<`, `>`, `&`), so it cannot close its block, open a frame or pass
@@ -1062,6 +1106,32 @@ event as stored.
   first (the older version could not revoke them), so those clients ask your
   backend for a new grant.
 
+## Upgrading to host events
+
+- Migration `00005` adds the nullable column `conversation_events.key` (no
+  default: a catalog change, no table rewrite) and a partial unique index over
+  `(conversation_id, actor_id, key) WHERE key IS NOT NULL`. Events that exist have
+  no key and are not in the index; the previous release keeps inserting without
+  one. The `ALTER` gives up after 5 s if a long transaction holds
+  `conversation_events` (run it again), rather than queue every insert behind it.
+- `conversation_events` is the hottest table, and a plain `CREATE INDEX` holds a
+  lock that stops all inserts for as long as it reads the table (even for an
+  index that ends up empty: about 0.1 s per million rows from cache, seconds to
+  minutes on a big table). So the migration runs outside a transaction
+  (`-- +goose NO TRANSACTION`) and builds the index `CONCURRENTLY`: writers are
+  never blocked, at a few times the work. It waits for transactions that
+  started before it, so one left idle holds it up. If it is cancelled or fails
+  it can leave an invalid index of the same name; run `hfy migrate up` again,
+  which drops it first.
+- During a rolling deploy, an old instance that holds a long transaction on
+  `conversation_events` makes the `ALTER`'s 5 s `lock_timeout` fail the migration, and
+  the new instance does not start: restart it once that transaction has ended.
+- `hfy migrate down` past `00005` drops the index and the column; the events stay,
+  without their keys.
+- The route works only on instances that ran `00005`: run `hfy migrate up` (any
+  `serve` or `queue:work` does) before your backend calls it. An older instance
+  answers `404`.
+
 <!-- /llms:skip -->
 
 ## Not in v1
@@ -1122,6 +1192,7 @@ survive many contributors, so prefer adding a check to adding a sentence.
 | **The event log is the truth.** State is folded from events (`svc.ViewOf`, `agent.buildContext`); events are never updated; payloads are read with `e.Payload[T]()`, and one that does not decode is an error. | review; `Payload` is the only decoder |
 | **Stored data is versioned.** Payloads carry `v` and are upgraded on read (`types.register`); SQL-read fields are frozen. A breaking job payload change is a new job type. Migrations stay compatible with the previous release (add first, remove a release later). | `TestEventVersions`, `TestClaimOnlyHandledTypes`, review |
 | **The prompt is pure.** `buildPrompt` takes events and settings and returns the system text and messages: no database, clock or map iteration, so prompts are byte-stable (provider caches hold, `context:show` is exact). | `TestBuildPromptIsDeterministic`, `TestBuildPromptMatchesOldAssembly`, `TestContextShow` |
+| **Inbound idempotency is `conversation_events.key`**, unique per (conversation, actor, key): a repeat answers with the first event. Do not add a second mechanism. Keyed events use their own insert, so events without a key keep their plans. | `TestHostEventCreatesAndReplays`, `TestEventKeyMigration`, `TestHotQueriesUseIndexes` |
 | **Writes that belong together commit together** (an event and the job it implies). | review |
 | **Jobs are fenced by attempt** and resume from the log; side effects are never repeated blindly. | `TestStaleWorkerCannotTouchAReclaimedJob`, crash-recovery tests |
 | **No silent failure.** Errors are returned, or logged with conversation and turn when nothing can act on them. | `errcheck`; review |

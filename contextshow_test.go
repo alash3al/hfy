@@ -34,7 +34,7 @@ func roomConversation(t *testing.T, store *db.Store) uuid.UUID {
 		}
 		return id
 	}
-	u1, u2, main, host := actor(types.ActorExternal, "u1"), actor(types.ActorExternal, "u2"), actor(types.ActorAgent, "main"), actor("host", "crm")
+	u1, u2, main, host := actor(types.ActorExternal, "u1"), actor(types.ActorExternal, "u2"), actor(types.ActorAgent, "main"), actor(types.ActorHost, "crm")
 	add := func(parent *int64, by int64, p types.Payload) db.EventRow {
 		t.Helper()
 		e, err := store.AppendEvent(ctx, store.Pool, db.NewEvent{ConversationID: conv.ID, ParentID: parent, ActorID: by, Scope: "u1", Payload: p})

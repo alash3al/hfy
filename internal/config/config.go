@@ -429,6 +429,11 @@ func Expand(s string, lookup func(string) (string, bool)) (string, error) {
 	return b.String(), nil
 }
 
+// ValidName reports whether s is a name config accepts for an agent, a server
+// and the like: ASCII letters, digits, "_" and "-". A host's source name takes
+// the same rule, so it can sit in a prompt attribute without any quoting.
+func ValidName(s string) bool { return nameRe.MatchString(s) }
+
 var (
 	envName       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	nameRe        = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)

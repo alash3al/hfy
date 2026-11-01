@@ -19,8 +19,10 @@ import (
 )
 
 var (
-	ErrNoActiveTurn      = errors.New("no active turn")
-	ErrNoTurn            = errors.New("the conversation has no turn yet")
+	ErrNoActiveTurn = errors.New("no active turn")
+	ErrNoTurn       = errors.New("the conversation has no turn yet")
+	// ErrTooManyHostEvents: the turn holds as many host events as the caller allows.
+	ErrTooManyHostEvents = errors.New("too many host events on this turn")
 	ErrNoPendingApproval = errors.New("no pending approval for that call")
 	// ErrStopRequested: a stop arrived before the turn could pause.
 	ErrStopRequested = errors.New("stop requested")
@@ -520,12 +522,40 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 	})
 }
 
+// MaxHostEventsPerTurn bounds the notes and messages hosts file under one turn
+// (NoteInput.Limit). A turn ends at maxTurnEvents (5000) events, and a runaway host
+// would otherwise spend them all, failing the turn it writes into; an idle
+// conversation files under its newest turn, so the bound holds there too.
+// Replays of a key do not count: they store nothing.
+const MaxHostEventsPerTurn = 100
+
+// CheckHostRef reports a source name that cannot be a host's. The ref lands in
+// the prompt (from="…"), so it must be a config name: ASCII letters, digits,
+// "_" and "-", at most 64 bytes. Refs compare exactly: "CRM" and "crm" are two
+// sources.
+func CheckHostRef(ref string) error {
+	if ref == "" || len(ref) > 64 || !config.ValidName(ref) {
+		return badf("source must be 1 to 64 letters, digits, _ or -")
+	}
+	return nil
+}
+
 // NoteInput is a context.note or host.message to add to a conversation.
 type NoteInput struct {
 	ConversationID int64
-	Actor          int64           // who wrote it: the one name the model sees
-	Type           types.EventType // EventContextNote or EventHostMessage
-	Text           string
+	Actor          int64 // who wrote it: the one name the model sees
+	// HostRef, when set, replaces Actor with the host actor of that source
+	// (CheckHostRef), created in the transaction that stores the note: a request
+	// refused for any reason leaves no actor behind.
+	HostRef string
+	Type    types.EventType // EventContextNote or EventHostMessage
+	Text    string
+	// Key, when set, makes the append idempotent per (conversation, actor, key):
+	// a repeat returns the first event and ignores the rest of the input.
+	Key string
+	// Limit, when set, refuses the note (ErrTooManyHostEvents) once its turn
+	// holds that many notes and messages from hosts.
+	Limit int
 }
 
 // AppendNote adds a note or host message through the one event choke point
@@ -538,6 +568,14 @@ type NoteInput struct {
 // types.MaxNoteBytes is a BadRequestError, and a conversation with no turn is
 // ErrNoTurn (history pages by turn, so a note with no turn would be invisible).
 func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, error) {
+	row, _, err := s.AppendNoteOnce(ctx, in)
+	return row, err
+}
+
+// AppendNoteOnce is AppendNote that also says whether it stored the note: with
+// in.Key set, a repeat is not stored, and returns the first event with created
+// false (a repeat is answered before Limit is looked at: it stores nothing).
+func (s *Service) AppendNoteOnce(ctx context.Context, in NoteInput) (row db.EventRow, created bool, err error) {
 	text := types.CleanNote(in.Text)
 	var p types.Payload
 	switch in.Type {
@@ -546,16 +584,37 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, er
 	case types.EventHostMessage:
 		p = types.HostMessage{Text: text}
 	default:
-		return db.EventRow{}, badf("%q is not a note type", in.Type)
+		return db.EventRow{}, false, badf("%q is not a note type", in.Type)
 	}
 	if err := p.Validate(); err != nil {
-		return db.EventRow{}, badf("%s", err)
+		return db.EventRow{}, false, badf("%s", err)
 	}
-	var row db.EventRow
-	err := s.store.Tx(ctx, func(tx pgx.Tx) error {
+	if in.HostRef != "" {
+		if err := CheckHostRef(in.HostRef); err != nil {
+			return db.EventRow{}, false, err
+		}
+	}
+	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
 		conv, err := s.store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
+		}
+		actor := in.Actor
+		if in.HostRef != "" { // only looked up: a source never seen has no events to repeat
+			actor, err = s.store.FindActor(ctx, tx, types.ActorHost, in.HostRef)
+			if err != nil && !db.IsNotFound(err) {
+				return err
+			}
+		}
+		if in.Key != "" && actor != 0 { // a repeat answers before anything else, even with the turn gone
+			prev, err := s.store.EventByKey(ctx, tx, in.ConversationID, actor, in.Key)
+			if err == nil {
+				row, created = prev, false
+				return nil
+			}
+			if !db.IsNotFound(err) {
+				return err
+			}
 		}
 		id := conv.ActiveTurnID
 		if id == nil { // nothing runs: the turn that will run first, else the newest
@@ -580,9 +639,28 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, er
 		if err != nil {
 			return err
 		}
-		row, err = s.store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID,
-			ActorID: in.Actor, Scope: turn.Scope, Payload: p})
+		if in.Limit > 0 {
+			held, err := s.store.CountHostEvents(ctx, tx, turn.ID)
+			if err != nil {
+				return err
+			}
+			if held >= in.Limit {
+				return ErrTooManyHostEvents
+			}
+		}
+		if actor == 0 && in.HostRef != "" { // every refusal is behind us: the actor may exist now
+			if actor, err = s.store.FindOrCreateActor(ctx, tx, types.ActorHost, in.HostRef); err != nil {
+				return err
+			}
+		}
+		ev := db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: actor, Scope: turn.Scope, Payload: p}
+		if in.Key == "" {
+			row, err = s.store.AppendEvent(ctx, tx, ev)
+			created = err == nil
+			return err
+		}
+		row, created, err = s.store.AppendEventOnce(ctx, tx, ev, in.Key)
 		return err
 	})
-	return row, err
+	return row, created, err
 }
