@@ -11,6 +11,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/andybalholm/brotli"
 )
 
 // pageName is the embedded document. It is a template (the page config is
@@ -48,7 +50,7 @@ type encoding struct {
 
 // encoders is every encoding offered, in order of preference. The bytes are
 // compressed once, when the registry is built, never per request.
-var encoders = []encoding{{"gzip", gzipBytes}}
+var encoders = []encoding{{"br", brotliBytes}, {"gzip", gzipBytes}}
 
 func gzipBytes(raw []byte) ([]byte, error) {
 	var buf bytes.Buffer
@@ -60,6 +62,22 @@ func gzipBytes(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// brotliQuality is the maximum: it runs once at startup (about 0.3 s for the
+// whole UI) and it is what keeps the shell under its size budget (quality 9 is 8% bigger).
+const brotliQuality = 11
+
+func brotliBytes(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	bw := brotli.NewWriterLevel(&buf, brotliQuality)
+	if _, err := bw.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := bw.Close(); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

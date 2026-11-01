@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/andybalholm/brotli"
 
 	"github.com/alash3al/hfy/internal/config"
 )
@@ -496,5 +499,52 @@ func TestEmbedGzipRoundTrip(t *testing.T) {
 		if err != nil || !bytes.Equal(got, as.content.identity.body) {
 			t.Errorf("%s: gzip does not round-trip (%v)", name, err)
 		}
+	}
+}
+
+func TestBrotliIsRealAndPreferred(t *testing.T) {
+	big := strings.Repeat("function hello(){return 1}\n", 200)
+	a := mustAssets(t, fstest.MapFS{"big.js": {Data: []byte(big)}})
+	c := a.byName["big.js"].content
+	if len(c.encoded) != 2 || c.encoded[0].coding != "br" || c.encoded[1].coding != "gzip" {
+		t.Fatalf("encodings: %+v", c.encoded)
+	}
+	w := do(c, http.MethodGet, "Accept-Encoding", "gzip, deflate, br")
+	if w.Header().Get("Content-Encoding") != "br" {
+		t.Fatalf("browser header got %q", w.Header().Get("Content-Encoding"))
+	}
+	got, err := io.ReadAll(brotli.NewReader(w.Body))
+	if err != nil || string(got) != big {
+		t.Errorf("brotli does not round-trip (%v)", err)
+	}
+	if w := do(c, http.MethodGet, "Accept-Encoding", "br;q=0, gzip"); w.Header().Get("Content-Encoding") != "gzip" {
+		t.Errorf("br;q=0 got %q", w.Header().Get("Content-Encoding"))
+	}
+}
+
+// The first-load weight of the UI is a budget: brotli bytes of everything the
+// page needs before it can run. Exceeding it fails the build; raise it only on purpose.
+const shellBudget = 60 << 10
+
+func TestShellSizeBudget(t *testing.T) {
+	h := testServer(t)
+	shell := []string{"/embed", "/embed/alpine.min.js", "/embed/client.js", "/embed/ui.js", "/embed/ui.css"}
+	var raw, gz, br int
+	var report strings.Builder
+	for _, target := range shell {
+		size := func(ae string) int {
+			w := get(h, http.MethodGet, target, "Accept-Encoding", ae)
+			if w.Code != 200 {
+				t.Fatalf("%s: %d", target, w.Code)
+			}
+			return w.Body.Len()
+		}
+		r, g, b := size("identity"), size("gzip"), size("br")
+		raw, gz, br = raw+r, gz+g, br+b
+		fmt.Fprintf(&report, "\n  %-22s raw %6d  gzip %6d  brotli %6d", target, r, g, b)
+	}
+	t.Logf("shell:%s\n  %-22s raw %6d  gzip %6d  brotli %6d (budget %d)", report.String(), "total", raw, gz, br, shellBudget)
+	if br > shellBudget {
+		t.Errorf("shell is %d bytes of brotli, over the %d budget (gzip %d, raw %d):%s", br, shellBudget, gz, raw, report.String())
 	}
 }

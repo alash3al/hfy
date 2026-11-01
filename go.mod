@@ -3,6 +3,7 @@ module github.com/alash3al/hfy
 go 1.27.3
 
 require (
+	github.com/andybalholm/brotli v1.2.6
 	github.com/aws/aws-sdk-go-v2 v1.46.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
 	github.com/expr-lang/expr v1.17.8
