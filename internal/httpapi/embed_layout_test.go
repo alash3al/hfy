@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/db/dbtest"
 	"github.com/alash3al/hfy/internal/httpapi"
 )
 
@@ -78,16 +79,11 @@ func runLayoutNode(t *testing.T, body string) {
 	runNode(t, body)
 }
 
-// runNode runs the driver and returns its stdout. Without node the test fails
-// when HFY_TEST_REQUIRE_DB=1 (CI), like TestFixturesMatchJS, and skips otherwise.
+// runNode runs the driver and returns its stdout (see dbtest.NeedNode for a
+// missing node).
 func runNode(t *testing.T, body string) string {
 	t.Helper()
-	if _, err := exec.LookPath("node"); err != nil {
-		if os.Getenv("HFY_TEST_REQUIRE_DB") == "1" {
-			t.Fatalf("node is required to run the embed UI under node: %v", err)
-		}
-		t.Skip("node not found in PATH; the embed UI tests run the real ui.js under node")
-	}
+	dbtest.NeedNode(t)
 	src, err := os.ReadFile("embed/ui.js")
 	if err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/db/dbtest"
 	"github.com/alash3al/hfy/internal/httpapi"
 )
 
@@ -75,9 +76,7 @@ func TestEmbed(t *testing.T) {
 
 // The card module is pure JavaScript: exercised under node with a DOM stub.
 func TestEmbedCardJS(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node")
-	}
+	dbtest.NeedNode(t)
 	src, err := os.ReadFile("embed/ui.js")
 	if err != nil {
 		t.Fatal(err)
@@ -167,9 +166,7 @@ func TestEmbedCardJS(t *testing.T) {
 // terminal state precedes the approval.requested, and when loadOlder merges
 // the state and older blocks into an already-present turn.
 func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node")
-	}
+	dbtest.NeedNode(t)
 	src, err := os.ReadFile("embed/ui.js")
 	if err != nil {
 		t.Fatal(err)
@@ -363,9 +360,7 @@ func TestEmbedFoldStoppedSettlesAsks(t *testing.T) {
 // The fold pass is pure JavaScript too: card buttons must settle from the
 // final folded state, on the live-event path and the history path alike.
 func TestEmbedFoldCardLiveness(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node")
-	}
+	dbtest.NeedNode(t)
 	src, err := os.ReadFile("embed/ui.js")
 	if err != nil {
 		t.Fatal(err)

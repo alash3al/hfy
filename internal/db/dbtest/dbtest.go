@@ -17,6 +17,10 @@ import (
 
 const defaultAdmin = "postgres://postgres:hfy@127.0.0.1:54330/hfy?sslmode=disable"
 
+// Required reports whether tests that need an outside tool (Postgres, node)
+// must fail, not skip, when it is missing: CI and `make test` set it.
+func Required() bool { return os.Getenv("HFY_TEST_REQUIRE_DB") != "" }
+
 // New creates a fresh database, migrates it and returns an open store.
 // The test is skipped when no Postgres is reachable.
 func New(t testing.TB) *db.Store {
@@ -28,7 +32,7 @@ func New(t testing.TB) *db.Store {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, admin)
 	if err != nil {
-		if os.Getenv("HFY_TEST_REQUIRE_DB") != "" { // CI: a missing database must fail, not skip
+		if Required() { // CI: a missing database must fail, not skip
 			t.Fatalf("no test postgres: %v", err)
 		}
 		t.Skipf("no test postgres: %v", err)

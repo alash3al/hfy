@@ -5,15 +5,15 @@ import (
 	"os/exec"
 	"strconv"
 	"testing"
+
+	"github.com/alash3al/hfy/internal/db/dbtest"
 )
 
 // The client's token chain under node with a fake fetch, EventSource and
 // timers: exchange before the host, 409 stops it, a 401 whose token changed
 // retries without the host, the visibility hook, one exchange at a time.
 func TestEmbedClientExchangeChain(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node")
-	}
+	dbtest.NeedNode(t)
 	src, err := os.ReadFile("embed/client.js")
 	if err != nil {
 		t.Fatal(err)

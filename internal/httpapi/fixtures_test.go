@@ -33,6 +33,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alash3al/hfy/internal/db/dbtest"
 )
 
 var updateFixtures = flag.Bool("update-fixtures", false, "regenerate clients/fixtures generated files (expected/*.json, strings.json, markdown.json) from the real embed/ui.js")
@@ -330,12 +332,7 @@ func canonJSON(t *testing.T, v any) string {
 }
 
 func TestFixturesMatchJS(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		if os.Getenv("HFY_TEST_REQUIRE_DB") == "1" {
-			t.Fatalf("node is required to fold the shared fixtures against embed/ui.js: %v", err)
-		}
-		t.Skip("node not found in PATH; the fixtures test folds the real ui.js under node")
-	}
+	dbtest.NeedNode(t)
 	if _, err := os.ReadFile("embed/ui.js"); err != nil {
 		t.Fatal(err)
 	}

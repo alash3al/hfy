@@ -12,7 +12,7 @@ The host app keeps its users and data; hfy runs the agent loop, calls MCP tools,
 - Stack traces go to the log only (`internal/jobs/worker.go`), never into a turn, job, event or error text.
 - Every new config section is strict-keyed (`checkKeys` in `internal/config/strict.go`), appears in `example.yaml` and in `docs/reference.md`. A removed key goes in `removedKeys` (`internal/config/strict.go`) with a tailored message.
 - Breaking config changes get an "Upgrading to vN" section in `docs/reference.md`, as "Upgrading to v2" does.
-- DB tests fail, not skip, under `HFY_TEST_REQUIRE_DB=1` (`dbtest.New`). Node tests should too; only `TestFixturesMatchJS` does yet, and four others in `internal/httpapi` still skip without node.
+- DB tests fail, not skip, under `HFY_TEST_REQUIRE_DB=1` (`dbtest.New`). Node tests do too: they start with `dbtest.NeedNode(t)`, which also reads `dbtest.Required()`. Use it for any new test that runs `node`.
 - Golden fixtures change only through `-update-fixtures`, never by hand.
 - Every new endpoint documents its status codes and gets a hostile-input table test (header forms, huge, negative and float numbers; see `internal/httpapi/grant_exchange_test.go`).
 - Chain or row growth is bounded by a rate or size rule: the grant exchange allows one renewal per quarter of a token's lifetime (`TestExchangeIsRateLimited`).
@@ -54,7 +54,7 @@ The Makefile pins `GOTOOLCHAIN=go1.27.3`, which matches `go.mod`.
 
 CI's lint step is named "lint (formatting, errcheck, staticcheck, modernize, ...)", but `golangci-lint run` does not report formatting (checked). `make fmt-check` (`golangci-lint fmt --diff`) does, and it is not in CI.
 
-You need Docker for `make db`, or any Postgres at `HFY_TEST_DB` (default `postgres://postgres:hfy@127.0.0.1:54330/hfy`). You also need `node` on PATH: `TestFixturesMatchJS` folds the real `embed/ui.js` under node, and it fails without it when `HFY_TEST_REQUIRE_DB=1`. CI uses postgres:17 and node 22.
+You need Docker for `make db`, or any Postgres at `HFY_TEST_DB` (default `postgres://postgres:hfy@127.0.0.1:54330/hfy`). You also need `node` on PATH: the embed tests run the real `embed/ui.js` and `client.js` under node, and fail without it when `HFY_TEST_REQUIRE_DB=1`. CI uses postgres:17 and node 22.
 
 If `make check` says "no test postgres", run `make db`. It starts the `hfy-testdb` container, or does nothing when it is already running.
 
