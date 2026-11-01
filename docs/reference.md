@@ -86,7 +86,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
   providers:
     mock:
       type: mock
-      mock: { reply: "Hello from mock", embed_dimensions: 768 }
+      mock: { reply: "Hello from mock" }
   ```
 
 ### Model request controls
@@ -568,14 +568,26 @@ event as stored.
 ## Upgrading to v2
 
 - The `embeddings:` config key and the `hfy.conversation_search` tool are gone.
-  A config that still sets `embeddings:` stops startup (also `migrate`) with
+  A config that still sets `embeddings:` stops EVERY command that reads the
+  config (`serve`, `queue:work`, `validate`, `migrate`) with
   `embeddings was removed in v2; expose memory as an MCP tool`: delete the key,
   and the mock provider's `embed_dimensions` with it. To keep recall, expose it
   from your own MCP server as a tool.
-- Migration `00003` drops the old `embeddings_<dims>` tables and any unfinished
-  `embed_events` jobs when hfy starts. The `vector` extension is left in place
+- Migration `00003` drops the old `embeddings_<dims>` tables, any unfinished
+  `embed_events` jobs and the `message.text` index that only the embeddings
+  backfill read, when hfy starts. The `vector` extension is left in place
   (`DROP EXTENSION vector` is yours to run if nothing else uses it). hfy now
   runs on plain `postgres:17`; pgvector is no longer needed.
+- Do not run v1 and v2 against the same database side by side. A v1 instance
+  keeps enqueuing `embed_events` jobs that no v2 worker claims: they stay queued
+  forever and `hfy_jobs{queue="embeddings",state="queued"}` never drops. A v1
+  instance that restarts after `00003` ran recreates `embeddings_<dims>`, and the
+  migration will not run again. Remove `embeddings:` from the v1 config, or stop
+  every v1 instance, BEFORE starting v2.
+- The only queues now are `turns` and `maintenance` (the default for
+  `queue:work`). Drop `embeddings` from `queue:work -q`: naming it is not an
+  error, the worker just polls that queue and finds nothing it can run, since
+  no `embed_events` handler exists.
 
 ## Development
 

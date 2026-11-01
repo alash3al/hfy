@@ -101,7 +101,7 @@ No model yet? Use the mock provider. It streams a fixed reply in-process, so the
 providers:
   mock:
     type: mock
-    mock: { reply: "Hello from mock", embed_dimensions: 768 }
+    mock: { reply: "Hello from mock" }
 agent:
   model: mock/demo
   settings: { context_window: 8192 }
@@ -270,6 +270,7 @@ Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help ce
 - Model request controls (optional, in any `settings`: `agent`, `agents.<name>`, `subagents.<name>`, `summarizer`; unset means not sent): `reasoning_effort` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; a provider may reject or ignore a value), `max_output_tokens` (caps each call's output, reasoning included), `call_timeout` (a whole call, retries included; past it the turn fails and is not retried; if it fires mid-stream, streamed text stays; distinct from the provider `timeout`), `extra` (a map merged into the request body; it cannot set `model`, `messages`, `tools`, `stream`, `stream_options` or `n` in any letter case, nor a field above; it is stored in `outbound_requests`, so never put secrets in it; `tool_choice: required` makes every reply a tool call, so the turn ends only at a `limits` field or a fixed loop bound).
   - Provider notes (details in docs/reference.md): Anthropic's OpenAI-compatible endpoint ignores `reasoning_effort`, so use `extra: {thinking: {type: enabled, budget_tokens: N}}` (N ≥ 1024, below the cap); DeepSeek's `thinking` in `extra` overrides `reasoning_effort`; the output cap covers reasoning, so a small one can return an empty reply (`finish_reason: length`); Ollama and DeepSeek read only `max_tokens`; OpenAI wants `max_tokens_param: max_completion_tokens`; newer reasoning models and Claude 4.7+ reject `temperature` below 1 or `top_p` other than 0.99, so leave them unset; Gemini's vendor extras nest under `extra_body`; a value outside the `reasoning_effort` list goes in `extra.reasoning_effort`; the `mock` provider ignores the controls and the timeout.
 - `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`. Every agent may call them as tool `hfy.<name>`. They are isolated (they get only the task text), depth 1, and their usage counts toward the parent turn.
+- Upgrading from v1: `embeddings` and `hfy.conversation_search` were removed in v2, and the old config key stops startup. See "Upgrading to v2" in docs/reference.md.
 - `summarizer`: `{model, settings, keep_recent, system?}` (`settings` takes the same model request controls). History is summarized when the next prompt would pass 80% of `context_window`. Nothing is deleted.
 - `attachments`: `{allowed_hosts, types, max_bytes, max_count}` for attachments hosted by your app (by URL).
 - `filesystem`: `{dsn: "s3://bucket?region=…" | "file:///path", public_url, types, max_bytes (10MB), upload_ttl (5m), download_ttl (15m)}` enables uploads through hfy. `file://` needs `public_url`. S3 needs bucket CORS allowing PUT from embed origins.
