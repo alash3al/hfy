@@ -116,7 +116,7 @@ POST /v1/conversations
 → 201 {"id": "<conversation uuid>"}
 
 POST /v1/grants
-{"conversation": "<uuid>", "actor": "user-42", "agent": "main", "vars": {"user_name": "Sara"}, "expires_in": 3600}
+{"conversation": "<uuid>", "actor": "user-42", "agent": "main", "vars": {"user_name": "Sara"}, "expires_in": 3600, "max_lifetime": 28800}
 → 201 {"id": "<grant uuid>", "token": "hfy_…", "expires_at": "<RFC3339>"}
 
 DELETE /v1/grants/{id}   → 204 (revoke now; open streams end within 15 s)
@@ -129,7 +129,8 @@ Grant fields:
 - `agent`: which configured agent answers this person (`main` default, or a key under `agents:`).
 - `vars`: values for the agent's declared `{{vars}}`, rendered into the system prompt. A var that is undeclared, or required but missing, is a 400. Backend-only, so the client can never set them. Every MCP server receives them in `_meta`, so never put secrets in vars.
 - `scope`: a label for whose data the conversation is (default: the actor). hfy does not interpret it; tool servers get it in `_meta`.
-- `expires_in`: seconds, default 3600, max 86400.
+- `expires_in`: seconds, whole numbers only, default 3600, max 86400.
+- `max_lifetime` (optional): seconds, max 604800, at least `expires_in`; a renewable grant needs `expires_in` >= 60. Set, the client can swap its token for a fresh one (`POST /v1/conversation/grant/exchange`, below) until `max_lifetime` after the mint; absent, the grant is not renewable. Pick it as short as the product allows: a stolen token stays usable while the real client keeps renewing, until `max_lifetime` or your revoke. Revoke with the `id` the mint returned: it ends every token of the grant.
 
 Example backend endpoint (Node/Express; translate to the app's stack):
 
@@ -184,7 +185,7 @@ The host page's origin must be listed in `server.cors_origins`. That list is als
 </script>
 ```
 
-The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string.
+The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. For a grant minted with `max_lifetime` the widget first exchanges its token itself; keep answering `token-needed` anyway (the exchange can fail or reach its cap), and when you re-mint after reason `unauthorized`, revoke the previous grant `id`. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string.
 
 ### 5. Mobile: embed the chat in a WebView
 
@@ -290,8 +291,9 @@ Auth: `Authorization: Bearer <grant token>` (on `/events` also `?token=` for `Ev
 - `GET /v1/conversation/history?limit=&before=` → durable events grouped by turn, newest page first; `next` (older-page cursor), `live_after` (open `/events?after=<live_after>` to continue without a gap), `viewer` (this grant's actor, to recognize own messages).
 - `POST /v1/conversation/approvals` `{call_id, approve, result?, answers?}`. Only the actor who started the turn decides (else 403). For `hfy.ask_user` — or a tool call that asked questions of its own — approve with `answers: {"<question id>": value}`, validated against the stored questions (400 names the bad one). Decline with `approve: false`; `answers` on a plain approval are a 400.
 - `POST /v1/conversation/stop` stops the caller's own active turn and their queued ones.
+- `POST /v1/conversation/grant/exchange` (Bearer = current token, never `?token=`) → `200 {id, token, expires_at, renewable}`: a renewable grant's new token (same identity, `expires_in` more, capped at `max_lifetime`); `renewable: false` means the cap was reached. The old token works 30 s more, then dies, and cannot be exchanged again. 409: the grant is live but not renewable; 401: any dead token. Reconnect `/events` with the new token and `Last-Event-ID`.
 
-Errors are `{"error": "..."}`: 400 bad input, 401 missing/unknown/expired/revoked token, 403 not your turn or the grant's agent no longer exists, 404 unknown conversation or grant, 409 no pending approval, 413 body over 2 MiB.
+Errors are `{"error": "..."}`: 400 bad input, 401 missing/unknown/expired/revoked token, 403 not your turn or the grant's agent no longer exists, 404 unknown conversation or grant, 409 no pending approval or a non-renewable grant on exchange, 413 body over 2 MiB.
 
 The API is versioned in the path (`/v1`). Within v1, changes are additive only.
 

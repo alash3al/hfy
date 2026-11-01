@@ -172,7 +172,7 @@ Your backend (`Authorization: Bearer <server.secret>`):
 
 - `POST /v1/conversations` → `201 {"id": uuid}`. A conversation is a room;
   create it once and keep its id.
-- `POST /v1/grants` `{conversation, actor, scope?, agent?, vars?, expires_in?}`
+- `POST /v1/grants` `{conversation, actor, scope?, agent?, vars?, expires_in?, max_lifetime?}`
   → `201 {"id": uuid, "token": "hfy_…", "expires_at": time}`. Gives one client
   access to one conversation as one actor; hand it the token. Each person in a
   room gets their own grant.
@@ -186,12 +186,39 @@ Your backend (`Authorization: Bearer <server.secret>`):
   - `vars`: fill the agent's declared `{{vars}}`. They render into the system
     prompt, so only your backend sets them, never a client. An undeclared or
     a missing required var is a `400` here.
-  - `expires_in`: seconds, default 3600, at most 86400.
+  - `expires_in`: seconds, default 3600, at most 86400. Whole numbers only.
+  - `max_lifetime`: seconds; makes the grant renewable (see "Renewing a grant").
+    Absent, the grant is not renewable, as before. At most 604800 (7 days) and at
+    least `expires_in`; a renewable grant needs `expires_in` of at least 60.
+    A float, exponent form, string, negative or zero is `400`.
 
   The token is returned once; hfy keeps only its SHA-256. A lost token cannot
   be recovered: create another grant.
 - `DELETE /v1/grants/{id}` → `204`. Ends the grant now (revoking twice is fine;
-  an unknown id is `404`). Open streams end within 15 s.
+  an unknown id is `404`). Open streams end within 15 s. Pass the `id` the
+  mint returned: for a renewable grant that ends every token it was exchanged
+  for as well, a token still in its grace included, and no exchange can outrun it.
+
+Renewing a grant. A grant minted with `max_lifetime` lets the client swap its token
+for a fresh one without your backend: the same actor, scope, agent and vars,
+a new lifetime of `expires_in`, never past `max_lifetime` after the mint.
+
+- `POST /v1/conversation/grant/exchange` (`Authorization: Bearer <current token>`;
+  never `?token=`) → `200 {"id": uuid, "token": "hfy_…", "expires_at": time, "renewable": bool}`.
+  `id` is the one the mint returned, so you revoke by the id you stored. The new
+  token is shown only here. `renewable` is `false` once `expires_at` reached
+  the cap: that token is the last, and the next one has to come from your backend.
+  - `409`: the grant is live but was not minted with `max_lifetime`.
+  - `401`: any other token, a retired one included, with the same body as for every
+    dead token. A `403` follows the usual rule (the grant's agent is gone).
+  - One of several concurrent exchanges of the same token wins; the others get `401`.
+- The old token keeps working for 30 seconds after its exchange (requests in
+  flight, a second tab), then is dead. It cannot be exchanged again. The
+  embedded client reconnects its stream with the new token, resuming from the
+  last event; the old stream ends with the grace.
+- hfy does not detect a replayed old token. While a token is stolen and the
+  legitimate client keeps renewing, both hold a live chain until `max_lifetime`
+  or your revoke: pick `max_lifetime` as short as the product allows.
 
 The client (`Authorization: Bearer <token>`; on `/events` also `?token=`, for
 `EventSource`). The grant names the conversation, so these paths name none. A
@@ -229,7 +256,8 @@ there is no credentials mode.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
-  The stream ends when the grant does; reconnect with a fresh token.
+  The stream ends when the grant does (a renewable grant's old token, when its
+  grace ends); reconnect with a fresh token.
 - `GET /v1/conversation/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns), `live_after` (open `/events?after=<live_after>` to continue
@@ -249,7 +277,7 @@ there is no credentials mode.
 Bodies are JSON (whatever the `Content-Type` says). Errors are
 `{"error": "..."}`: `400` bad input (an empty message, a bad attachment),
 `401` no valid secret or token, `403` not your turn, `404` unknown
-conversation or grant, `409` no pending approval, `413` a body over 2 MiB
+conversation or grant, `409` no pending approval, or an exchange of a grant that is not renewable, `413` a body over 2 MiB
 (an upload PUT is instead bounded by `filesystem.max_bytes`).
 
 ### Embedded UI and JS client
@@ -277,12 +305,19 @@ memory only — never cookies, web storage, or a URL (the one exception is
 `?token=` on the SSE stream, where `EventSource` cannot set a header).
 On expiry or `401` the widget asks for a fresh grant and resumes the
 stream from its last event; your backend re-mints only after its own
-login checks. Grants are never self-extending and never travel in a URL
-query (a fragment bootstrap must be erased immediately after reading).
+login checks. A grant extends itself only when you minted it with
+`max_lifetime` (see "Renewing a grant"): the widget then exchanges its token
+before expiry, up to that cap, and asks you only when the exchange fails or the
+cap is reached. Grants never travel in a URL query (a fragment bootstrap must
+be erased immediately after reading).
 
 Bridge protocol (envelope `{"v":1,"type":…}`): the widget sends `ready`
 on load and `token-needed` when it needs a grant; the host answers
-`grant` (`{token, expires_at}`) and may send `configure` (below).
+`grant` (`{token, expires_at}`) and may send `configure` (below). Always
+answer `token-needed`, even for renewable grants: it comes with reason
+`initial`, and again when an exchange fails or the cap is reached (reason
+`expired`) or a request is refused (`unauthorized`). When you re-mint after
+`unauthorized`, revoke the previous grant's `id`; that ends its whole chain.
 Outbound, the widget calls `window.HfyBridge.postMessage(json)` when
 present (Android `addJavascriptInterface`); React Native and other
 shells inject a one-line shim onto their native bridge — and otherwise
