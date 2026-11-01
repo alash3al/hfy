@@ -70,6 +70,7 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && make -C "$d" check
 - DB tests call `dbtest.New(t, ...)`. Each gets its own migrated database, `hfy_t_<hex>`, dropped at cleanup. Without Postgres they skip locally, and with `HFY_TEST_REQUIRE_DB=1` (CI and `make test`) they fail.
 - Tests use `fakeprov` and `fakemcp` instead of real model servers or MCP servers.
 - Golden files: `clients/fixtures` (`expected/*.json`, `strings.json`, `markdown.json`) is generated from the real `embed/ui.js`. Regenerate with `go test ./internal/httpapi -run TestFixturesMatchJS -args -update-fixtures`. Markdown inputs stay hand-written; only their hashes and trees are regenerated. Hand edits fail the test.
+- `TestTokenContract` parses the ``#### The `--hfy-*` tokens`` section of `docs/reference.md` (rows ``| `token` | layout |``) and reads `clients/fixtures/tokens.json` without changing it. Renaming that heading or reformatting those rows fails the test.
 - JSON storage rules are judged by real Postgres: `TestStorableAgreesWithPostgres` in `internal/agent/persist_internal_test.go`. Add a row for each form you accept or refuse.
 - `internal/db/plans_test.go` (`TestHotQueriesUseIndexes`) fails when hot queries fall back to sequential scans.
 

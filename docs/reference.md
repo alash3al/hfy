@@ -465,7 +465,7 @@ embed:
   regular file once symlinks are followed (a directory, a device or a pipe is
   refused unread; a symlink is fine, a Kubernetes ConfigMap is one), is over
   64 KiB, is not valid UTF-8 (a leading byte order mark is dropped), holds a NUL
-  byte, or has an `@import`. An empty file is accepted. Make it readable by the
+  byte, or has a plain `@import` (a courtesy check; the CSP is the real guard, see below). An empty file is accepted. Make it readable by the
   container's user (`hfy`, uid 10001). This is a startup check, not a sanitizer:
   the file is trusted.
 - It is served like every embedded file (`custom.<hash>.css`, immutable,
@@ -473,8 +473,8 @@ embed:
   tie on specificity, yours wins. Its bytes are not counted in the 60 KiB budget.
 - The page's CSP stays as it is: the sheet is a same-origin file, never inline.
   `style-src 'self'` and `font-src 'self'` mean an `@import` of another origin
-  (refused at startup, since it could never load) and web fonts from anywhere
-  cannot load: set `--hfy-font` to fonts the viewer has. `img-src` allows any
+  (a plain one is refused at startup; any other spelling is blocked by the browser
+  and does nothing) and web fonts from anywhere cannot load: set `--hfy-font` to fonts the viewer has. `img-src` allows any
   `https:` host, so a `url(https://...)` image loads, from each viewer's device,
   and its host sees every viewer (startup logs a warning). Use only CSS you trust.
 
@@ -561,7 +561,7 @@ layout's sheet.
 The `whatsapp` layout derives the general colours from its own tokens
 (`--hfy-own` is `--hfy-wa-out`, `--hfy-surface` is `--hfy-wa-in`, and so on), so
 override either; the layout's dark values are set at a higher specificity,
-which "Custom CSS" below shows how to beat. Layout tokens do nothing in other layouts.
+which "Layouts and custom CSS" above shows how to beat. Layout tokens do nothing in other layouts.
 
 Hooks on `<html>`, for selectors that depend on the current look:
 

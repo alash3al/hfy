@@ -242,6 +242,8 @@ embed:
   tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers); approval requests always show
 ```
 
+Restyling: `embed.layout` is `bubbles` (default), `transcript` or `whatsapp`; the others load their own small stylesheet only when used. `embed.custom_css: /path/brand.css` serves your CSS file after the layout's (read once at start; restart to change), and the supported way to use it is to override the documented `--hfy-*` tokens ("The `--hfy-*` tokens" in the reference). Class names and DOM are unsupported.
+
 Per-viewer overrides come only from a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls` and `strings` (an object overriding UI strings). An `accent` there must be a six-digit hex such as `#e11d48`; anything else is ignored. Built-in strings are English and Arabic; time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable. The `/embed` page and its files are cached and compressed by hfy itself; there is nothing to configure.
 
 What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `files.dsn` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
