@@ -168,7 +168,7 @@ The API is versioned in the path (`/v1`). Within `v1`, changes are additive
 only: new endpoints, new optional fields, new event types. A breaking change
 would come as `/v2`, served alongside `/v1`.
 
-Your backend (`Authorization: Bearer <server.secret>`):
+Your backend (`Authorization: Bearer <server.secret>`; the scheme name is case-insensitive here and on the client routes):
 
 - `POST /v1/conversations` → `201 {"id": uuid}`. A conversation is a room;
   create it once and keep its id.
@@ -208,14 +208,23 @@ a new lifetime of `expires_in`, never past `max_lifetime` after the mint.
   `id` is the one the mint returned, so you revoke by the id you stored. The new
   token is shown only here. `renewable` is `false` once `expires_at` reached
   the cap: that token is the last, and the next one has to come from your backend.
-  - `409`: the grant is live but was not minted with `max_lifetime`.
+  - `409`: the grant is live but cannot renew: it was not minted with
+    `max_lifetime`, or its token already ends at that cap (the same answer, so a
+    client never loops).
+  - `429` `{"error": "too early to renew", "retry_after": N}` with a
+    `Retry-After: N` header (the body too, since a page on another origin cannot
+    read the header): a token is exchanged only once a quarter of its
+    `expires_in` has passed, so a chain grows by one row per quarter lifetime at
+    most, whoever asks. The embedded client asks at half or later, and on a `429`
+    keeps its token and waits `retry_after` seconds.
   - `401`: any other token, a retired one included, with the same body as for every
     dead token. A `403` follows the usual rule (the grant's agent is gone).
   - One of several concurrent exchanges of the same token wins; the others get `401`.
 - The old token keeps working for 30 seconds after its exchange (requests in
   flight, a second tab), then is dead. It cannot be exchanged again. The
   embedded client reconnects its stream with the new token, resuming from the
-  last event; the old stream ends with the grace.
+  last event; the old stream ends within the grace plus up to 15 s (the stream
+  re-checks its grant every 15 s).
 - hfy does not detect a replayed old token. While a token is stolen and the
   legitimate client keeps renewing, both hold a live chain until `max_lifetime`
   or your revoke: pick `max_lifetime` as short as the product allows.
@@ -256,8 +265,8 @@ there is no credentials mode.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
   Resume with `Last-Event-ID`, or `?after=<event uuid>` on a first connection.
   Without either it starts from now. A `: ping` comment arrives every 15 s.
-  The stream ends when the grant does (a renewable grant's old token, when its
-  grace ends); reconnect with a fresh token.
+  The stream ends when the grant does (a renewable grant's old token: within its
+  grace plus up to 15 s); reconnect with a fresh token.
 - `GET /v1/conversation/history?limit=&before=` durable events grouped by turn,
   newest page first, keyset-paginated by turn uuid. Returns `next` (cursor for
   older turns), `live_after` (open `/events?after=<live_after>` to continue
@@ -277,7 +286,8 @@ there is no credentials mode.
 Bodies are JSON (whatever the `Content-Type` says). Errors are
 `{"error": "..."}`: `400` bad input (an empty message, a bad attachment),
 `401` no valid secret or token, `403` not your turn, `404` unknown
-conversation or grant, `409` no pending approval, or an exchange of a grant that is not renewable, `413` a body over 2 MiB
+conversation or grant, `409` no pending approval, or an exchange of a grant that cannot renew, `413` a body over 2 MiB,
+`429` an exchange before its time
 (an upload PUT is instead bounded by `filesystem.max_bytes`).
 
 ### Embedded UI and JS client
@@ -623,6 +633,20 @@ event as stored.
   `queue:work`). Drop `embeddings` from `queue:work -q`: naming it is not an
   error, the worker just polls that queue and finds nothing it can run, since
   no `embed_events` handler exists.
+
+## Upgrading to renewable grants
+
+- Migration `00004` adds three nullable columns to `grants` (no table rewrite, no
+  lock beyond the catalog) and an index on `root_id`. Grants that exist, or that
+  an older instance mints during a rolling deploy, are chains of one and are never
+  renewable.
+- Do not mint grants with `max_lifetime` until every instance runs this version.
+  An older instance ignores the field (the grant is simply not renewable), and its
+  revoke ends only the row it is given, so the later tokens of a renewable chain
+  would outlive it.
+- `hfy migrate down` past `00004` ends the later tokens of every renewable chain
+  first (the older version could not revoke them), so those clients ask your
+  backend for a new grant.
 
 ## Development
 
