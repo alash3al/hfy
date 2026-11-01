@@ -16,9 +16,10 @@ providers:
   mockprov:
     type: mock
     mock: {reply: "hi"}
-agent:
-  model: mockprov/test
-  settings: {context_window: 8192}
+agents:
+  main:
+    model: mockprov/test
+    settings: {context_window: 8192}
 `), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatal(err)

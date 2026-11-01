@@ -95,11 +95,11 @@ func TestPostFilesFailTogether(t *testing.T) {
 // The attachment name is display text: cleaned in place (so the message
 // stores the same text), at most 255 bytes, single-line.
 func TestValidateAttachmentNames(t *testing.T) {
-	cfg := &config.Config{Agent: config.Agent{Settings: config.Settings{Vision: true}}}
+	cfg := &config.Config{Agents: map[string]*config.Agent{"main": {Settings: config.Settings{Vision: true}}}}
 	fileAtt := func(name string) []types.Attachment {
 		return []types.Attachment{{File: "conversations/c/a.png", Mime: "image/png", Name: name}}
 	}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileAtt(strings.Repeat("a", 255))); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileAtt(strings.Repeat("a", 255))); err != nil {
 		t.Errorf("255 bytes: %v", err)
 	}
 	for name, att := range map[string][]types.Attachment{
@@ -107,15 +107,15 @@ func TestValidateAttachmentNames(t *testing.T) {
 		"newline":  fileAtt("a\nb"),
 		"carriage": fileAtt("a\rb"),
 	} {
-		if err := svc.ValidateAttachments(cfg, &cfg.Agent, att); err == nil {
+		if err := svc.ValidateAttachments(cfg, cfg.Main(), att); err == nil {
 			t.Errorf("%s: must be rejected", name)
 		}
 	}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileAtt("")); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileAtt("")); err != nil {
 		t.Errorf("an empty name stays optional: %v", err)
 	}
 	att := fileAtt(" ré.txt\x00 ")
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, att); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), att); err != nil {
 		t.Fatal(err)
 	}
 	if att[0].Name != "ré.txt" {

@@ -68,40 +68,40 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #   upload_ttl: 5m                    # default; slots are deleted after this + 1h
 #   download_ttl: 15m                 # default; download signature lifetime
 
-agent:                               # the default agent ("main")
-  model: local/gemma3:1b             # <provider>/<model>
-  # model request controls: each is sent only when set (docs/reference.md)
-  settings:
-    temperature: 0.2
-    context_window: 8192
-    vision: false
-    # reasoning_effort: low          # none | minimal | low | medium | high | xhigh | max
-    # max_output_tokens: 4096        # caps each call's output, reasoning included
-    # call_timeout: 90s              # the whole call, retries included (timeout above is the silence)
-    # extra:                         # merged into the request body; never model, messages, tools, stream, stream_options or n
-    #   cache_control: { type: ephemeral }   # OpenRouter: prompt caching (Anthropic models); its reasoning object goes here, not with reasoning_effort
-  system: |
-    You help {{user_name}} at {{company}}.
-  vars:                              # set only by your backend, in the grant; never by clients
-    user_name: { default: "there" }  # or required: true
-    company:   { default: "Acme" }
-  limits:                            # per turn; every field optional
-    steps: 20
-    total_tokens: 20000
-    timeout: 120s
-  # approval:                        # omit = no approvals
-  #   tools: [files.write_*, files.delete_*]
-  #   timeout: 10m
-  # ask_user: true                    # the agent may pause a turn asking the viewer
-  #                                   # structured questions (hfy.ask_user); timeout above or 30m
-  # mcp: [files, search]             # optional; omit = all MCP servers via tool search
+agents:                              # required; "main" is the default agent
+  main:
+    model: local/gemma3:1b             # <provider>/<model>
+    # model request controls: each is sent only when set (docs/reference.md)
+    settings:
+      temperature: 0.2
+      context_window: 8192
+      vision: false
+      # reasoning_effort: low          # none | minimal | low | medium | high | xhigh | max
+      # max_output_tokens: 4096        # caps each call's output, reasoning included
+      # call_timeout: 90s              # the whole call, retries included (timeout above is the silence)
+      # extra:                         # merged into the request body; never model, messages, tools, stream, stream_options or n
+      #   cache_control: { type: ephemeral }   # OpenRouter: prompt caching (Anthropic models); its reasoning object goes here, not with reasoning_effort
+    system: |
+      You help {{user_name}} at {{company}}.
+    vars:                              # set only by your backend, in the grant; never by clients
+      user_name: { default: "there" }  # or required: true
+      company:   { default: "Acme" }
+    limits:                            # per turn; every field optional
+      steps: 20
+      total_tokens: 20000
+      timeout: 120s
+    # approval:                        # omit = no approvals
+    #   tools: [files.write_*, files.delete_*]
+    #   timeout: 10m
+    # ask_user: true                    # the agent may pause a turn asking the viewer
+    #                                   # structured questions (hfy.ask_user); timeout above or 30m
+    # mcp: [files, search]             # optional; omit = all MCP servers via tool search
 
-# agents:                            # more agents, same fields as agent; a grant
-#   store:                           # picks one: {"agent": "store"}
-#     model: local/gemma3:1b
-#     settings: { context_window: 8192 }
-#     system: You answer for {{shop}}.
-#     vars: { shop: { required: true } }
+  # store:                           # more agents, same fields as main; a grant
+  #   model: local/gemma3:1b         # picks one: {"agent": "store"}
+  #   settings: { context_window: 8192 }
+  #   system: You answer for {{shop}}.
+  #   vars: { shop: { required: true } }
 
 # subagents:                         # every agent may call them as hfy.<name>
 #   refunds:

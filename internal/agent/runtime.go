@@ -129,7 +129,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		return &Spec{Name: name, Client: controlled{providers[prov], ctl}, Model: m, Settings: st, System: system,
 			Limits: lim, MCP: servers, Builtins: map[string]bool{}}
 	}
-	for name, a := range cfg.AllAgents() {
+	for name, a := range cfg.Agents {
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
 		s.Top, s.Approval = true, a.Approval
 		s.core()

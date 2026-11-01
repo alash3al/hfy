@@ -12,7 +12,7 @@ import (
 func TestSummarizerFoldsOldTurns(t *testing.T) {
 	long := strings.Repeat("word ", 80) // ~400 chars, ~100 tokens
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 150
+		c.Main().Settings.ContextWindow = 150
 		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 4000}, KeepRecent: 1}
 	},
 		fakeprov.Step{Content: "reply one"},
@@ -71,7 +71,7 @@ func TestSummarizerFoldsOldTurns(t *testing.T) {
 func TestFailingSummarizerDoesNotFailTheTurn(t *testing.T) {
 	long := strings.Repeat("word ", 80)
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 150
+		c.Main().Settings.ContextWindow = 150
 		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 4000}, KeepRecent: 1}
 	},
 		fakeprov.Step{Content: "reply one"},

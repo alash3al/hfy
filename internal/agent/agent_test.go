@@ -54,9 +54,9 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 		Providers: map[string]config.Provider{"fake": {URL: fake.URL1(), Timeout: config.Duration(10 * time.Second)}},
 		MCP: map[string]config.MCPServer{"files": {Type: "local", Command: []string{os.Args[0]},
 			Environment: map[string]string{"HFY_FAKE_MCP": "1"}}},
-		Agent: config.Agent{Model: "fake/m", System: "You help {{who}}.",
+		Agents: map[string]*config.Agent{"main": {Model: "fake/m", System: "You help {{who}}.",
 			Settings: config.Settings{ContextWindow: 100000},
-			Vars:     map[string]config.Var{"who": {Default: new("everyone")}}},
+			Vars:     map[string]config.Var{"who": {Default: new("everyone")}}}},
 	}
 	cfg.SetDefaults() // before tweak, which may set Queue.Workers to 0
 	if tweak != nil {
@@ -98,7 +98,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 
 func (e *env) post(text string) (turnID int64) {
 	e.t.Helper()
-	vars, err := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
+	vars, err := svc.ResolveVars(e.rt.Cfg.Main().Vars, nil)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func toolNames(req map[string]any) string {
 
 func TestLoopRules(t *testing.T) {
 	same := fakeprov.Step{Calls: []fakeprov.Call{{ID: "c", Name: "files__echo", Args: `{"text":"again"}`}}}
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		// unknown tool, bad args, then the same call over and over
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "u", Name: "nope__x", Args: `{}`}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "b", Name: "files__echo", Args: `{}`}}},
@@ -287,7 +287,7 @@ func TestLimits(t *testing.T) {
 	step := func(i string) fakeprov.Step {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: i, Name: "files__echo", Args: `{"text":"` + i + `"}`}}}
 	}
-	e := setup(t, func(c *config.Config) { c.Agent.Limits.Steps = 2 }, step("1"), step("2"), step("3"))
+	e := setup(t, func(c *config.Config) { c.Main().Limits.Steps = 2 }, step("1"), step("2"), step("3"))
 	turn := e.post("go")
 	e.waitState(turn, types.StateFailed)
 	states := e.find(turn, types.EventTurnState)
@@ -310,8 +310,8 @@ func TestApprovalApproveAndReject(t *testing.T) {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "files__write_file", Args: `{"text":"a.txt"}`}}}
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 	}, call("w1"), fakeprov.Step{Content: "written"}, call("w2"), fakeprov.Step{Content: "ok, not written"})
 
 	t1 := e.post("write it")
@@ -351,8 +351,8 @@ func TestApprovalApproveAndReject(t *testing.T) {
 
 func TestApprovalTimeoutRejects(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(300 * time.Millisecond)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(300 * time.Millisecond)}
 	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__echo", Args: `{"text":"x"}`}}}, fakeprov.Step{Content: "fine"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
@@ -387,8 +387,8 @@ func TestStopRunningTurn(t *testing.T) {
 
 func TestStopWhileAwaitingApproval(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
 	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__echo", Args: `{"text":"x"}`}}})
 	turn := e.post("go")
 	e.waitState(turn, types.StateAwaitingApproval)
@@ -403,7 +403,7 @@ func TestStopWhileAwaitingApproval(t *testing.T) {
 func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
 	// No workers: this test plays the part of the worker that runs again after a crash.
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		c.Queue.Workers = 0
 	}, fakeprov.Step{Content: "I will check first"})
 	turn := e.post("go")
@@ -437,9 +437,9 @@ func TestCrashRecoveryMarksInFlightCallInterrupted(t *testing.T) {
 
 func TestApprovedCallIsNotReExecutedAfterACrash(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		c.Queue.Workers = 0
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
 	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a"}`}}}, fakeprov.Step{Content: "done"})
 	turn := e.post("go")
 	ctx := e.ctx
@@ -476,12 +476,12 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 	host = host[:strings.LastIndex(host, ":")]
 
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.Vision = true
+		c.Main().Settings.Vision = true
 		c.Attachments = &config.Attachments{AllowedHosts: []string{host}, Types: []string{"image/png"}, MaxBytes: 1 << 20}
 	}, fakeprov.Step{Content: "nice picture"}, fakeprov.Step{Content: "still here"})
 
 	post := func(text string, atts ...types.Attachment) int64 {
-		vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
+		vars, _ := svc.ResolveVars(e.rt.Cfg.Main().Vars, nil)
 		u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: e.conv.ID, Actor: e.user, Scope: "u1", Vars: vars, Text: text, Attachments: atts})
 		if err != nil {
 			t.Fatal(err)
@@ -512,9 +512,9 @@ func TestImageAttachmentsOnlyInTheirOwnTurn(t *testing.T) {
 func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 	block := make(chan struct{})
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		c.Queue.Workers = 0
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.*"}, Timeout: config.Duration(time.Minute)}
 	}, fakeprov.Step{Delay: block, Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a"}`}}})
 	turn := e.post("go")
 	done := make(chan error, 1)
@@ -542,7 +542,7 @@ func TestStopBeforeApprovalPauseStopsTheTurn(t *testing.T) {
 // Every tool call tells the tool server who is acting and where (MCP _meta),
 // so it can authorize the call itself; structured results reach clients.
 func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w1", Name: "files__whoami", Args: `{}`}}},
 		fakeprov.Step{Content: "done"})
 	turn := e.post("who am I?")
@@ -579,8 +579,8 @@ func TestToolCallsCarryTurnContextAndStructuredResults(t *testing.T) {
 // consecutive user turns are merged. A one-to-one chat stays plain.
 func TestRoomContextIsAttributed(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "store",
-			Settings: config.Settings{ContextWindow: 100000}}}
+		c.Agents["store"] = &config.Agent{Model: "fake/small", System: "store",
+			Settings: config.Settings{ContextWindow: 100000}}
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "c1", Name: "files__echo", Args: `{"text":"margherita"}`}}},
 		fakeprov.Step{Content: "Yes, 12€."},
@@ -640,8 +640,8 @@ func TestRoomContextIsAttributed(t *testing.T) {
 // or stops it, and stopping your own turns leaves everyone else's in line.
 func TestOnlyTheStarterApprovesOrStopsATurn(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w1", Name: "files__write_file", Args: `{"text":"a.txt"}`}}},
 		fakeprov.Step{Content: "written"},
@@ -689,7 +689,7 @@ func TestStopPassesTheLineOn(t *testing.T) {
 
 // Every agent gets hfy's core tools, served like any other tool.
 func TestCoreToolsAreOffered(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "m", Name: "hfy__math_calc", Args: `{"expression":"3 * 19.99"}`}}},
 		fakeprov.Step{Content: "59.97 in total"},
 	)
@@ -707,7 +707,7 @@ func TestCoreToolsAreOffered(t *testing.T) {
 // its own, and the approval flow runs exactly as for agent patterns.
 func TestServerApprovalPausesWithoutAgentPolicy(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		srv := c.MCP["files"]
 		srv.Approval = []string{"write_*"}
 		c.MCP["files"] = srv
@@ -733,7 +733,7 @@ func TestServerApprovalPausesWithoutAgentPolicy(t *testing.T) {
 // destructiveHint explicitly true) and never on read-only ones.
 func TestApproveDestructiveServerPolicy(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		srv := c.MCP["files"]
 		srv.ApproveDestructive = true
 		c.MCP["files"] = srv
@@ -768,8 +768,8 @@ func TestApproveDestructiveServerPolicy(t *testing.T) {
 // such a pattern still guards sub-agent calls.
 func TestAgentPatternsNeverPauseCoreTools(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"hfy.*", "files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"hfy.*", "files.write_*"}, Timeout: config.Duration(time.Minute)}
 		c.Subagents = map[string]config.Subagent{"helper": {Description: "helps", Model: "fake/small",
 			Settings: config.Settings{ContextWindow: 100000}}}
 	},

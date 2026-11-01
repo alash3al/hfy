@@ -32,7 +32,7 @@ func startFiles(t *testing.T, fs config.Filesystem) *fsapi {
 	cfg := &config.Config{
 		Server:     config.Server{Secret: secret},
 		Providers:  map[string]config.Provider{"fake": {Type: "mock", Mock: config.MockProvider{Reply: "hi"}}},
-		Agent:      config.Agent{Model: "fake/m", System: "You help.", Settings: config.Settings{ContextWindow: 1000, Vision: true}},
+		Agents:     map[string]*config.Agent{"main": {Model: "fake/m", System: "You help.", Settings: config.Settings{ContextWindow: 1000, Vision: true}}},
 		Filesystem: &fs,
 	}
 	cfg.SetDefaults()

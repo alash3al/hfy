@@ -51,11 +51,11 @@ func TestCheckVars(t *testing.T) {
 }
 
 func TestValidateAttachments(t *testing.T) {
-	cfg := &config.Config{Agent: config.Agent{Settings: config.Settings{Vision: true}},
+	cfg := &config.Config{Agents: map[string]*config.Agent{"main": {Settings: config.Settings{Vision: true}}},
 		Attachments: &config.Attachments{AllowedHosts: []string{"cdn.example.com", "*.s3.amazonaws.com"}, Types: []string{"image/png", "application/pdf"}}}
 	cfg.SetDefaults()
 	ok := []types.Attachment{{URL: "https://cdn.example.com/a.png", Mime: "image/png"}, {URL: "https://b.s3.amazonaws.com/x.pdf", Mime: "application/pdf"}}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), ok); err != nil {
 		t.Fatal(err)
 	}
 	bad := map[string]types.Attachment{
@@ -67,46 +67,46 @@ func TestValidateAttachments(t *testing.T) {
 		"credentials":        {URL: "https://user:pw@cdn.example.com/a.png", Mime: "image/png"},
 	}
 	for name, a := range bad {
-		if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{a}); err == nil {
+		if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{a}); err == nil {
 			t.Errorf("%s: must be rejected", name)
 		}
 	}
-	cfg.Agent.Settings.Vision = false
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok[:1]); err == nil || !strings.Contains(err.Error(), "vision") {
+	cfg.Main().Settings.Vision = false
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), ok[:1]); err == nil || !strings.Contains(err.Error(), "vision") {
 		t.Errorf("images need vision: %v", err)
 	}
-	cfg.Agent.Settings.Vision = true
+	cfg.Main().Settings.Vision = true
 	many := make([]types.Attachment, 11)
 	for i := range many {
 		many[i] = ok[0]
 	}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, many); err == nil || !strings.Contains(err.Error(), "at most 10") {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), many); err == nil || !strings.Contains(err.Error(), "at most 10") {
 		t.Errorf("11 attachments must be refused: %v", err)
 	}
 	cfg.Attachments = nil
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, ok); err == nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), ok); err == nil {
 		t.Error("no attachments config means rejected")
 	}
 	// File attachments: no host/type/count checks here (httpapi checks the
 	// filesystem config), but vision and url/file exclusivity still apply.
 	fileOK := []types.Attachment{{File: "conversations/c/a.png", Mime: "image/png"}}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileOK); err != nil {
 		t.Errorf("file-only with nil attachments config: %v", err)
 	}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{{File: "conversations/c/a.png", URL: "https://cdn.example.com/a.png", Mime: "image/png"}}); err == nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{{File: "conversations/c/a.png", URL: "https://cdn.example.com/a.png", Mime: "image/png"}}); err == nil {
 		t.Error("file+url must be rejected")
 	}
-	cfg.Agent.Settings.Vision = false
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err == nil || !strings.Contains(err.Error(), "vision") {
+	cfg.Main().Settings.Vision = false
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileOK); err == nil || !strings.Contains(err.Error(), "vision") {
 		t.Errorf("file images need vision: %v", err)
 	}
-	cfg.Agent.Settings.Vision = true
+	cfg.Main().Settings.Vision = true
 	cfg.Attachments = &config.Attachments{AllowedHosts: []string{"cdn.example.com"}, Types: []string{"image/png", "application/pdf"}, MaxCount: 10}
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, fileOK); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), fileOK); err != nil {
 		t.Errorf("file attachment with attachments config: %v", err)
 	}
 	// types is a filesystem concern, not an attachments one
-	if err := svc.ValidateAttachments(cfg, &cfg.Agent, []types.Attachment{{File: "conversations/c/a.gif", Mime: "image/gif"}}); err != nil {
+	if err := svc.ValidateAttachments(cfg, cfg.Main(), []types.Attachment{{File: "conversations/c/a.gif", Mime: "image/gif"}}); err != nil {
 		t.Errorf("file type outside attachments.types is httpapi's call, not svc's: %v", err)
 	}
 }

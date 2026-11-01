@@ -31,7 +31,7 @@ func (e *env) addMessage(turn int64, text string) {
 func TestArgumentsLimitIsExact(t *testing.T) {
 	const limit = 64 << 10 // maxArgBytes
 	pad := func(n int) string { return `{"text":"` + strings.Repeat("a", n-len(`{"text":""}`)) + `"}` }
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "big", Name: "files__echo", Args: pad(limit + 1)}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "edge", Name: "files__echo", Args: pad(limit - 1)}}},
 		fakeprov.Step{Content: "done"})
@@ -60,7 +60,7 @@ func TestArgumentsLimitIsExact(t *testing.T) {
 func TestUnstorableArgumentsDoNotWedgeTheTurn(t *testing.T) {
 	for _, args := range []string{`{"text":"a\u0000b"}`, `{"text":"a\ud800b"}`} {
 		t.Run(args, func(t *testing.T) {
-			e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+			e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 				fakeprov.Step{Calls: []fakeprov.Call{{ID: "n", Name: "files__echo", Args: args}}},
 				fakeprov.Step{Content: "done"})
 			turn := e.post("go")
@@ -75,7 +75,7 @@ func TestUnstorableArgumentsDoNotWedgeTheTurn(t *testing.T) {
 // Numbers Postgres would expand or refuse are answered as invalid, and the
 // turn goes on; a small exponent is plain text and runs.
 func TestExponentArgumentsAreRefused(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "huge", Name: "files__echo", Args: `{"text":"x","n":1e131072}`}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "spread", Name: "files__echo", Args: `{"text":"x","n":[1e100000]}`}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "small", Name: "files__echo", Args: `{"text":"x","n":1E+5}`}}},
@@ -119,7 +119,7 @@ func TestHostileJSONArgumentsDoNotWedgeTheConversation(t *testing.T) {
 	steps = append(steps,
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "deep", Name: "files__echo", Args: `{"text":"x","n":` + nested(maxDepth-1) + `}`}}},
 		fakeprov.Step{Content: "done"}, fakeprov.Step{Content: "again"})
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} }, steps...)
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} }, steps...)
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
 	r := e.find(turn, types.EventToolResult)
@@ -150,7 +150,7 @@ func TestUnstorableNamesAndIDsDoNotWedge(t *testing.T) {
 		{name: "files__echo", id: long, wantName: "files.echo", wantID: "call_1_0"},
 	} {
 		t.Run(c.wantName+" "+c.wantID, func(t *testing.T) {
-			e := setup(t, func(cfg *config.Config) { cfg.Agent.MCP = []string{"files"} },
+			e := setup(t, func(cfg *config.Config) { cfg.Main().MCP = []string{"files"} },
 				fakeprov.Step{Calls: []fakeprov.Call{{ID: c.id, Name: c.name, Args: `{"text":"x"}`}}},
 				fakeprov.Step{Content: "done"})
 			turn := e.post("go")
@@ -192,8 +192,8 @@ func TestTurnEventsAreCapped(t *testing.T) {
 		calls = append(calls, fakeprov.Call{ID: fmt.Sprintf("c%d", i), Name: fmt.Sprintf("nope__%d", i), Args: `{}`})
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Limits.Steps = 10 // only the events cap may end the turn
-		c.Queue.Workers = 0       // this test runs the turn itself
+		c.Main().Limits.Steps = 10 // only the events cap may end the turn
+		c.Queue.Workers = 0        // this test runs the turn itself
 	}, fakeprov.Step{Calls: calls}, fakeprov.Step{Content: "done"})
 	turn := e.post("go")
 	// Bulk-insert the history: model.usage events are durable but not prompt
@@ -250,7 +250,7 @@ func TestPromptLimitCompactsBeforeFailing(t *testing.T) {
 	// 9,000 lines of 1,000 bytes: over the cap, and split into three summarizer chunks.
 	huge := strings.Repeat(strings.Repeat("a", 999)+"\n", 9000)
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 1 << 30 // only the byte cap can trigger compaction
+		c.Main().Settings.ContextWindow = 1 << 30 // only the byte cap can trigger compaction
 		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 1 << 24}, KeepRecent: 1}
 	},
 		fakeprov.Step{Content: "reply one"}, fakeprov.Step{Content: "reply two"},
@@ -280,7 +280,7 @@ func TestPromptLimitCompactsBeforeFailing(t *testing.T) {
 // oversize message is in the current turn, which a summary never covers.
 func TestOversizeAfterCompactionIsSaid(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 1 << 30
+		c.Main().Settings.ContextWindow = 1 << 30
 		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 1 << 24}, KeepRecent: 0}
 		c.Queue.Workers = 0 // this test runs the turns itself
 	}, fakeprov.Step{Content: "first reply"}, fakeprov.Step{Content: "SUMMARY"})
@@ -308,7 +308,7 @@ func TestOversizeAfterCompactionIsSaid(t *testing.T) {
 // When the summary fails, the turn fails cleanly at the cap: it does not send.
 func TestPromptLimitWhenCompactionFails(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 1 << 30
+		c.Main().Settings.ContextWindow = 1 << 30
 		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 1 << 24}, KeepRecent: 1}
 	}, fakeprov.Step{Content: "reply one"}, fakeprov.Step{Content: "reply two"}, fakeprov.Step{Status: 400})
 	t1 := e.post("first")
@@ -394,7 +394,7 @@ func TestLongTurnIsUnaffected(t *testing.T) {
 		}})
 	}
 	steps = append(steps, fakeprov.Step{Content: "done"})
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} }, steps...)
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} }, steps...)
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
 	r := e.find(turn, types.EventToolResult)

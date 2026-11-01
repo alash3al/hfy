@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestServeReturnsWhenTheAddressIsTaken(t *testing.T) {
 		Queue:     config.Queue{Workers: 1, Lease: config.Duration(5 * time.Second), MaxAttempts: 1},
 		Retention: config.Retention{Trace: config.Duration(time.Hour)},
 		Providers: map[string]config.Provider{"p": {URL: "http://127.0.0.1:1/v1"}},
-		Agent:     config.Agent{Model: "p/m", Settings: config.Settings{ContextWindow: 100}},
+		Agents:    map[string]*config.Agent{"main": {Model: "p/m", Settings: config.Settings{ContextWindow: 100}}},
 	}
 	done := make(chan error, 1)
 	go func() { done <- serve(context.Background(), cfg, true) }()
@@ -72,7 +73,7 @@ func TestOperationalEndpoints(t *testing.T) {
 		Queue:     config.Queue{Workers: 1, Lease: config.Duration(5 * time.Second), MaxAttempts: 1},
 		Retention: config.Retention{Trace: config.Duration(time.Hour)},
 		Providers: map[string]config.Provider{"p": {URL: "http://127.0.0.1:1/v1"}},
-		Agent:     config.Agent{Model: "p/m", Settings: config.Settings{ContextWindow: 100}},
+		Agents:    map[string]*config.Agent{"main": {Model: "p/m", Settings: config.Settings{ContextWindow: 100}}},
 		Metrics:   &config.Metrics{Listen: ops},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,4 +146,22 @@ func gauge(body, metric string) bool {
 		return err == nil && v > 0
 	}
 	return false
+}
+
+// A v1 config with agent: must stop every command that reads the config with
+// the tailored message, before any of them touches the database.
+func TestRemovedAgentKeyStopsEveryCommand(t *testing.T) {
+	path := t.TempDir() + "/hfy.yaml"
+	y := "server: {secret: s}\ndatabase: {url: postgres://127.0.0.1:1/x}\nproviders: {p: {url: http://x}}\n" +
+		"agent: {model: p/m, settings: {context_window: 1}}\n"
+	if err := os.WriteFile(path, []byte(y), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const want = "line 4: agent was removed in v2; move it to agents.main"
+	for _, args := range [][]string{{"validate"}, {"serve"}, {"serve", "--work"}, {"queue:work"}, {"migrate"}, {"migrate", "status"}} {
+		err := app().Run(context.Background(), append([]string{"hfy", "-c", path}, args...))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%v: want %q, got %v", args, want, err)
+		}
+	}
 }

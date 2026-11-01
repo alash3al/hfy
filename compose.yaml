@@ -1,5 +1,5 @@
-# One instance = one app (one tenant); its agents are configured under agent
-# and agents. Run another copy of this stack for another app. `serve --work`
+# One instance = one app (one tenant); its agents are configured under
+# agents. Run another copy of this stack for another app. `serve --work`
 # runs API and workers together; for scale, run `serve` and `queue:work` as
 # separate services.
 services:

@@ -637,7 +637,7 @@ func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 // included, and nothing rotates.
 func TestExchangeFailsClosedForAMissingAgent(t *testing.T) {
 	a := start(t, func(c *config.Config) {
-		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "A store.", Settings: config.Settings{ContextWindow: 1000}}}
+		c.Agents["store"] = &config.Agent{Model: "fake/small", System: "A store.", Settings: config.Settings{ContextWindow: 1000}}
 	})
 	tok, id := a.grant(a.newConversation(), map[string]any{"agent": "store", "expires_in": 60, "max_lifetime": 3600})
 	code, out := a.swap(tok)

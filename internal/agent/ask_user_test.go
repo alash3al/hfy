@@ -25,8 +25,8 @@ func askCall(id string) fakeprov.Step {
 // result, exactly {"answers":{...}}, and the turn runs on with them.
 func TestAskUserPausesAndServesTheAnswers(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
-		c.Agent.Approval = &config.Approval{Tools: []string{"hfy.*"}, Timeout: config.Duration(time.Minute)} // an ask never pauses twice
+		c.Main().AskUser = true
+		c.Main().Approval = &config.Approval{Tools: []string{"hfy.*"}, Timeout: config.Duration(time.Minute)} // an ask never pauses twice
 	}, askCall("q"), fakeprov.Step{Content: "got it, ordering"})
 	turn := e.post("order a shirt")
 	e.waitState(turn, types.StateAwaitingApproval)
@@ -69,7 +69,7 @@ func TestAskUserPausesAndServesTheAnswers(t *testing.T) {
 
 // Declining (not answering) lets the turn go on with that text back.
 func TestAskUserDeclined(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.AskUser = true },
+	e := setup(t, func(c *config.Config) { c.Main().AskUser = true },
 		askCall("q"), fakeprov.Step{Content: "very well, sending as is"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateAwaitingApproval)
@@ -85,8 +85,8 @@ func TestAskUserDeclined(t *testing.T) {
 // An ask times out on the agent's approval.timeout; its text says so.
 func TestAskUserTimeout(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
-		c.Agent.Approval = &config.Approval{Timeout: config.Duration(300 * time.Millisecond)}
+		c.Main().AskUser = true
+		c.Main().Approval = &config.Approval{Timeout: config.Duration(300 * time.Millisecond)}
 	}, askCall("q"), fakeprov.Step{Content: "rms, going ahead"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
@@ -103,7 +103,7 @@ func TestAskUserTimeout(t *testing.T) {
 // id) is repaired, stored repaired, and pauses like any ask: the viewer gets
 // the wizard, and answers are checked against what was stored.
 func TestAskUserRepairsAndStoresTheQuestions(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.AskUser = true },
+	e := setup(t, func(c *config.Config) { c.Main().AskUser = true },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "q", Name: "hfy__ask_user",
 			Args: `{"questions":[{"id":"Size","text":"Which size?","type":"single"},{"text":"Color?","options":["Black","White"]}]}`}}},
 		fakeprov.Step{Content: "thanks"})
@@ -125,7 +125,7 @@ func TestAskUserRepairsAndStoresTheQuestions(t *testing.T) {
 // A call that cannot be repaired is an error result with an example: the
 // turn never pauses on it.
 func TestAskUserInvalidArgsDoNotPause(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.AskUser = true },
+	e := setup(t, func(c *config.Config) { c.Main().AskUser = true },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "q", Name: "hfy__ask_user",
 			Args: `{"questions":[{"id":"size","text":"","type":"single","options":[{"value":"m"},{"value":"l"}]}]}`}}},
 		fakeprov.Step{Content: "fine, guessing then"})
@@ -146,8 +146,8 @@ func TestAskUserInvalidArgsDoNotPause(t *testing.T) {
 // not asks.
 func TestAskUserRequiresOptInAndItsDecisionsHaveRules(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "no", Name: "hfy__ask_user", Args: askQuestions}}},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "w", Name: "files__write_file", Args: `{"text":"a.txt"}`}}},

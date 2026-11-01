@@ -27,7 +27,7 @@ func uiServer(c *config.Config) {
 // result with questions keeps them on the result for a later pause.
 func TestUIRidesTheToolResult(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "u", Name: "files__ui"}}},
@@ -47,7 +47,7 @@ func TestUIRidesTheToolResult(t *testing.T) {
 
 // A card from a server that has no ui config never reaches a client.
 func TestUIWithoutConfigIsStripped(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "u", Name: "files__ui"}}},
 		fakeprov.Step{Content: "enjoy"},
 	)
@@ -62,7 +62,7 @@ func TestUIWithoutConfigIsStripped(t *testing.T) {
 // A failed call for its ui: an error strips the card too.
 func TestUIDiesWithTheCall(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "b", Name: "files__ui_boom"}}},
@@ -79,7 +79,7 @@ func TestUIDiesWithTheCall(t *testing.T) {
 // A contentless call's card rides the result like any other.
 func TestUISilentCardRidesToo(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "s", Name: "files__ui_silent"}}},
@@ -100,8 +100,8 @@ func TestUISilentCardRidesToo(t *testing.T) {
 // askSettings opts a turn into asking: the agent may call hfy.ask_user, so its
 // tools may ask the viewer questions of their own.
 func askSettings(c *config.Config) {
-	c.Agent.MCP = []string{"files"}
-	c.Agent.AskUser = true
+	c.Main().MCP = []string{"files"}
+	c.Main().AskUser = true
 	uiServer(c)
 }
 
@@ -172,7 +172,7 @@ func TestToolQuestionsDeclinedOrTimedOut(t *testing.T) {
 	t.Run("timed out", func(t *testing.T) {
 		e := setup(t, func(c *config.Config) {
 			askSettings(c)
-			c.Agent.Approval = &config.Approval{Timeout: config.Duration(300 * time.Millisecond)}
+			c.Main().Approval = &config.Approval{Timeout: config.Duration(300 * time.Millisecond)}
 		},
 			fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask"}}},
 			fakeprov.Step{Content: "okay, skipping"},
@@ -268,7 +268,7 @@ func TestToolQuestionsStoppedMidHold(t *testing.T) {
 // card kept: the result is the tool's text, the card rides it, nothing pauses.
 func TestToolQuestionsWithoutAskUser(t *testing.T) {
 	e := setup(t, func(c *config.Config) { // no AskUser
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 	},
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "a", Name: "files__ui_ask"}}},
@@ -292,7 +292,7 @@ func TestToolQuestionsWithoutAskUser(t *testing.T) {
 // stored, so the card is alone with the questions and there is no approval.
 func TestSubagentGetsNoPause(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 		c.Subagents = map[string]config.Subagent{"orders": {
 			Description: "Handles orders", Model: "fake/m", System: "Orders.",
@@ -425,7 +425,7 @@ func TestHeldCallIsServedNotReExecutedOnRetry(t *testing.T) {
 // resume runs it once and the questions are dropped with a warning.
 func TestApprovedToolCannotAsk(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
+		c.Main().MCP = []string{"files"}
 		uiServer(c)
 		srv := c.MCP["files"]
 		srv.Approval = []string{"ui_ask"}

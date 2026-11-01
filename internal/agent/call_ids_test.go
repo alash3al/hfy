@@ -35,8 +35,8 @@ func TestRepeatedCallIDsEachGetTheirOwnApproval(t *testing.T) {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: "call_0", Name: "files__write_file", Args: `{"text":"` + file + `"}`}}}
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 	}, write("a.txt"), write("b.txt"), write("c.txt"), fakeprov.Step{Content: "all written"})
 	turn := e.post("write them")
 	ids := e.waitCalls(turn, 1)
@@ -86,7 +86,7 @@ func TestRepeatedCallIDsEachGetTheirOwnApproval(t *testing.T) {
 // Two calls with one id in one message both run, and the model gets two results
 // under two ids.
 func TestSameIDTwiceInOneMessage(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{
 			{ID: "dup", Name: "files__echo", Args: `{"text":"one"}`},
 			{ID: "dup", Name: "files__echo", Args: `{"text":"two"}`}}},
@@ -109,8 +109,8 @@ func TestSameIDTwiceInOneMessage(t *testing.T) {
 // the answered one.
 func TestAskUserWithARepeatedID(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
-		c.Agent.Approval = &config.Approval{Timeout: config.Duration(time.Minute)}
+		c.Main().AskUser = true
+		c.Main().Approval = &config.Approval{Timeout: config.Duration(time.Minute)}
 	}, askCall("q"), askCall("q"), fakeprov.Step{Content: "thanks"})
 	turn := e.post("order a shirt")
 	ids := e.waitCalls(turn, 1)
@@ -174,7 +174,7 @@ func TestCallIDsAreUniqueAcrossTurns(t *testing.T) {
 	echo := func(id, text string) fakeprov.Call {
 		return fakeprov.Call{ID: id, Name: "files__echo", Args: `{"text":"` + text + `"}`}
 	}
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t1")}}, fakeprov.Step{Content: "one"},
 		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t2")}}, fakeprov.Step{Content: "two"},
 		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t3a"), echo("dup", "t3b"), echo("fresh", "t3c")}}, fakeprov.Step{Content: "three"},
@@ -222,8 +222,8 @@ func TestCallIDsUniqueAcrossTurnsOnResume(t *testing.T) {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: "dup", Name: "files__write_file", Args: `{"text":"` + file + `"}`}}}
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 	}, write("a.txt"), fakeprov.Step{Content: "one"}, // turn 1 asks (dup), then answers
 		write("b.txt"), write("c.txt"), fakeprov.Step{Content: "two"}) // turn 2: dup collides, pauses; resumed, dup again
 	t1 := e.post("one")

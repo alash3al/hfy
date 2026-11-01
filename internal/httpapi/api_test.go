@@ -55,8 +55,8 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 		Server:    config.Server{Secret: secret},
 		Queue:     config.Queue{Workers: 2, Lease: config.Duration(5 * time.Second), MaxAttempts: 2},
 		Providers: map[string]config.Provider{"fake": {URL: fake.URL1(), Timeout: config.Duration(10 * time.Second)}},
-		Agent: config.Agent{Model: "fake/m", System: "You help {{user}}.", Settings: config.Settings{ContextWindow: 100000},
-			Vars: map[string]config.Var{"user": {Default: new("friend")}, "tone": {Default: new("kind")}}},
+		Agents: map[string]*config.Agent{"main": {Model: "fake/m", System: "You help {{user}}.", Settings: config.Settings{ContextWindow: 100000},
+			Vars: map[string]config.Var{"user": {Default: new("friend")}, "tone": {Default: new("kind")}}}},
 	}
 	if tweak != nil {
 		tweak(cfg)
@@ -386,8 +386,8 @@ func TestMessageStreamResumeAndHistory(t *testing.T) {
 // is the backend's 400 now and never a client's failed turn later.
 func TestGrantValidation(t *testing.T) {
 	a := start(t, func(c *config.Config) {
-		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
-			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
+		c.Agents["store"] = &config.Agent{Model: "fake/small", System: "You are {{shop}}'s store.",
+			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}
 	})
 	conv := a.newConversation()
 	ok := map[string]any{"conversation": conv, "actor": "u1"}
@@ -600,8 +600,8 @@ func TestApproveWithoutPendingIsConflictAndStopIsAccepted(t *testing.T) {
 // and vars, and its events are authored by that agent.
 func TestGrantPicksTheAgent(t *testing.T) {
 	a := start(t, func(c *config.Config) {
-		c.Agents = map[string]config.Agent{"store": {Model: "fake/small", System: "You are {{shop}}'s store.",
-			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}}
+		c.Agents["store"] = &config.Agent{Model: "fake/small", System: "You are {{shop}}'s store.",
+			Settings: config.Settings{ContextWindow: 1000}, Vars: map[string]config.Var{"shop": {Required: true}}}
 	}, fakeprov.Step{Content: "store here"}, fakeprov.Step{Content: "main here"})
 	conv := a.newConversation()
 	buyer, buyerID := a.grant(conv, map[string]any{"actor": "u1", "agent": "store", "vars": map[string]string{"shop": "Napoli"}})

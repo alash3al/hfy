@@ -49,7 +49,7 @@ func TestApproveValidatesTheAnswers(t *testing.T) {
 	for i := range script {
 		script[i] = ask
 	}
-	a := start(t, func(c *config.Config) { c.Agent.AskUser = true }, script...)
+	a := start(t, func(c *config.Config) { c.Main().AskUser = true }, script...)
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

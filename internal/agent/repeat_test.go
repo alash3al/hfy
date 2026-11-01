@@ -94,8 +94,8 @@ func TestRepeatGuardSurvivesApprovalResumes(t *testing.T) {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "files__write_file", Args: `{"text":"a.txt"}`}}}
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.MCP = []string{"files"}
-		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+		c.Main().MCP = []string{"files"}
+		c.Main().Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
 		c.Queue.Workers = 0
 	}, write("w1"), write("w2"), write("w3"), fakeprov.Step{Content: "done"})
 	turn := e.post("write it")
@@ -137,7 +137,7 @@ func TestRepeatedAsksAreCounted(t *testing.T) {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "hfy__ask_user", Args: askQuestions}}}
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
+		c.Main().AskUser = true
 		c.Queue.Workers = 0
 	}, ask("q1"), ask("q2"), ask("q3"), fakeprov.Step{Content: "done"})
 	turn := e.post("order")
@@ -172,7 +172,7 @@ func TestAnsweredAsksNeverRepeatCount(t *testing.T) {
 		steps = append(steps, fakeprov.Step{Calls: []fakeprov.Call{{ID: fmt.Sprintf("q%d", i), Name: "hfy__ask_user", Args: askQuestions}}})
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
+		c.Main().AskUser = true
 		c.Queue.Workers = 0
 	}, append(steps, fakeprov.Step{Content: "all proceeded"})...)
 	turn := e.post("proceed through the list")
@@ -209,7 +209,7 @@ func TestDeclinedAsksEndTheTurn(t *testing.T) {
 		steps = append(steps, fakeprov.Step{Calls: []fakeprov.Call{{ID: fmt.Sprintf("q%d", i), Name: "hfy__ask_user", Args: askQuestions}}})
 	}
 	e := setup(t, func(c *config.Config) {
-		c.Agent.AskUser = true
+		c.Main().AskUser = true
 		c.Queue.Workers = 0
 	}, steps...)
 	turn := e.post("proceed through the list")
@@ -284,7 +284,7 @@ func TestRepeatCountsStayWithTheirTurn(t *testing.T) {
 	call := func(id string) fakeprov.Step {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "files__echo", Args: x}}}
 	}
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+	e := setup(t, func(c *config.Config) { c.Main().MCP = []string{"files"} },
 		call("c1"), call("c2"), fakeprov.Step{Content: "one"},
 		call("c3"), fakeprov.Step{Content: "two"},
 		call("c4"), fakeprov.Step{Content: "three"},
@@ -298,7 +298,7 @@ func TestRepeatCountsStayWithTheirTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vars, _ := svc.ResolveVars(e.rt.Cfg.Agent.Vars, nil)
+	vars, _ := svc.ResolveVars(e.rt.Cfg.Main().Vars, nil)
 	u, err := e.rt.Svc.Post(e.ctx, svc.PostInput{ConversationID: other.ID, Actor: e.user, Scope: "u1", Vars: vars, Text: "third"})
 	if err != nil {
 		t.Fatal(err)

@@ -60,7 +60,7 @@ func TestMCPCallErrorTraceIsClean(t *testing.T) {
 	t.Cleanup(func() { mcpSrv.CloseClientConnections(); mcpSrv.Close() }) // the client keeps an event stream open
 	e := setup(t, func(c *config.Config) {
 		c.MCP = map[string]config.MCPServer{"rem": {Type: "remote", URL: mcpSrv.URL, Timeout: config.Duration(10 * time.Second)}}
-		c.Agent.MCP = []string{"rem"}
+		c.Main().MCP = []string{"rem"}
 	}, fakeprov.Step{Calls: []fakeprov.Call{{ID: "c1", Name: "rem__boom", Args: `{}`}}}, fakeprov.Step{Content: "done"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)

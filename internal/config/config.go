@@ -34,8 +34,7 @@ type Config struct {
 	MCP         map[string]MCPServer `yaml:"mcp"`
 	Attachments *Attachments         `yaml:"attachments"`
 	Filesystem  *Filesystem          `yaml:"filesystem"`
-	Agent       Agent                `yaml:"agent"`  // the default agent, named "main"
-	Agents      map[string]Agent     `yaml:"agents"` // more agents; a grant picks one by name
+	Agents      map[string]*Agent    `yaml:"agents"` // required: "main" answers a grant that names no agent
 	Subagents   map[string]Subagent  `yaml:"subagents"`
 	Summarizer  *Summarizer          `yaml:"summarizer"`
 	Metrics     *Metrics             `yaml:"metrics"`
@@ -402,12 +401,13 @@ func (c *Config) SetDefaults() {
 		}
 		c.MCP[k] = s
 	}
-	if c.Agent.Approval != nil && c.Agent.Approval.Timeout == 0 {
-		c.Agent.Approval.Timeout = Duration(10 * time.Minute)
-	}
-	for _, a := range c.Agents {
+	for name, a := range c.Agents {
+		if a == nil { // "main:" with no value; Validate reports what it lacks
+			a = &Agent{}
+			c.Agents[name] = a
+		}
 		if a.Approval != nil && a.Approval.Timeout == 0 {
-			a.Approval.Timeout = Duration(10 * time.Minute) // a pointer: this sets the map's copy too
+			a.Approval.Timeout = Duration(10 * time.Minute)
 		}
 	}
 	if c.Summarizer != nil && c.Summarizer.KeepRecent == 0 {
@@ -662,14 +662,14 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// agents: "agent" (named main) and every entry under "agents"
-	agents := c.AllAgents()
+	agents := c.Agents
+	if agents[types.AgentMain] == nil {
+		bad(`agents.main is required (the default agent: a grant without "agent" runs it)`)
+	}
 	for _, name := range slices.Sorted(maps.Keys(agents)) {
 		a := agents[name]
 		where := "agents." + name
-		if name == types.AgentMain {
-			where = "agent"
-		} else if name == types.AgentSummarizer || !nameRe.MatchString(name) || strings.Contains(name, "__") {
+		if name == types.AgentSummarizer || !nameRe.MatchString(name) || strings.Contains(name, "__") {
 			bad("%s: name is reserved or invalid (use [a-zA-Z0-9_-], no double underscore)", where)
 		}
 		checkModel(where, a.Model)
@@ -773,21 +773,15 @@ var BuiltinTools = []string{"tool_search", "now", "math_calc", "ask_user"}
 // not one: it pauses on its own branch before approval ever applies.
 var coreNoApprovalTools = []string{"hfy.now", "hfy.math_calc", "hfy.tool_search"}
 
-// AllAgents returns every agent by name; the default "agent" is "main".
-func (c *Config) AllAgents() map[string]*Agent {
-	all := map[string]*Agent{types.AgentMain: &c.Agent}
-	for name, a := range c.Agents {
-		all[name] = &a
-	}
-	return all
-}
+// Main is the default agent: the one a grant that names none runs.
+func (c *Config) Main() *Agent { return c.Agents[types.AgentMain] }
 
 // AgentNamed returns the agent a grant picked ("" = main).
 func (c *Config) AgentNamed(name string) (*Agent, bool) {
 	if name == "" {
 		name = types.AgentMain
 	}
-	a, ok := c.AllAgents()[name]
+	a, ok := c.Agents[name]
 	return a, ok
 }
 

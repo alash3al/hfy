@@ -14,6 +14,7 @@ import (
 // generic unknown-key error, and the key is refused whatever its value.
 var removedKeys = map[string]string{
 	"config.embeddings": "embeddings was removed in v2; expose memory as an MCP tool",
+	"config.agent":      "agent was removed in v2; move it to agents.main",
 }
 
 // checkKeys rejects keys that match no config field, with the line they are

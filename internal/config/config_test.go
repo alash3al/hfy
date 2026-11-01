@@ -54,7 +54,7 @@ server: { secret: s }
 database: { url: "${U}" }
 queue: { workers: "${W}" }
 providers: { p: { url: http://x } }
-agent: { model: p/m, settings: { context_window: 10 } }
+agents: {main: { model: p/m, settings: { context_window: 10 } }}
 `
 	c, err := Parse([]byte(y), env(map[string]string{"U": "pg://", "W": "7"}))
 	if err != nil {
@@ -83,15 +83,15 @@ database: { url: u }
 providers: { p: { url: http://x } }
 `
 	cases := map[string]string{
-		"agent: { model: nope/m, settings: { context_window: 10 } }": `unknown provider "nope"`,
-		"agent: { model: p/m }": "context_window",
-		"agent: { model: p/m, settings: { context_window: 1 }, system: 'hi {{who}}' }":                                "{{who}}",
-		"agent: { model: p/m, settings: { context_window: 1 }, mcp: [ghost] }":                                        `unknown server "ghost"`,
-		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { main: { description: d, model: p/m } }": "reserved",
-		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { a: { model: p/m } }":                    "description",
-		"agent: { model: p/m, settings: { context_window: 1 } }\nsubagents: { now: { description: d, model: p/m } }":  "taken by the built-in tool hfy.now",
-		"agent: { model: p/m, settings: { context_window: 1 } }\nauth: { webhook: http://hook }":                      `unknown key "auth"`,
-		"agent: { model: p/m, settings: { context_window: 1 } }\nmcp: { hfy: { type: local, command: [x] } }":         "reserved for hfy's built-in tools",
+		"agents: {main: { model: nope/m, settings: { context_window: 10 } }}":                                                  `unknown provider "nope"`,
+		"agents: {main: { model: p/m }}":                                                                                       "context_window",
+		"agents: {main: { model: p/m, settings: { context_window: 1 }, system: 'hi {{who}}' }}":                                "{{who}}",
+		"agents: {main: { model: p/m, settings: { context_window: 1 }, mcp: [ghost] }}":                                        `unknown server "ghost"`,
+		"agents: {main: { model: p/m, settings: { context_window: 1 } }}\nsubagents: { main: { description: d, model: p/m } }": "reserved",
+		"agents: {main: { model: p/m, settings: { context_window: 1 } }}\nsubagents: { a: { model: p/m } }":                    "description",
+		"agents: {main: { model: p/m, settings: { context_window: 1 } }}\nsubagents: { now: { description: d, model: p/m } }":  "taken by the built-in tool hfy.now",
+		"agents: {main: { model: p/m, settings: { context_window: 1 } }}\nauth: { webhook: http://hook }":                      `unknown key "auth"`,
+		"agents: {main: { model: p/m, settings: { context_window: 1 } }}\nmcp: { hfy: { type: local, command: [x] } }":         "reserved for hfy's built-in tools",
 	}
 	for tail, want := range cases {
 		_, err := Parse([]byte(base+tail), env(nil))
@@ -99,7 +99,7 @@ providers: { p: { url: http://x } }
 			t.Errorf("want error containing %q, got %v", want, err)
 		}
 	}
-	if _, err := Parse([]byte("database: {url: u}\nagent: {model: p/m}"), env(nil)); err == nil || !strings.Contains(err.Error(), "server.secret") {
+	if _, err := Parse([]byte("database: {url: u}\nagents: {main: {model: p/m}}"), env(nil)); err == nil || !strings.Contains(err.Error(), "server.secret") {
 		t.Errorf("missing secret must fail, got %v", err)
 	}
 }
@@ -123,10 +123,10 @@ func TestUnits(t *testing.T) {
 func TestUnknownKeysAreRejected(t *testing.T) {
 	base := "server: {secret: s}\ndatabase: {url: postgres://x}\nproviders: {p: {url: http://x}}\n"
 	for _, c := range []struct{ yaml, want string }{
-		{"agent:\n  model: p/m\n  settings: {context_window: 10}\n  aproval: {tools: [\"files.*\"]}\n", `line 7: unknown key "aproval" in config.agent`},
-		{"agent: {model: p/m, settings: {context_window: 10, temprature: 0.2}}\n", `unknown key "temprature" in config.agent.settings`},
-		{"mcp: {files: {type: local, comand: [x]}}\nagent: {model: p/m, settings: {context_window: 10}}\n", `unknown key "comand" in config.mcp.files`},
-		{"agent: {model: p/m, settings: {context_window: 10}}\nretension: {trace: 1d}\n", `unknown key "retension" in config`},
+		{"agents:\n  main:\n    model: p/m\n    settings: {context_window: 10}\n    aproval: {tools: [\"files.*\"]}\n", `line 8: unknown key "aproval" in config.agents.main`},
+		{"agents: {main: {model: p/m, settings: {context_window: 10, temprature: 0.2}}}\n", `unknown key "temprature" in config.agents.main.settings`},
+		{"mcp: {files: {type: local, comand: [x]}}\nagents: {main: {model: p/m, settings: {context_window: 10}}}\n", `unknown key "comand" in config.mcp.files`},
+		{"agents: {main: {model: p/m, settings: {context_window: 10}}}\nretension: {trace: 1d}\n", `unknown key "retension" in config`},
 	} {
 		_, err := Parse([]byte(base+c.yaml), func(string) (string, bool) { return "", false })
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -136,9 +136,8 @@ func TestUnknownKeysAreRejected(t *testing.T) {
 }
 
 func TestNamedAgents(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: postgres://x}\nproviders: {p: {url: http://x}}\n" +
-		"agent: {model: p/m, settings: {context_window: 10}}\n"
-	cfg, err := Parse([]byte(base+"agents:\n  store: {model: p/small, system: 'Store {{name}}', vars: {name: {required: true}}, settings: {context_window: 5}, approval: {tools: [\"cart.*\"]}}\n"),
+	base := "server: {secret: s}\ndatabase: {url: postgres://x}\nproviders: {p: {url: http://x}}\n"
+	cfg, err := Parse([]byte(base+"agents:\n  main: {model: p/m, settings: {context_window: 10}}\n  store: {model: p/small, system: 'Store {{name}}', vars: {name: {required: true}}, settings: {context_window: 5}, approval: {tools: [\"cart.*\"]}}\n"),
 		func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatal(err)
@@ -150,11 +149,11 @@ func TestNamedAgents(t *testing.T) {
 		t.Fatal("empty name must be the main agent")
 	}
 	for yaml, want := range map[string]string{
-		"agents: {summarizer: {model: p/m, settings: {context_window: 1}}}\n":                                      "agents.summarizer: name is reserved",
-		"agents: {x: {model: q/m, settings: {context_window: 1}}}\n":                                               `agents.x.model: unknown provider "q"`,
-		"agents: {x: {model: p/m}}\n":                                                                              "agents.x.settings.context_window is required",
-		"agents: {x: {model: p/m, settings: {context_window: 1}, system: '{{nope}}'}}\n":                           "agents.x.system uses {{nope}}",
-		"agents: {x: {model: p/m, settings: {context_window: 1}}}\nsubagents: {x: {description: d, model: p/m}}\n": "subagents.x: name is reserved or taken",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, summarizer: {model: p/m, settings: {context_window: 1}}}\n":                                      "agents.summarizer: name is reserved",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: q/m, settings: {context_window: 1}}}\n":                                               `agents.x.model: unknown provider "q"`,
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m}}\n":                                                                              "agents.x.settings.context_window is required",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1}, system: '{{nope}}'}}\n":                           "agents.x.system uses {{nope}}",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1}}}\nsubagents: {x: {description: d, model: p/m}}\n": "subagents.x: name is reserved or taken",
 	} {
 		if _, err := Parse([]byte(base+yaml), func(string) (string, bool) { return "", false }); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", yaml, want, err)
@@ -164,7 +163,7 @@ func TestNamedAgents(t *testing.T) {
 
 // An origin is accepted only as a browser writes it, so it can ever match.
 func TestCORSOrigins(t *testing.T) {
-	base := "database: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "database: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	for origins, ok := range map[string]bool{
 		`["https://shop.example.com"]`:                       true,
 		`["http://localhost:5173", "https://a.example.com"]`: true,
@@ -187,7 +186,7 @@ func TestCORSOrigins(t *testing.T) {
 }
 
 func TestEmbedValidation(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	if _, err := Parse([]byte(base+"embed: {accent: red}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.accent") {
 		t.Errorf("bad accent must fail naming embed.accent, got %v", err)
 	}
@@ -226,7 +225,7 @@ func TestEmbedValidation(t *testing.T) {
 // AccentSet is what the whatsapp layout reads: an accent written in YAML is set,
 // even the default indigo; an omitted accent is not.
 func TestEmbedAccentSet(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	for _, tc := range []struct {
 		name   string
 		embed  string
@@ -294,7 +293,7 @@ database: { url: u }
 providers:
   p: { url: http://x }
   fake: { type: mock, mock: { reply: "Hello from mock" } }
-agent: { model: p/m, settings: { context_window: 10 } }
+agents: {main: { model: p/m, settings: { context_window: 10 } }}
 `
 	c, err := Parse([]byte(y), env(nil))
 	if err != nil {
@@ -314,7 +313,7 @@ server: { secret: s }
 database: { url: u }
 providers:
   fake: { type: mock, mock: { error_status: 200 } }
-agent: { model: fake/m, settings: { context_window: 10 } }
+agents: {main: { model: fake/m, settings: { context_window: 10 } }}
 `
 	_, err := Parse([]byte(y), env(nil))
 	if err == nil || !strings.Contains(err.Error(), "providers.fake.mock.error_status") {
@@ -323,7 +322,7 @@ agent: { model: fake/m, settings: { context_window: 10 } }
 }
 
 func TestRemovedEmbeddingsKeyFailsWithTailoredError(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	if _, err := Parse([]byte(base), env(nil)); err != nil {
 		t.Fatalf("the base config must parse: %v", err)
 	}
@@ -355,7 +354,7 @@ func TestRemovedEmbeddingsKeyFailsWithTailoredError(t *testing.T) {
 }
 
 func TestFilesystemDefaults(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	c, err := Parse([]byte(base+"filesystem: {dsn: file:///tmp/hfy-files, types: [image/png]}\n"), env(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -381,7 +380,7 @@ func TestFilesystemDefaults(t *testing.T) {
 // Server-owned approval policy: patterns are validated like agent ones, and
 // a pattern naming only a core tool can never work (core tools never wait).
 func TestMCPServerApproval(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	y := base + "mcp: {files: {type: remote, url: http://x, approval: [\"[bad\"], approve_destructive: true}}\n"
 	if _, err := Parse([]byte(y), env(nil)); err == nil || !strings.Contains(err.Error(), `mcp.files.approval: bad pattern "[bad"`) {
 		t.Errorf("bad pattern must fail naming mcp.<name>.approval, got %v", err)
@@ -395,12 +394,12 @@ func TestMCPServerApproval(t *testing.T) {
 	}
 	plain := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
 	for _, p := range []string{"hfy.now", "hfy.math_calc", "hfy.tool_search"} {
-		y := plain + `agent: {model: p/m, settings: {context_window: 1}, approval: {tools: ["` + p + `"]}}` + "\n"
+		y := plain + `agents: {main: {model: p/m, settings: {context_window: 1}, approval: {tools: ["` + p + `"]}}}` + "\n"
 		if _, err := Parse([]byte(y), env(nil)); err == nil || !strings.Contains(err.Error(), "core tool and never needs approval") {
 			t.Errorf("%q must be rejected, got %v", p, err)
 		}
 	}
-	if _, err := Parse([]byte(plain+"agent: {model: p/m, settings: {context_window: 1}, approval: {tools: [\"hfy.*\"]}}\n"), env(nil)); err != nil {
+	if _, err := Parse([]byte(plain+"agents: {main: {model: p/m, settings: {context_window: 1}, approval: {tools: [\"hfy.*\"]}}}\n"), env(nil)); err != nil {
 		t.Errorf("a wide hfy.* pattern is fine (it guards sub-agents): %v", err)
 	}
 }
@@ -426,7 +425,7 @@ func TestApprovalRequires(t *testing.T) {
 // The ui node opts one MCP server into cards and questions; hosts are checked
 // and unknown keys inside it rejected.
 func TestMCPServerUI(t *testing.T) {
-	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
 	c, err := Parse([]byte(base+`mcp: {files: {type: remote, url: http://x, ui: {image_hosts: [cdn.example.com, "*.s3.amazonaws.com"]}}}`+"\n"), env(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -451,53 +450,53 @@ func TestMCPServerUI(t *testing.T) {
 // with an error naming the agent and the key.
 func TestModelRequestControls(t *testing.T) {
 	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
-	c, err := Parse([]byte(base+"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: none, max_output_tokens: 512, call_timeout: 30s, extra: {cache_control: {type: ephemeral}, reasoning: {effort: high}}}}\n"), env(nil))
+	c, err := Parse([]byte(base+"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: none, max_output_tokens: 512, call_timeout: 30s, extra: {cache_control: {type: ephemeral}, reasoning: {effort: high}}}}}\n"), env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := c.Agent.Settings
+	s := c.Main().Settings
 	if s.ReasoningEffort != "none" || s.MaxOutputTokens != 512 || s.CallTimeout.D() != 30*time.Second ||
 		s.Extra["reasoning"].(map[string]any)["effort"] != "high" || c.Providers["p"].MaxTokensParam != "max_tokens" {
 		t.Fatalf("parsed: %+v", s)
 	}
 	c, err = Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: max_completion_tokens}}\n"+
-		"agent: {model: p/m, settings: {context_window: 1}}\n"), env(nil))
+		"agents: {main: {model: p/m, settings: {context_window: 1}}}\n"), env(nil))
 	if err != nil || c.Providers["p"].MaxTokensParam != "max_completion_tokens" {
 		t.Fatalf("max_tokens_param: %v %+v", err, c.Providers["p"])
 	}
 
 	bad := map[string]string{
-		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: maybe}}":                                 "agent.settings.reasoning_effort must be one of none, minimal, low, medium, high, xhigh, max",
-		"agents: {x: {model: p/m, settings: {context_window: 1, reasoning_effort: Low}}}":                             "agents.x.settings.reasoning_effort",
-		"subagents: {r: {description: d, model: p/m, settings: {reasoning_effort: x}}}":                               "subagents.r.settings.reasoning_effort",
-		"summarizer: {model: p/m, settings: {context_window: 1, reasoning_effort: x}}":                                "summarizer.settings.reasoning_effort",
-		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}":                                   "agent.settings.max_output_tokens must be greater than 0",
-		"agents: {x: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}}":                             "agents.x.settings.max_output_tokens",
-		"summarizer: {model: p/m, settings: {context_window: 1, max_output_tokens: -2}}":                              "summarizer.settings.max_output_tokens",
-		"agent: {model: p/m, settings: {context_window: 1, call_timeout: -5s}}":                                       "agent.settings.call_timeout must not be negative",
-		"subagents: {r: {description: d, model: p/m, settings: {call_timeout: -1s}}}":                                 "subagents.r.settings.call_timeout",
-		"agent: {model: p/m, settings: {context_window: 1, reasoning_efort: low}}":                                    `unknown key "reasoning_efort" in config.agent.settings`,
-		"agent: {model: p/m, settings: {context_window: 1, extra: {model: x}}}":                                       "agent.settings.extra.model is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                                   "agent.settings.extra.messages is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {tools: []}}}":                                      "agent.settings.extra.tools is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {stream: false}}}":                                  "agent.settings.extra.stream is set by hfy",
-		"agents: {x: {model: p/m, settings: {context_window: 1, extra: {stream_options: {}}}}}":                       "agents.x.settings.extra.stream_options is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {n: 2}}}":                                           "agent.settings.extra.n is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {Tools: []}}}":                                      "agent.settings.extra.Tools is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {MODEL: x}}}":                                       "agent.settings.extra.MODEL is set by hfy",
-		"agents: {x: {model: p/m, settings: {context_window: 1, extra: {Stream: true}}}}":                             "agents.x.settings.extra.Stream is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {Foo: 1, foo: 2}}}":                                 "agent.settings.extra: Foo and foo differ only in case",
-		"subagents: {r: {description: d, model: p/m, settings: {extra: {model: x}}}}":                                 "subagents.r.settings.extra.model is set by hfy",
-		"summarizer: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                              "summarizer.settings.extra.messages is set by hfy",
-		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {reasoning_effort: high}}}":  "agent.settings.extra.reasoning_effort clashes with settings.reasoning_effort",
-		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}": "agent.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
-		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_tokens: 5}}}":            "agent.settings.extra.max_tokens clashes with settings.max_output_tokens",
-		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {MAX_TOKENS: 5}}}":            "agent.settings.extra.MAX_TOKENS clashes with settings.max_output_tokens",
-		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {Reasoning_Effort: high}}}":  "agent.settings.extra.Reasoning_Effort clashes with settings.reasoning_effort",
-		"agent: {model: p/m, settings: {context_window: 1, temperature: 0.2, extra: {temperature: 0.5}}}":             "agent.settings.extra.temperature clashes with settings.temperature",
-		"agents: {x: {model: p/m, settings: {context_window: 1, top_p: 0.9, extra: {top_p: 0.5}}}}":                   "agents.x.settings.extra.top_p clashes with settings.top_p",
-		"agent: {model: p/m, settings: {context_window: 1, extra: {bad: .inf}}}":                                      "agent.settings.extra: values must be JSON-serialisable",
-		"summarizer: {model: p/m, settings: {context_window: 1, extra: {bad: .nan}}}":                                 "summarizer.settings.extra: values must be JSON-serialisable",
+		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: maybe}}}":                                                         "agents.main.settings.reasoning_effort must be one of none, minimal, low, medium, high, xhigh, max",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, reasoning_effort: Low}}}":           "agents.x.settings.reasoning_effort",
+		"subagents: {r: {description: d, model: p/m, settings: {reasoning_effort: x}}}":                                                                "subagents.r.settings.reasoning_effort",
+		"summarizer: {model: p/m, settings: {context_window: 1, reasoning_effort: x}}":                                                                 "summarizer.settings.reasoning_effort",
+		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}}":                                                           "agents.main.settings.max_output_tokens must be greater than 0",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}}":           "agents.x.settings.max_output_tokens",
+		"summarizer: {model: p/m, settings: {context_window: 1, max_output_tokens: -2}}":                                                               "summarizer.settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 1, call_timeout: -5s}}}":                                                               "agents.main.settings.call_timeout must not be negative",
+		"subagents: {r: {description: d, model: p/m, settings: {call_timeout: -1s}}}":                                                                  "subagents.r.settings.call_timeout",
+		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_efort: low}}}":                                                            `unknown key "reasoning_efort" in config.agents.main.settings`,
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {model: x}}}}":                                                               "agents.main.settings.extra.model is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}}":                                                           "agents.main.settings.extra.messages is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {tools: []}}}}":                                                              "agents.main.settings.extra.tools is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {stream: false}}}}":                                                          "agents.main.settings.extra.stream is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, extra: {stream_options: {}}}}}":     "agents.x.settings.extra.stream_options is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {n: 2}}}}":                                                                   "agents.main.settings.extra.n is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {Tools: []}}}}":                                                              "agents.main.settings.extra.Tools is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {MODEL: x}}}}":                                                               "agents.main.settings.extra.MODEL is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, extra: {Stream: true}}}}":           "agents.x.settings.extra.Stream is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {Foo: 1, foo: 2}}}}":                                                         "agents.main.settings.extra: Foo and foo differ only in case",
+		"subagents: {r: {description: d, model: p/m, settings: {extra: {model: x}}}}":                                                                  "subagents.r.settings.extra.model is set by hfy",
+		"summarizer: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                                                               "summarizer.settings.extra.messages is set by hfy",
+		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {reasoning_effort: high}}}}":                          "agents.main.settings.extra.reasoning_effort clashes with settings.reasoning_effort",
+		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}}":                         "agents.main.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_tokens: 5}}}}":                                    "agents.main.settings.extra.max_tokens clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {MAX_TOKENS: 5}}}}":                                    "agents.main.settings.extra.MAX_TOKENS clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {Reasoning_Effort: high}}}}":                          "agents.main.settings.extra.Reasoning_Effort clashes with settings.reasoning_effort",
+		"agents: {main: {model: p/m, settings: {context_window: 1, temperature: 0.2, extra: {temperature: 0.5}}}}":                                     "agents.main.settings.extra.temperature clashes with settings.temperature",
+		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, top_p: 0.9, extra: {top_p: 0.5}}}}": "agents.x.settings.extra.top_p clashes with settings.top_p",
+		"agents: {main: {model: p/m, settings: {context_window: 1, extra: {bad: .inf}}}}":                                                              "agents.main.settings.extra: values must be JSON-serialisable",
+		"summarizer: {model: p/m, settings: {context_window: 1, extra: {bad: .nan}}}":                                                                  "summarizer.settings.extra: values must be JSON-serialisable",
 	}
 	for tail, want := range bad {
 		_, err := Parse([]byte(base+tail+"\n"), env(nil))
@@ -506,11 +505,11 @@ func TestModelRequestControls(t *testing.T) {
 		}
 	}
 	// the agent's own context window is still required next to the controls
-	if _, err := Parse([]byte(base+"agent: {model: p/m, settings: {reasoning_effort: low}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "context_window") {
+	if _, err := Parse([]byte(base+"agents: {main: {model: p/m, settings: {reasoning_effort: low}}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "context_window") {
 		t.Errorf("controls do not replace context_window: %v", err)
 	}
 	if _, err := Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: tokens}}\n"+
-		"agent: {model: p/m, settings: {context_window: 1}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "providers.p.max_tokens_param must be") {
+		"agents: {main: {model: p/m, settings: {context_window: 1}}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "providers.p.max_tokens_param must be") {
 		t.Errorf("bad max_tokens_param: %v", err)
 	}
 }
@@ -519,13 +518,13 @@ func TestModelRequestControls(t *testing.T) {
 // the comments removed the example must still load.
 func TestExampleControlsUncommented(t *testing.T) {
 	lines := strings.Split(ExampleYAML, "\n")
-	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "agent:") })
-	end := slices.Index(lines, "  system: |")
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "agents:") })
+	end := slices.Index(lines, "    system: |")
 	if start < 0 || end < start {
-		t.Fatal("example.yaml: the agent section is not where this test looks")
+		t.Fatal("example.yaml: the agents section is not where this test looks")
 	}
 	for i := start; i < end; i++ {
-		if strings.HasPrefix(lines[i], "    #") {
+		if strings.HasPrefix(lines[i], "      #") {
 			lines[i] = strings.Replace(lines[i], "# ", "", 1)
 		}
 	}
@@ -533,8 +532,164 @@ func TestExampleControlsUncommented(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := c.Agent.Settings
+	s := c.Main().Settings
 	if s.ReasoningEffort != "low" || s.MaxOutputTokens != 4096 || s.CallTimeout.D() != 90*time.Second || s.Extra["cache_control"] == nil {
 		t.Fatalf("uncommented controls parsed as %+v", s)
+	}
+}
+
+const agentsBase = "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
+
+func TestRemovedAgentKeyFailsWithTailoredError(t *testing.T) {
+	const want = "agent was removed in v2; move it to agents.main"
+	main := "agents: {main: {model: p/m, settings: {context_window: 1}}}\n"
+	if _, err := Parse([]byte(agentsBase+main), env(nil)); err != nil {
+		t.Fatalf("the base config must parse: %v", err)
+	}
+	for name, set := range map[string]string{
+		"map":       "agent: {model: p/m, settings: {context_window: 1}}\n",
+		"empty map": "agent: {}\n",
+		"null":      "agent: null\n",
+		"bare":      "agent:\n",
+		"scalar":    "agent: yes\n",
+		"list":      "agent: [a]\n",
+		"unset env": "agent: ${NOPE}\n", // refused before ${VAR} expansion could fail first
+	} {
+		for where, y := range map[string]string{"alone": agentsBase + set, "next to agents": agentsBase + set + main} {
+			_, err := Parse([]byte(y), env(nil))
+			if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "line 4") {
+				t.Errorf("%s (%s): want %q at line 4, got %v", name, where, want, err)
+			}
+		}
+	}
+	// agents first: the removed key still fires, whatever order the file has.
+	_, err := Parse([]byte(agentsBase+main+"agent: {model: p/m}\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "line 5: "+want) {
+		t.Errorf("agents then agent: want %q at line 5, got %v", want, err)
+	}
+	// Keys match case-sensitively: a variant is just unknown.
+	_, err = Parse([]byte(agentsBase+main+"Agent: {}\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), `unknown key "Agent"`) || strings.Contains(err.Error(), "removed in v2") {
+		t.Errorf("case variant: want the generic unknown-key error, got %v", err)
+	}
+	// Only the top-level key is removed; a nested one is not special.
+	for _, y := range []string{"embed: {agent: 1}\n", "agents: {main: {model: p/m, settings: {context_window: 1}, agent: x}}\n"} {
+		_, err = Parse([]byte(agentsBase+y), env(nil))
+		if err == nil || !strings.Contains(err.Error(), `unknown key "agent"`) || strings.Contains(err.Error(), "removed in v2") {
+			t.Errorf("nested key in %q: want the generic unknown-key error, got %v", y, err)
+		}
+	}
+}
+
+func TestMainAgentRequired(t *testing.T) {
+	const want = `agents.main is required (the default agent: a grant without "agent" runs it)`
+	store := "store: {model: p/m, settings: {context_window: 1}}"
+	for name, set := range map[string]string{
+		"absent":       "",
+		"null":         "agents: null\n",
+		"bare":         "agents:\n",
+		"empty map":    "agents: {}\n",
+		"only store":   "agents: {" + store + "}\n",
+		"case variant": "agents: {Main: {model: p/m, settings: {context_window: 1}}}\n",
+	} {
+		_, err := Parse([]byte(agentsBase+set), env(nil))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", name, want, err)
+		}
+	}
+	// agents is a map: any other shape is a decode error, never a silent empty set.
+	for name, set := range map[string]string{"list": "agents: [a]\n", "scalar": "agents: yes\n"} {
+		if _, err := Parse([]byte(agentsBase+set), env(nil)); err == nil || !strings.Contains(err.Error(), "decode config") {
+			t.Errorf("%s: want a decode error, got %v", name, err)
+		}
+	}
+	if _, err := Parse([]byte(agentsBase+"agents: {main: {model: p/m, settings: {context_window: 1}}, "+store+"}\n"), env(nil)); err != nil {
+		t.Errorf("main plus another agent must parse: %v", err)
+	}
+}
+
+// yaml.v3 decodes "main:" (no value) into a nil *Agent; SetDefaults must
+// replace it so nothing dereferences nil and Validate names what is missing.
+func TestNilAgentEntryDoesNotPanic(t *testing.T) {
+	for name, set := range map[string]string{
+		"null":          "agents: {main: null}\n",
+		"bare":          "agents:\n  main:\n",
+		"empty map":     "agents: {main: {}}\n",
+		"other is null": "agents: {main: {model: p/m, settings: {context_window: 1}}, store: }\n",
+	} {
+		_, err := Parse([]byte(agentsBase+set), env(nil))
+		if err == nil || !strings.Contains(err.Error(), "model") {
+			t.Errorf("%s: want the model error, got %v", name, err)
+		}
+	}
+	c := &Config{Agents: map[string]*Agent{"main": nil}}
+	c.SetDefaults()
+	if c.Main() == nil {
+		t.Error("SetDefaults must replace a nil entry")
+	}
+}
+
+func TestAgentNamedDefaultsToMain(t *testing.T) {
+	c, err := Parse([]byte(agentsBase+"agents:\n  main: {model: p/m, settings: {context_window: 1}}\n  store: {model: p/s, settings: {context_window: 1}}\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "main"} {
+		if a, ok := c.AgentNamed(name); !ok || a != c.Main() || a.Model != "p/m" {
+			t.Errorf("AgentNamed(%q) = %+v %v, want the main agent", name, a, ok)
+		}
+	}
+	if a, ok := c.AgentNamed("store"); !ok || a.Model != "p/s" {
+		t.Errorf("store: %+v %v", a, ok)
+	}
+	for _, name := range []string{"nope", "Main", "MAIN", "main "} {
+		if a, ok := c.AgentNamed(name); ok || a != nil {
+			t.Errorf("AgentNamed(%q) must not resolve, got %+v", name, a)
+		}
+	}
+}
+
+// One table for the messages a v1 config or a hostile agents block meets.
+func TestAgentsErrorMessages(t *testing.T) {
+	ok := "model: p/m, settings: {context_window: 1}"
+	long := strings.Repeat("a", 1000)
+	for _, c := range []struct{ name, yaml, want string }{
+		{"agent removed", "agent: {" + ok + "}\n", "line 4: agent was removed in v2; move it to agents.main"},
+		{"agent and agents", "agent: {" + ok + "}\nagents: {main: {" + ok + "}}\n", "line 4: agent was removed in v2; move it to agents.main"},
+		{"agents then agent", "agents: {main: {" + ok + "}}\nagent: {}\n", "line 5: agent was removed in v2; move it to agents.main"},
+		{"agents missing", "", `agents.main is required (the default agent: a grant without "agent" runs it)`},
+		{"main is null", "agents: {main: null}\n", `agents.main.model "" must look like <provider>/<model>`},
+		{"main is empty", "agents: {main: {}}\n", `agents.main.model "" must look like <provider>/<model>`},
+		{"main has no window", "agents: {main: {model: p/m}}\n", "agents.main.settings.context_window is required"},
+		{"main unknown provider", "agents: {main: {model: q/m, settings: {context_window: 1}}}\n", `agents.main.model: unknown provider "q"`},
+		{"main typo", "agents: {main: {modle: p/m}}\n", `unknown key "modle" in config.agents.main`},
+		{"duplicate main", "agents: {main: {" + ok + "}, main: {" + ok + "}}\n", "already defined"},
+		{"space in name", "agents: {main: {" + ok + "}, 'a b': {" + ok + "}}\n", "agents.a b: name is reserved or invalid"},
+		{"double underscore", "agents: {main: {" + ok + "}, a__b: {" + ok + "}}\n", "agents.a__b: name is reserved or invalid"},
+		{"summarizer name", "agents: {main: {" + ok + "}, summarizer: {" + ok + "}}\n", "agents.summarizer: name is reserved or invalid"},
+		{"var in name", "agents: {main: {" + ok + "}, '${X}': {" + ok + "}}\n", "agents.${X}: name is reserved or invalid"},
+		{"empty name", "agents: {main: {" + ok + "}, '': {" + ok + "}}\n", "agents.: name is reserved or invalid"},
+		{"subagent named main", "agents: {main: {" + ok + "}}\nsubagents: {main: {description: d, model: p/m}}\n", "subagents.main: name is reserved or taken by an agent"},
+	} {
+		_, err := Parse([]byte(agentsBase+c.yaml), env(nil))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", c.name, c.want, err)
+		}
+	}
+	// Names with case and length are fine: a grant's "agent" is matched exactly.
+	y := agentsBase + "agents: {main: {" + ok + "}, Store: {" + ok + "}, store: {" + ok + "}, " + long + ": {" + ok + "}}\n"
+	c, err := Parse([]byte(y), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"Store", "store", long} {
+		if _, found := c.AgentNamed(n); !found {
+			t.Errorf("agent %.20q not found", n)
+		}
+	}
+	// ${VAR} still expands in values under agents.main.
+	c, err = Parse([]byte(agentsBase+"agents: {main: {model: '${M}', settings: {context_window: 1}}}\n"), env(map[string]string{"M": "p/x"}))
+	if err != nil || c.Main().Model != "p/x" {
+		t.Errorf("${VAR} in agents.main.model: %v", err)
 	}
 }

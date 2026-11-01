@@ -111,8 +111,8 @@ func TestAskUserIsOptInAndTopOnly(t *testing.T) {
 		Providers: map[string]config.Provider{
 			"fake": {Type: "mock", Mock: config.MockProvider{Reply: "ok"}},
 		},
-		Agent: config.Agent{Model: "fake/m", Settings: config.Settings{ContextWindow: 1000},
-			AskUser: true, Approval: &config.Approval{Tools: []string{"x.y"}}},
+		Agents: map[string]*config.Agent{"main": {Model: "fake/m", Settings: config.Settings{ContextWindow: 1000},
+			AskUser: true, Approval: &config.Approval{Tools: []string{"x.y"}}}},
 		Subagents: map[string]config.Subagent{
 			"helper": {Description: "helps", Model: "fake/m", Settings: config.Settings{ContextWindow: 1000}},
 		},

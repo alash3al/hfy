@@ -18,12 +18,12 @@ func TestRequestControlsReachMainAndNamedAgents(t *testing.T) {
 		p := c.Providers["fake"]
 		p.MaxTokensParam = "max_completion_tokens"
 		c.Providers["fake"] = p
-		c.Agent.Settings.ReasoningEffort = "low"
-		c.Agent.Settings.MaxOutputTokens = 100
-		c.Agent.Settings.CallTimeout = config.Duration(time.Minute)
-		c.Agent.Settings.Extra = map[string]any{"cache_control": map[string]any{"type": "ephemeral"}}
-		c.Agents = map[string]config.Agent{"store": {Model: "fake/m", System: "You answer for the store.",
-			Settings: config.Settings{ContextWindow: 100000, ReasoningEffort: "high", MaxOutputTokens: 200}}}
+		c.Main().Settings.ReasoningEffort = "low"
+		c.Main().Settings.MaxOutputTokens = 100
+		c.Main().Settings.CallTimeout = config.Duration(time.Minute)
+		c.Main().Settings.Extra = map[string]any{"cache_control": map[string]any{"type": "ephemeral"}}
+		c.Agents["store"] = &config.Agent{Model: "fake/m", System: "You answer for the store.",
+			Settings: config.Settings{ContextWindow: 100000, ReasoningEffort: "high", MaxOutputTokens: 200}}
 	}, fakeprov.Step{Content: "main reply"}, fakeprov.Step{Content: "store reply"})
 	e.waitState(e.post("hi"), types.StateCompleted)
 	e.waitState(e.postAs("u2", "store", "hi"), types.StateCompleted)
@@ -49,8 +49,8 @@ func TestRequestControlsReachMainAndNamedAgents(t *testing.T) {
 func TestRequestControlsReachSubagentAndSummarizer(t *testing.T) {
 	long := strings.Repeat("word ", 80)
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.ReasoningEffort = "low"
-		c.Agent.Settings.MaxOutputTokens = 100
+		c.Main().Settings.ReasoningEffort = "low"
+		c.Main().Settings.MaxOutputTokens = 100
 		c.Subagents = map[string]config.Subagent{"refunds": {
 			Description: "Decides refund eligibility", Model: "fake/m", System: "You are a refunds specialist.",
 			Settings: config.Settings{ReasoningEffort: "minimal"},
@@ -70,7 +70,7 @@ func TestRequestControlsReachSubagentAndSummarizer(t *testing.T) {
 	}
 
 	e = setup(t, func(c *config.Config) {
-		c.Agent.Settings.ContextWindow = 150
+		c.Main().Settings.ContextWindow = 150
 		c.Summarizer = &config.Summarizer{Model: "fake/m", KeepRecent: 1,
 			Settings: config.Settings{ContextWindow: 4000, ReasoningEffort: "none", MaxOutputTokens: 300}}
 	},
@@ -103,7 +103,7 @@ func TestCallTimeoutEndsTheTurn(t *testing.T) {
 	stall := make(chan struct{})
 	t.Cleanup(func() { close(stall) })
 	e := setup(t, func(c *config.Config) {
-		c.Agent.Settings.CallTimeout = config.Duration(300 * time.Millisecond)
+		c.Main().Settings.CallTimeout = config.Duration(300 * time.Millisecond)
 	}, fakeprov.Step{Delay: stall})
 	turn := e.post("hi")
 	e.waitState(turn, types.StateFailed)
