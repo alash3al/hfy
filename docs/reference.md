@@ -642,14 +642,23 @@ event as stored.
   - *URL attachments* are references your app hosts. They are on when
     `allowed_hosts` is set (exact names or `*.suffix`; lowercase, no scheme,
     port or path; IDN as punycode). Host and type are checked when the message is
-    posted; hfy never fetches the URL, so `max_bytes` does not apply to them.
+    posted. Only the host is checked: any port passes. hfy never fetches the URL,
+    so `max_bytes` does not apply to it; the provider fetches it, and hfy does
+    not re-check redirects.
   - *Uploads* are files hfy stores. They are on when `dsn` is set
-    (`s3://…` with `region=` required in the query, or `file://…`;
-    `file://` needs `public_url` so providers can reach hfy-served files).
+    (`s3://…` with `region=` required in the query, or `file://…`). With
+    `file://`, set `public_url` (the address providers fetch hfy-served files
+    from); without it stored images reach the model as placeholders and startup
+    logs a warning. S3 uses presigned URLs and ignores it.
     `max_bytes` (default 10MB) bounds each file; `upload_ttl` default 5m (at
     most 1h), `download_ttl` default 15m (at most 24h). `files:` needs at least
-    one of `allowed_hosts` and `dsn`, and an empty `dsn` is an error, not "off":
-    remove the key instead.
+    one of `allowed_hosts` and `dsn`, and an empty or null `dsn` is an error, not
+    "off": remove the key instead.
+
+  Sizes are `KB`, `MB`, `GB` (1024-based) or plain bytes, whole numbers only
+  (`10MB` and `10 mb` work; `10MiB`, `1.5MB` and `1e3` are refused).
+  `max_count` is a whole number. A limit left out uses its default; one written
+  as `0` (or `max_count: 1.5`) is an error.
 
   Images go to the model only in the turn
   they arrive in, always as their URL: fetching it is the provider's job, so
@@ -719,22 +728,28 @@ event as stored.
   | `attachments.allowed_hosts` | `files.allowed_hosts` (setting it turns URL attachments on) |
   | `attachments.types` and `filesystem.types` | `files.types`, ONE list for URLs and uploads: use the union |
   | `attachments.max_count` | `files.max_count` (default 10; it also caps uploads when no URL attachments are set: that was a fixed 10 before) |
-  | `attachments.max_bytes` | dropped: it never limited anything (hfy does not fetch URLs) |
+  | `attachments.max_bytes` | no key of its own: it capped uploads only when `filesystem.max_bytes` was unset (5MB by default). Set `files.max_bytes` to keep that limit |
   | `filesystem.dsn` | `files.dsn` (setting it turns uploads on) |
   | `filesystem.public_url`, `max_bytes`, `upload_ttl`, `download_ttl` | the same names under `files` |
 
 - If your two lists differed, `files.types` is their union: a type that was
   upload-only (a PDF) is now also accepted as a URL attachment, and the other
   way round. Non-image files reach the model only as their key, never as data.
-- `files.max_bytes` defaults to 10MB, as documented. In v1 it was 5MB when
-  `attachments:` was also set (it inherited `attachments.max_bytes`' default).
-  Set it explicitly to keep a smaller limit.
+- `files.max_bytes` defaults to 10MB, as documented. In v1 an unset
+  `filesystem.max_bytes` inherited `attachments.max_bytes` when `attachments:` was
+  set (5MB by default), and that never applied to URLs, which hfy does not fetch.
+  If you set `attachments.max_bytes` and relied on it as the upload limit, set
+  `files.max_bytes` to the same value.
 - Stricter checks, reported at startup: `types` entries must be lowercase
   `type/subtype` (no `*`, parameters or duplicates), `allowed_hosts` entries
   lowercase hosts (`localhost`, IPs and `*.example.com` are fine; no scheme,
   port, path, trailing dot or duplicates; `*.com` is refused), and an empty
-  `dsn` (an unset `${VAR}`) is an error instead of quietly switching uploads off.
-  Sizes that overflow (`9999999999GB`) are now invalid.
+  `dsn` (an unset `${VAR}`, or `~`/`null`) is an error instead of quietly switching
+  uploads off. A name whose last label starts with a digit (`1.2.3`, `*.0.0.1`) is
+  refused, since it would be IPv4 in disguise. In v1 a `0` in `max_bytes`,
+  `max_count` or a TTL meant "use the default" and `max_count: 1.5` became 1;
+  now an explicit zero, or a non-integer `max_count`, is an error (leave the key
+  out for the default). Sizes that overflow (`9999999999GB`) are invalid.
 - The top-level `agent:` config key is gone; `agents:` is the only home for
   agents. Move the contents of `agent:` under `agents.main:` (same fields,
   indented one level). A config that still sets `agent:` stops EVERY command that
