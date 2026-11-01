@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,16 @@ import (
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
 )
+
+// stepDown steps the schema back n migrations.
+func stepDown(t *testing.T, s *db.Store, n int) {
+	t.Helper()
+	for range n {
+		if _, err := s.Migrate(context.Background(), "down"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 // 00003 drops exactly the embeddings_<digits> tables of the current schema, the
 // embed_events jobs that would never run and the backfill's index; it is safe
@@ -27,10 +38,10 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	// Step back over 00004 and 00003 (its Down is a no-op), then leave a v1 database behind.
+	// Step back over 00005, 00004 and 00003 (its Down is a no-op), then leave a v1 database behind.
 	down := func() {
 		t.Helper()
-		for range 2 {
+		for range 3 {
 			if _, err := s.Migrate(ctx, "down"); err != nil {
 				t.Fatal(err)
 			}
@@ -128,9 +139,7 @@ func TestGrantExchangeMigration(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	if _, err := s.Migrate(ctx, "down"); err != nil { // back to before 00004
-		t.Fatal(err)
-	}
+	stepDown(t, s, 2) // back to before 00004
 	exec(`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`)
 	exec(`INSERT INTO conversations SELECT FROM generate_series(1, 1)`)
 	oldGrant := func(hash byte) (id uuid.UUID) { // as the previous release made it: none of the new columns
@@ -206,9 +215,7 @@ func TestGrantExchangeMigration(t *testing.T) {
 
 	// Down: the chain's later rows end (the first stays, no longer renewable), the
 	// grants of the previous release are untouched
-	if _, err := s.Migrate(ctx, "down"); err != nil {
-		t.Fatal(err)
-	}
+	stepDown(t, s, 2)
 	var left int
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema()
 		AND table_name = 'grants' AND column_name IN ('renew_until', 'renew_secs', 'root_id')`).Scan(&left); err != nil || left != 0 {
@@ -233,9 +240,8 @@ func TestGrantExchangeMigration(t *testing.T) {
 func TestGrantExchangeMigrationDoesNotWaitForeverForTheTable(t *testing.T) {
 	s := dbtest.New(t)
 	ctx := context.Background()
-	if _, err := s.Migrate(ctx, "down"); err != nil { // back to before 00004
-		t.Fatal(err)
-	}
+	stepDown(t, s, 2) // back to before 00004
+
 	long, err := s.Pool.Begin(ctx) // a long transaction that has read grants
 	if err != nil {
 		t.Fatal(err)
@@ -266,5 +272,157 @@ func TestGrantExchangeMigrationDoesNotWaitForeverForTheTable(t *testing.T) {
 	release()
 	if _, err := s.Migrate(ctx, "up"); err != nil { // nothing is left half done
 		t.Fatalf("running it again: %v", err)
+	}
+}
+
+// 00005 adds the nullable key of an event and the partial unique index over
+// it. Events that exist, and those the previous release keeps inserting, have no
+// key and are not in the index; a key is unique per (conversation, actor), and
+// case-sensitive. Down takes both away and keeps the events. It is safe to run
+// again, also after a build that was cancelled and left an invalid index.
+func TestEventKeyMigration(t *testing.T) {
+	s := dbtest.New(t)
+	ctx := context.Background()
+	exec := func(q string, args ...any) error {
+		t.Helper()
+		_, err := s.Pool.Exec(ctx, q, args...)
+		return err
+	}
+	must := func(q string, args ...any) {
+		t.Helper()
+		if err := exec(q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	stepDown(t, s, 1) // back to before 00005
+	must(`INSERT INTO actors (type, ref) VALUES ('host', 'crm'), ('host', 'erp')`)
+	must(`INSERT INTO conversations SELECT FROM generate_series(1, 2)`)
+	insert := func(conv, actor int, key any) error {
+		return exec(`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, key) VALUES ($1, $2, 's', 'context.note', $3)`, conv, actor, key)
+	}
+	must(`INSERT INTO conversation_events (conversation_id, actor_id, scope, type) SELECT 1, 1, 's', 'turn' FROM generate_series(1, 50)`)
+	var fileBefore int64
+	s.Pool.QueryRow(ctx, `SELECT relfilenode FROM pg_class WHERE oid = 'conversation_events'::regclass`).Scan(&fileBefore)
+
+	for run := 1; run <= 2; run++ { // twice: the migration finds its own work done
+		if run == 2 {
+			must(`DELETE FROM goose_db_version WHERE version_id = 5`)
+		}
+		if _, err := s.Migrate(ctx, "up"); err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		var fileAfter int64
+		s.Pool.QueryRow(ctx, `SELECT relfilenode FROM pg_class WHERE oid = 'conversation_events'::regclass`).Scan(&fileAfter)
+		var rows, keyed int
+		var valid bool
+		var def, deflt string
+		s.Pool.QueryRow(ctx, `SELECT count(*), count(key) FROM conversation_events`).Scan(&rows, &keyed)
+		if err := s.Pool.QueryRow(ctx, `SELECT i.indisvalid, pg_get_indexdef(i.indexrelid) FROM pg_index i WHERE i.indexrelid = 'conversation_events_key_idx'::regclass`).Scan(&valid, &def); err != nil {
+			t.Fatalf("run %d: index: %v", run, err)
+		}
+		s.Pool.QueryRow(ctx, `SELECT coalesce(column_default, '') FROM information_schema.columns WHERE table_name = 'conversation_events' AND column_name = 'key'`).Scan(&deflt)
+		if fileBefore != fileAfter || rows != 50 || keyed != 0 || deflt != "" {
+			t.Fatalf("run %d: rewritten=%v rows=%d keyed=%d default=%q", run, fileBefore != fileAfter, rows, keyed, deflt)
+		}
+		if !valid || !strings.Contains(def, "UNIQUE") || !strings.Contains(def, "(conversation_id, actor_id, key)") || !strings.Contains(def, "WHERE (key IS NOT NULL)") {
+			t.Fatalf("run %d: index %v %s", run, valid, def)
+		}
+		if run == 1 { // a build that was cancelled leaves an invalid index of the same name: the next run replaces it
+			must(`UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'conversation_events_key_idx'::regclass`)
+		}
+	}
+
+	// semantics: events without a key never collide; a key does, per conversation and actor
+	for range 3 {
+		if err := insert(1, 1, nil); err != nil {
+			t.Fatalf("events without a key must repeat: %v", err)
+		}
+	}
+	if err := insert(1, 1, "k"); err != nil {
+		t.Fatal(err)
+	}
+	if err := insert(1, 1, "k"); !db.IsUniqueViolation(err) {
+		t.Fatalf("the same key again: %v", err)
+	}
+	for name, c := range map[string]struct {
+		conv, actor int
+		key         string
+	}{"another actor": {1, 2, "k"}, "another conversation": {2, 1, "k"}, "case": {1, 1, "K"}, "another key": {1, 1, "k2"}, "empty": {1, 1, ""}} {
+		if err := insert(c.conv, c.actor, c.key); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := insert(1, 1, ""); !db.IsUniqueViolation(err) {
+		t.Errorf("the empty key is a key: %v", err)
+	}
+
+	// the previous release inserts without naming key: it still works
+	must(`INSERT INTO conversation_events (conversation_id, actor_id, scope, type, data, v, ephemeral, request_id)
+		VALUES (1, 1, 's', 'turn', '{}', 1, false, NULL)`)
+
+	stepDown(t, s, 1)
+	var cols, idx, rows int
+	s.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'conversation_events' AND column_name = 'key'`).Scan(&cols)
+	s.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE indexname = 'conversation_events_key_idx'`).Scan(&idx)
+	s.Pool.QueryRow(ctx, `SELECT count(*) FROM conversation_events`).Scan(&rows)
+	if cols != 0 || idx != 0 || rows != 50+3+1+5+1 {
+		t.Fatalf("down left %d columns and %d indexes, %d rows", cols, idx, rows)
+	}
+	if _, err := s.Migrate(ctx, "up"); err != nil { // and up works over events that exist
+		t.Fatal(err)
+	}
+}
+
+// 00005 gives up when a long transaction holds the events table, instead of
+// queueing its ALTER behind it and blocking every insert that follows.
+func TestEventKeyMigrationDoesNotWaitForeverForTheTable(t *testing.T) {
+	s := dbtest.New(t)
+	ctx := context.Background()
+	stepDown(t, s, 1)
+	long, err := s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			long.Rollback(ctx)
+		}
+	}
+	defer release()
+	if _, err := long.Exec(ctx, `SELECT count(*) FROM conversation_events`); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := s.Migrate(ctx, "up"); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "lock timeout") {
+			t.Fatalf("want a lock timeout, got %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		release()
+		<-done
+		t.Fatal("the migration waited for the table without a timeout")
+	}
+	release()
+	if _, err := s.Migrate(ctx, "up"); err != nil { // nothing is left half done
+		t.Fatalf("running it again: %v", err)
+	}
+}
+
+// The index is built CONCURRENTLY, outside a transaction: a plain CREATE INDEX
+// holds a lock that stops every insert for as long as it reads the table.
+func TestEventKeyIndexIsBuiltConcurrently(t *testing.T) {
+	b, err := os.ReadFile("migrations/00005_event_key.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, _, _ := strings.Cut(string(b), "-- +goose Down")
+	for _, want := range []string{"-- +goose NO TRANSACTION", "CREATE UNIQUE INDEX CONCURRENTLY", "SET LOCAL lock_timeout"} {
+		if !strings.Contains(up, want) {
+			t.Errorf("00005 lacks %q", want)
+		}
 	}
 }

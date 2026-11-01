@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"uuid"
 
 	"github.com/alash3al/hfy/internal/svc"
@@ -10,12 +11,14 @@ import (
 
 const (
 	maxHostEventBody = 128 << 10 // a 16 KiB text can take 6 bytes a byte as JSON escapes
+	maxKeyLen        = 128
 	defaultSource    = "host"
 )
 
 type hostEventRequest struct {
 	Type   string  `json:"type"` // "note" or "message"
 	Text   string  `json:"text"`
+	Key    string  `json:"key"`
 	Source *string `json:"source"` // the host's name for itself; absent, null or "" is "host"
 }
 
@@ -23,7 +26,8 @@ type hostEventRequest struct {
 // about a conversation (a note) or tells the user and the model (a message). It
 // never starts a turn: the event is filed under the turn that is running, else
 // the one that runs first, else the newest, and the model reads it at its next
-// step or turn. 201 with the event.
+// step or turn. 201 with the event the first time; a repeat of key, whatever
+// else it says, is 200 with the first event.
 func (s *Server) postHostEvent(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -42,6 +46,9 @@ func (s *Server) postHostEvent(w http.ResponseWriter, r *http.Request) error {
 	default:
 		return &httpError{http.StatusBadRequest, `type must be "note" or "message"`}
 	}
+	if !validKey(req.Key) {
+		return &httpError{http.StatusBadRequest, "key is required: 1 to 128 of letters, digits and . _ : / @ + = -"}
+	}
 	ctx := r.Context()
 	conv, err := s.store.ConversationByUUID(ctx, id)
 	if err != nil {
@@ -55,10 +62,30 @@ func (s *Server) postHostEvent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	row, err := s.svc.AppendNote(ctx, svc.NoteInput{
-		ConversationID: conv.ID, Actor: actor, Type: typ, Text: req.Text, Limit: svc.MaxHostEventsPerTurn})
+	row, created, err := s.svc.AppendNoteOnce(ctx, svc.NoteInput{
+		ConversationID: conv.ID, Actor: actor, Type: typ, Text: req.Text, Key: req.Key, Limit: svc.MaxHostEventsPerTurn})
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusCreated, row.Envelope())
+	code := http.StatusOK
+	if created {
+		code = http.StatusCreated
+	}
+	return writeJSON(w, code, row.Envelope())
+}
+
+const keyChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/@+=-"
+
+// validKey: 1 to 128 bytes of ASCII letters, digits and . _ : / @ + = -
+// (ids, uuids, "order-17:paid"); no space, quote, control or non-ASCII byte.
+func validKey(k string) bool {
+	if k == "" || len(k) > maxKeyLen {
+		return false
+	}
+	for i := range len(k) {
+		if strings.IndexByte(keyChars, k[i]) < 0 {
+			return false
+		}
+	}
+	return true
 }

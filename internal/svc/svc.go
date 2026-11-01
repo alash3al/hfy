@@ -546,6 +546,9 @@ type NoteInput struct {
 	Actor          int64           // who wrote it: the one name the model sees
 	Type           types.EventType // EventContextNote or EventHostMessage
 	Text           string
+	// Key, when set, makes the append idempotent per (conversation, actor, key):
+	// a repeat returns the first event and ignores the rest of the input.
+	Key string
 	// Limit, when set, refuses the note (ErrTooManyHostEvents) once its turn
 	// holds that many notes and messages from hosts.
 	Limit int
@@ -560,7 +563,15 @@ type NoteInput struct {
 // summary covers it. The text is cleaned; empty, blank or over
 // types.MaxNoteBytes is a BadRequestError, and a conversation with no turn is
 // ErrNoTurn (history pages by turn, so a note with no turn would be invisible).
-func (s *Service) AppendNote(ctx context.Context, in NoteInput) (row db.EventRow, err error) {
+func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, error) {
+	row, _, err := s.AppendNoteOnce(ctx, in)
+	return row, err
+}
+
+// AppendNoteOnce is AppendNote that also says whether it stored the note: with
+// in.Key set, a repeat is not stored, and returns the first event with created
+// false (a repeat is answered before Limit is looked at: it stores nothing).
+func (s *Service) AppendNoteOnce(ctx context.Context, in NoteInput) (row db.EventRow, created bool, err error) {
 	text := types.CleanNote(in.Text)
 	var p types.Payload
 	switch in.Type {
@@ -569,15 +580,25 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (row db.EventRow
 	case types.EventHostMessage:
 		p = types.HostMessage{Text: text}
 	default:
-		return db.EventRow{}, badf("%q is not a note type", in.Type)
+		return db.EventRow{}, false, badf("%q is not a note type", in.Type)
 	}
 	if err := p.Validate(); err != nil {
-		return db.EventRow{}, badf("%s", err)
+		return db.EventRow{}, false, badf("%s", err)
 	}
 	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
 		conv, err := s.store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
+		}
+		if in.Key != "" { // a repeat answers before anything else, even with the turn gone
+			prev, err := s.store.EventByKey(ctx, tx, in.ConversationID, in.Actor, in.Key)
+			if err == nil {
+				row, created = prev, false
+				return nil
+			}
+			if !db.IsNotFound(err) {
+				return err
+			}
 		}
 		id := conv.ActiveTurnID
 		if id == nil { // nothing runs: the turn that will run first, else the newest
@@ -612,8 +633,13 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (row db.EventRow
 			}
 		}
 		ev := db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: in.Actor, Scope: turn.Scope, Payload: p}
-		row, err = s.store.AppendEvent(ctx, tx, ev)
+		if in.Key == "" {
+			row, err = s.store.AppendEvent(ctx, tx, ev)
+			created = err == nil
+			return err
+		}
+		row, created, err = s.store.AppendEventOnce(ctx, tx, ev, in.Key)
 		return err
 	})
-	return row, err
+	return row, created, err
 }
