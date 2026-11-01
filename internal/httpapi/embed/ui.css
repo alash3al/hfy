@@ -624,8 +624,6 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 [data-layout="whatsapp"] .hfy-day span{border-radius:7.5px;font-size:12.5px}
 [data-layout="whatsapp"] .hfy-composer-wrap{background:var(--hfy-wa-bar)}
 [data-layout="whatsapp"] .hfy-pill{background:var(--hfy-wa-pill)}
-[data-layout="whatsapp"] .hfy-attach{order:1}
-[data-layout="whatsapp"] .hfy-camera{order:2}
 @media (max-width:520px){ [data-layout="whatsapp"] .hfy-msg{max-width:80%} }
 
 /* ---- tool cards: a tool's hfy/ui block, rendered under its own row ---- */

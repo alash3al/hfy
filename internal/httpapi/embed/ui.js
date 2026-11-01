@@ -784,6 +784,10 @@ window.hfyEmbed = function () {
       if (this.config.layout !== 'whatsapp' || this.config.accent_set) {
         el.style.setProperty('--hfy-accent', accent); el.style.setProperty('--hfy-on-accent', hfyOnColor(accent));
       } else { el.style.removeProperty('--hfy-accent'); el.style.removeProperty('--hfy-on-accent'); }
+      // the markup puts attach before the input; whatsapp shows it after the input, so the DOM (and tab order) moves with it
+      var pill = document.querySelector('.hfy-composer .hfy-pill'), attach = pill && pill.querySelector('.hfy-attach');
+      var before = pill && pill.querySelector(this.config.layout === 'whatsapp' ? '.hfy-camera' : '.hfy-input');
+      if (attach && before && attach.nextElementSibling !== before) pill.insertBefore(attach, before);
       Object.keys(HFY_STRINGS.en).forEach(function (k) { L[k] = self.t(k); });
       this.L = L;
       document.title = L.title;

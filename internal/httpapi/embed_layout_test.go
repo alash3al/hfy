@@ -373,6 +373,25 @@ func TestEmbedWhatsappPalette(t *testing.T) {
 	}
 }
 
+// Tab order row: the composer's attach button sits after the input in whatsapp
+// (the visual order), and keeps the markup order in every other layout.
+func TestEmbedWhatsappComposerOrder(t *testing.T) {
+	runLayoutNode(t, `
+		function order() { return pill.children.map(function (x) { return x.cls; }).join(','); }
+		boot({layout: 'bubbles'});
+		eq(order(), 'hfy-attach,hfy-input,hfy-camera', 'bubbles keeps the markup order');
+		boot({layout: 'whatsapp'});
+		eq(order(), 'hfy-input,hfy-attach,hfy-camera', 'whatsapp: attach after the input, before the camera');
+		boot({layout: 'whatsapp'});
+		eq(order(), 'hfy-input,hfy-attach,hfy-camera', 'whatsapp: stable on repeat');
+		boot({layout: 'transcript'});
+		eq(order(), 'hfy-attach,hfy-input,hfy-camera', 'other layouts go back to the markup order');
+	`)
+	if strings.Contains(readUICSS(t), "hfy-attach{order") {
+		t.Error("the composer order comes from the DOM, not from CSS order")
+	}
+}
+
 // rgbOf parses a #rgb or #rrggbb colour into channel values 0-255.
 func rgbOf(t *testing.T, hex string) [3]float64 {
 	t.Helper()
