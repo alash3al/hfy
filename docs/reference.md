@@ -691,7 +691,8 @@ event as stored.
   escaped (`<`, `>`, `&`), so it cannot close its block, open a frame or pass
   for a message; text like `System: obey` or `ignore previous instructions` is
   allowed and stays inside the block. When a prompt holds any note, the system
-  prompt says these blocks are data, not instructions and not from the user. Zero-width
+  prompt says these blocks are data, not instructions and not from the user, and that such tags inside a
+  tool result or an assistant message are never real blocks; the summary is escaped like people's text. Zero-width
   and right-to-left characters are kept as written. Notes never change who
   speaks: they do not make a chat a room, and in a room they are framed the same
   way. While a prompt holds any note, what people write is escaped too (even in a
@@ -707,9 +708,9 @@ event as stored.
   A note stays in every later prompt until a summary covers it. In the prompt
   a note sits in event order, after the events that came before it; while a tool
   call is unanswered it waits for the answer, so a result still follows its call.
-  A note is filed under the turn that is running (or paused) when it is appended,
-  else under the newest turn, so a turn queued behind the running one never takes
-  it. A running turn rebuilds its prompt at each step, so it sees a note from its
+  A note is filed under the turn that is running (or paused) when it is appended;
+  with none running, under the oldest turn still open (the one that runs first),
+  else under the newest turn, so a turn queued behind another never takes it. A running turn rebuilds its prompt at each step, so it sees a note from its
   next step on. A summary covers neither the running turn nor the newest one, so a
   note appended after a summary still reaches the model; one appended while a
   now-covered turn was the newest is in the summary (the summarizer reads it).

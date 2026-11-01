@@ -71,7 +71,7 @@ func buildPrompt(in promptInput) (system string, msgs []provider.Message, err er
 	}
 	if in.Summary != nil {
 		text := in.Summary.Text
-		if room { // tag-like text in it must not read as a message
+		if room || hasNotes(in.Events) { // tag-like text in it must not read as a message or a note
 			text = escText.Replace(text)
 		}
 		system += "\n\nSummary of the earlier conversation:\n" + text
