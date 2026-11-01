@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -646,33 +647,30 @@ func TestHashedURLHostileInput(t *testing.T) {
 	h := testServer(t)
 	a, _ := embeddedAssets()
 	ui := a.byName["ui.js"]
-	css := a.byName["ui.css"]
 	stem := strings.TrimSuffix(ui.hashed, ".js") // ui.<hash>
 	hash := strings.TrimPrefix(stem, "ui.")
 	for _, target := range []string{
-		"/embed/assets/ui.js",                                             // known name, no hash
-		"/embed/assets/ui.000000000000.js",                                // known name, unknown hash
-		"/embed/assets/" + strings.TrimSuffix(css.hashed, ".css") + ".js", // a hash of another file
-		"/embed/assets/ui." + strings.ToUpper(hash) + ".js",               // hashes are lowercase
-		"/embed/assets/UI." + hash + ".js",                                // names are case sensitive
-		"/embed/assets/ui." + hash[:11] + ".js",                           // truncated
-		"/embed/assets/ui." + hash + "0.js",                               // extended
-		"/embed/assets/" + ui.hashed + "/",                                // trailing slash
-		"/embed/assets/" + ui.hashed + "%00",                              // NUL
-		"/embed/assets/" + ui.hashed + ".gz",                              // suffix
-		"/embed/assets/",                                                  // the namespace itself
-		"/embed/assets",                                                   // without the slash
-		"/embed/assets//" + ui.hashed,                                     // empty segment
-		"/embed/assets/%2e%2e/" + ui.hashed,                               // encoded dot segments
-		"/embed/assets/..%2f" + ui.hashed,                                 // encoded slash
-		"/embed/assets/%252e%252e/" + ui.hashed,                           // double encoding
-		"/embed/assets/..%252fui.js",                                      // double-encoded slash
-		"/embed/assets/ui.%2e" + hash + ".js",                             // encoded dot inside
-		"/embed/assets/%75i." + hash + ".js/..",                           // escaped letter plus dot segment
-		"/embed/assets/assets/" + ui.hashed,                               // nested namespace
-		"/embed/assets/index.html",                                        // the template
-		"/embed/assets/../../../etc/passwd",                               // traversal
-		"/embed/assets/" + strings.Repeat("a", 1<<16) + ".js",             // long
+		"/embed/assets/ui.js",                                 // known name, no hash
+		"/embed/assets/ui." + strings.ToUpper(hash) + ".js",   // hashes are lowercase
+		"/embed/assets/UI." + hash + ".js",                    // names are case sensitive
+		"/embed/assets/ui." + hash[:11] + ".js",               // truncated
+		"/embed/assets/ui." + hash + "0.js",                   // extended
+		"/embed/assets/" + ui.hashed + "/",                    // trailing slash
+		"/embed/assets/" + ui.hashed + "%00",                  // NUL
+		"/embed/assets/" + ui.hashed + ".gz",                  // suffix
+		"/embed/assets/",                                      // the namespace itself
+		"/embed/assets",                                       // without the slash
+		"/embed/assets//" + ui.hashed,                         // empty segment
+		"/embed/assets/%2e%2e/" + ui.hashed,                   // encoded dot segments
+		"/embed/assets/..%2f" + ui.hashed,                     // encoded slash
+		"/embed/assets/%252e%252e/" + ui.hashed,               // double encoding
+		"/embed/assets/..%252fui.js",                          // double-encoded slash
+		"/embed/assets/ui.%2e" + hash + ".js",                 // encoded dot inside
+		"/embed/assets/%75i." + hash + ".js/..",               // escaped letter plus dot segment
+		"/embed/assets/assets/" + ui.hashed,                   // nested namespace
+		"/embed/assets/index.html",                            // the template
+		"/embed/assets/../../../etc/passwd",                   // traversal
+		"/embed/assets/" + strings.Repeat("a", 1<<16) + ".js", // long
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			w := get(h, method, target)
@@ -684,9 +682,9 @@ func TestHashedURLHostileInput(t *testing.T) {
 			}
 		}
 	}
-	// An unknown hash is a 404, never a redirect to the current file.
-	if w := get(h, http.MethodGet, "/embed/assets/ui.000000000000.js"); w.Code != 404 || w.Header().Get("Location") != "" || w.Header().Get("Cache-Control") != "no-store" {
-		t.Errorf("stale hash: %d %v", w.Code, w.Header())
+	// An unknown hash of an unknown stem never turns into a redirect.
+	if w := get(h, http.MethodGet, "/embed/assets/nope.000000000000.js"); w.Code != 404 || w.Header().Get("Location") != "" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("unknown stem: %d %v", w.Code, w.Header())
 	}
 	// A query string changes nothing; the right file is served.
 	if w := get(h, http.MethodGet, "/embed/assets/"+ui.hashed+"?v=1"); w.Code != 200 {
@@ -826,3 +824,64 @@ type discard struct{ header http.Header }
 func (d *discard) Header() http.Header         { return d.header }
 func (d *discard) Write(p []byte) (int, error) { return len(p), nil }
 func (d *discard) WriteHeader(int)             {}
+
+// A page and an instance of different versions (a rolling deploy) still get
+// the file: the current bytes, and never anything a cache may keep.
+func TestStaleHashServesCurrentBytes(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	for name, as := range a.byName {
+		ext := path.Ext(name)
+		stale := "/embed/assets/" + strings.TrimSuffix(name, ext) + ".000000000000" + ext
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			for _, ae := range []string{"", "gzip", "br"} {
+				w := get(h, method, stale, "Accept-Encoding", ae)
+				fresh := get(h, method, "/embed/assets/"+as.hashed, "Accept-Encoding", ae)
+				if w.Code != 200 {
+					t.Errorf("%s %s [%s]: %d", method, stale, ae, w.Code)
+					continue
+				}
+				if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+					t.Errorf("%s: Cache-Control %q, want no-store", stale, cc)
+				}
+				if w.Header().Get("Vary") != "Accept-Encoding" || w.Header().Get("ETag") != fresh.Header().Get("ETag") ||
+					w.Header().Get("Content-Encoding") != fresh.Header().Get("Content-Encoding") || w.Header().Get("Content-Type") != as.content.ctype {
+					t.Errorf("%s [%s]: headers %v, want those of the current file %v", stale, ae, w.Header(), fresh.Header())
+				}
+				if method == http.MethodGet && !bytes.Equal(w.Body.Bytes(), fresh.Body.Bytes()) {
+					t.Errorf("%s [%s]: not the current bytes", stale, ae)
+				}
+			}
+		}
+		if w := get(h, http.MethodGet, stale, "If-None-Match", as.content.identity.etag); w.Code != 304 || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: conditional %d %v", stale, w.Code, w.Header())
+		}
+	}
+	// The same through a stale hash that names a file that has no extension or a directory.
+	reg := mustAssets(t, testFS())
+	for rest, want := range map[string]string{
+		"app.ffffffffffff.js":        "app.js",
+		"sub/deep.ffffffffffff.js":   "sub/deep.js",
+		"README.ffffffffffff":        "README",
+		reg.byName["app.js"].hashed:  "app.js",
+		"app.ffffffffffff.css":       "app.css",
+		"sub/deep.ffffffffffff.css":  "",
+		"sub/app.ffffffffffff.js":    "",
+		"app.ffffffffffff.png":       "",
+		"app.fffffffffff.js":         "",
+		"app.fffffffffffff.js":       "",
+		"app.FFFFFFFFFFFF.js":        "",
+		"assets/app.ffffffffffff.js": "",
+		"app.js":                     "",
+		"":                           "",
+	} {
+		as, _ := reg.hashed(rest)
+		got := ""
+		if as != nil {
+			got = as.name
+		}
+		if got != want {
+			t.Errorf("%q -> %q, want %q", rest, got, want)
+		}
+	}
+}

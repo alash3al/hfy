@@ -321,24 +321,32 @@ is served under two URLs:
   change: `Cache-Control: public, max-age=31536000, immutable`. `GET /embed`
   (the page, always at that one URL, `no-cache` + `ETag`) points at these URLs,
   so an upgrade reaches clients with the next page load and nothing is
-  re-downloaded otherwise. A hash that is not the current one answers `404`
-  (a redirect would hand a stale page different bytes); during a rolling
-  deploy, a page from the new instance may ask an old one for a file it does
-  not have, so roll instances one at a time. The page's CSP and the bridge are
-  unchanged, and a bare `/embed` URL still works in a WebView.
+  re-downloaded otherwise. A hash that is not the current one (an old page
+  open across an upgrade, or a rolling deploy behind a load balancer, where a
+  page from one version reaches an instance of another) is not an error:
+  when the name before the hash and the extension is a known file
+  (`ui.0123456789ab.js` asks for `ui.js`), the instance answers `200` with
+  its current bytes, `Cache-Control: no-store` (never `immutable`, so no cache
+  keeps mismatched bytes under a hash) and the same `ETag`, `Vary` and
+  encoding as the current URL. A mixed fleet therefore never leaves a widget
+  without its scripts, and a page that ended up with files of two versions is
+  fixed by the next page load. An unknown name (or a malformed hash: 12
+  lowercase hex digits) is a plain `404`. The page's CSP and the bridge are
+  unchanged, and a bare `/embed` URL still works in a WebView. All of
+  `/embed/*` shares one metrics route label, `GET /embed/{name...}`.
 
-Text files are compressed once when the server starts (the page, on its first
-request; brotli and gzip, about 0.3 s for the whole UI) and the bytes are reused: `Accept-Encoding` picks `br`, `gzip` or
-the plain file by q-value (`br;q=0` and `identity;q=0` are honoured; an
-unparseable or oversized header means plain; a client that refuses every
-encoding we have gets `406`), and `Vary: Accept-Encoding` is always sent. Each
+Text files, and the page, are compressed once when the server starts (brotli
+and gzip, about 0.3 s for the whole UI) and the bytes are reused.
+`Accept-Encoding` picks `br`, `gzip` or the plain file by q-value (`br;q=0`
+and `identity;q=0` are honoured; an unparseable or oversized header means
+plain; a client that refuses every encoding we have gets `406`), and `Vary: Accept-Encoding` is always sent. Each
 encoding has its own strong `ETag`, the hash of the bytes sent; `If-None-Match`
 takes lists, weak tags (`W/"..."`) and `*`. `HEAD` answers like `GET` without a
 body. `Range` is not supported: the header is ignored and the whole file is
 sent with `200`. A reverse proxy in front may compress too: we set
 `Content-Encoding`, so a proxy that honours it will not compress twice. The
-first-load weight of the UI (page, Alpine, client.js, ui.js, ui.css) is held
-under 60 KB of brotli by a test.
+first load of the UI (the page and the files it names) is held under 60 KiB
+of brotli by a test.
 
 The grant flow is the integration. Your backend (server secret) creates
 the conversation once and mints a short-lived grant per viewer; your page

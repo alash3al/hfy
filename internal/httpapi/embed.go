@@ -133,25 +133,29 @@ func (s *Server) buildPage() (*content, string, error) {
 
 // serveEmbedAsset serves every embedded file at two URLs: under its own name,
 // where it revalidates (hosts pin these), and under its content hash, where it
-// is immutable. An unknown name, or a hash that is not the current one, is a
-// plain 404 and not a redirect: a redirect would answer a stale hashed URL
-// with different bytes, and a page must get exactly the files it names.
+// is immutable. A hash that is not the current one is answered with the
+// current bytes of that file and "no-store", never "immutable": behind a load
+// balancer a page from one version meets another version's instance, and a
+// 404 would leave the widget without its script. An unknown name is a plain 404.
 func (s *Server) serveEmbedAsset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	hashed := strings.HasPrefix(name, assetsPrefix)
-	a := s.assets.byName[name]
-	if hashed {
-		a = s.assets.byHashed[strings.TrimPrefix(name, assetsPrefix)]
+	cacheControl := "no-cache"
+	var a *asset
+	if rest, ok := strings.CutPrefix(name, assetsPrefix); ok {
+		var stale bool
+		a, stale = s.assets.hashed(rest)
+		cacheControl = immutable
+		if stale {
+			cacheControl = "no-store"
+		}
+	} else {
+		a = s.assets.byName[name]
 	}
 	if a == nil {
 		w.Header().Add("Vary", "Accept-Encoding")
 		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, "not found", http.StatusNotFound)
 		return
-	}
-	cacheControl := "no-cache"
-	if hashed {
-		cacheControl = immutable
 	}
 	serveContent(w, r, a.content, cacheControl)
 }

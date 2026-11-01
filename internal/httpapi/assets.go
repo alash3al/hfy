@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -188,6 +189,26 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 		a.template = a.rewrite(a.template)
 	}
 	return a, nil
+}
+
+// staleHash splits a hashed name into its stem and extension: ui.<12 hex>.js.
+var staleHash = regexp.MustCompile(`^(.*)\.[0-9a-f]{12}(\.[^./]*)?$`)
+
+// hashed finds the asset behind a path under /embed/assets/. A name with a
+// hash that is not the current one still finds its file when the part before
+// the hash and the extension name a known asset: stale is then true, and the
+// caller serves the current bytes without letting anything cache them (a
+// rolling deploy, or an old page open across an upgrade, asks for hashes this
+// instance does not have). Anything else is nil.
+func (a *assets) hashed(rest string) (as *asset, stale bool) {
+	if as := a.byHashed[rest]; as != nil {
+		return as, false
+	}
+	m := staleHash.FindStringSubmatch(rest)
+	if m == nil {
+		return nil, false
+	}
+	return a.byName[m[1]+m[2]], true
 }
 
 // rewrite points every quoted /embed/<name> reference in html at the asset's
