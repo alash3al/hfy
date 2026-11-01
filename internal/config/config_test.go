@@ -228,20 +228,61 @@ func TestEmbedValidation(t *testing.T) {
 func TestEmbedAccentSet(t *testing.T) {
 	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
 	for _, tc := range []struct {
-		embed string
+		name   string
+		embed  string
+		lookup func(string) (string, bool)
+		set    bool
+		err    bool
+	}{
+		{"no embed block", "", env(nil), false, false},
+		{"layout only", "embed: {layout: whatsapp}\n", env(nil), false, false},
+		{"explicit indigo", "embed: {accent: \"#6366f1\"}\n", env(nil), true, false},
+		{"explicit rose", "embed: {accent: \"#e11d48\"}\n", env(nil), true, false},
+		{"empty string", "embed: {accent: \"\"}\n", env(nil), false, false},
+		{"null", "embed: {accent: null}\n", env(nil), false, false},
+		{"env sets it", "embed: {accent: \"${ACC}\"}\n", env(map[string]string{"ACC": "#e11d48"}), true, false},
+		{"env empty value", "embed: {accent: \"${ACC}\"}\n", env(map[string]string{"ACC": ""}), false, false},
+		{"env default empty", "embed: {accent: \"${ACC:-}\"}\n", env(nil), false, false},
+		{"env missing", "embed: {accent: \"${ACC}\"}\n", env(nil), false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Parse([]byte(base+tc.embed), tc.lookup)
+			if tc.err {
+				if err == nil {
+					t.Fatalf("want an error, got AccentSet=%v", c.Embed.AccentSet)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Embed.AccentSet != tc.set {
+				t.Errorf("AccentSet = %v, want %v (accent %q)", c.Embed.AccentSet, tc.set, c.Embed.Accent)
+			}
+		})
+	}
+}
+
+// SetDefaults can run again on a config it already filled; the default indigo
+// must not turn into an explicit accent on the second call.
+func TestEmbedAccentSetTwice(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		embed Embed
 		set   bool
 	}{
-		{"", false},
-		{"embed: {layout: whatsapp}\n", false},
-		{"embed: {accent: \"#6366f1\"}\n", true},
-		{"embed: {accent: \"#e11d48\"}\n", true},
+		{"unset", Embed{}, false},
+		{"explicit indigo", Embed{Accent: "#6366f1"}, true},
+		{"explicit rose", Embed{Accent: "#e11d48"}, true},
 	} {
-		c, err := Parse([]byte(base+tc.embed), env(nil))
-		if err != nil {
-			t.Fatal(err)
-		}
+		c := Config{Embed: tc.embed}
+		c.SetDefaults()
 		if c.Embed.AccentSet != tc.set {
-			t.Errorf("%q: AccentSet = %v, want %v", tc.embed, c.Embed.AccentSet, tc.set)
+			t.Errorf("%s: first SetDefaults AccentSet = %v, want %v", tc.name, c.Embed.AccentSet, tc.set)
+		}
+		c.SetDefaults()
+		if c.Embed.AccentSet != tc.set || c.Embed.Accent == "" {
+			t.Errorf("%s: second SetDefaults AccentSet = %v, want %v (accent %q)", tc.name, c.Embed.AccentSet, tc.set, c.Embed.Accent)
 		}
 	}
 }

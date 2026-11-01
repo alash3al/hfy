@@ -49,9 +49,12 @@ type Embed struct {
 	Accent string `yaml:"accent"`
 	// AccentSet is true when the accent was written, even as the default indigo: the
 	// whatsapp layout uses its own green unless an accent is set.
-	AccentSet bool   `yaml:"-"`
-	Density   string `yaml:"density"`
-	Layout    string `yaml:"layout"`
+	AccentSet bool `yaml:"-"`
+	// accentDefaulted remembers that SetDefaults filled the accent in, so AccentSet
+	// stays false when SetDefaults runs again on the same config.
+	accentDefaulted bool
+	Density         string `yaml:"density"`
+	Layout          string `yaml:"layout"`
 	// ToolCalls is how much of the agent's tool use viewers see: hidden,
 	// summary (a friendly row, no JSON) or details (arguments and results).
 	// Approval requests are always shown: the viewer must decide them.
@@ -440,11 +443,11 @@ func (c *Config) SetDefaults() {
 	if c.Embed.Theme == "" {
 		c.Embed.Theme = "auto"
 	}
-	// SetDefaults runs once when a config loads, so this reads what the operator wrote
-	c.Embed.AccentSet = c.Embed.Accent != ""
 	if c.Embed.Accent == "" {
 		c.Embed.Accent = "#6366f1"
+		c.Embed.accentDefaulted = true
 	}
+	c.Embed.AccentSet = !c.Embed.accentDefaulted
 	if c.Embed.Density == "" {
 		c.Embed.Density = "comfortable"
 	}
