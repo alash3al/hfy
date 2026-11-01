@@ -49,8 +49,8 @@ const (
 	repeatWarn  = 3       // the third identical call is refused with advice
 	repeatAbort = 6       // the sixth ends the turn
 	maxResult   = 100_000 // bytes of a tool result the model sees
-	// maxStructured bounds a tool's structuredContent, stored with its result
-	// for clients.
+	// maxStructured bounds a tool's structuredContent, card and questions, which
+	// are stored with its result for clients.
 	maxStructured = 1 << 20
 	// The bounds below are fixed, not configured: they stop a runaway or
 	// hostile model from growing one turn without limit.
@@ -251,7 +251,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
 			}
-			return Result{Outcome: Failed, Reason: "model call failed: " + err.Error()}, nil
+			return Result{Outcome: Failed, Reason: types.Clean("model call failed: " + err.Error())}, nil
 		}
 		l.steps++
 		l.addUsage(resp.Usage)
@@ -268,7 +268,8 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		calls := make([]provider.ToolCall, 0, len(resp.ToolCalls))
 		tooLarge := make([]bool, 0, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
-			if tc.ID == "" {
+			// An id the event log cannot hold (empty, NUL, too long) is replaced.
+			if tc.ID == "" || !storableText(tc.ID) {
 				tc.ID = fmt.Sprintf("call_%d_%d", l.steps, i)
 			}
 			big := len(tc.Arguments) > maxArgBytes
@@ -308,15 +309,16 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, tooLarge bo
 		return callOutcome{abort: why}, nil
 	}
 	tool, known := lookup[tc.Name]
-	name := tc.Name
+	known = known && storableText(tc.Name) // a name the log cannot hold is an unknown tool
+	name := clipName(tc.Name)
 	if known {
-		name = tool.FullName()
+		name = clipName(tool.FullName())
 	}
-	args, argsOK := normalizeArgs(tc.Arguments)
-	if known && argsOK {
+	args, argsErr := normalizeArgs(tc.Arguments)
+	if known && argsErr == nil {
 		args = dropNullOptionals(tool.Schema, args)
 	}
-	if name == svc.AskUserTool && argsOK {
+	if name == svc.AskUserTool && argsErr == nil {
 		// Store the repaired questions: the UI renders and Approve checks
 		// answers against exactly what the viewer will be asked.
 		if qs, err := svc.ParseQuestions(args); err == nil {
@@ -342,11 +344,11 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, tooLarge bo
 		res = errResult(promptRepeated)
 		out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
 	case !known:
-		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", tc.Name, l.validNames(lookup)))
-	case tooLarge:
+		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", name, l.validNames(lookup)))
+	case tooLarge || errors.Is(argsErr, errTooLarge):
 		res = errResult(fmt.Sprintf("arguments too large (limit %d bytes); send less", maxArgBytes))
-	case !argsOK:
-		res = errResult("invalid arguments: they are not valid JSON. Send a JSON object. Schema: " + string(tool.Schema))
+	case argsErr != nil:
+		res = errResult("invalid arguments: " + argsErr.Error() + ". Send a JSON object. Schema: " + string(tool.Schema))
 	case v == verdictWarn:
 		res = errResult(promptRepeated)
 	case name == svc.AskUserTool:
@@ -496,10 +498,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 	if len(res.Content) > maxResult {
 		res.Content = truncate(res.Content, maxResult) + "\n[truncated]"
 	}
-	if len(res.Structured) > maxStructured {
-		slog.Warn("tool's structured result dropped: too large", "tool", tool.FullName(), "bytes", len(res.Structured))
-		res.Structured = nil
-	}
+	res.Structured = keepStored(res.Structured, maxStructured, "structured result", tool.FullName())
 	// A tool's ui block reaches clients only when its server's config opted
 	// in; error results lose the whole block. Sub-agents and ask-less agents
 	// lose only the questions here (the card survives); a sub-agent's card
@@ -510,7 +509,8 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		if err != nil {
 			slog.Warn("tool's ui block dropped", "tool", tool.FullName(), "err", err)
 		}
-		res.UI, res.Questions = card, qs
+		res.UI = keepStored(card, maxStructured, "ui block", tool.FullName())
+		res.Questions = keepStored(qs, maxStructured, "questions", tool.FullName())
 	} else {
 		res.UI, res.Questions = nil, nil
 	}
@@ -602,17 +602,24 @@ func (l *loop) deriveActivated(ctx context.Context) {
 	}
 }
 
-// normalizeArgs returns storable JSON arguments and whether the model's text was valid JSON.
-func normalizeArgs(raw string) (json.RawMessage, bool) {
+// normalizeArgs returns the arguments the event log stores, and why they are
+// refused (nil if they are fine). Text that is not storable JSON is kept as a
+// JSON string of what the model said; arguments too large once their numbers
+// are written out are stored as their marker.
+func normalizeArgs(raw string) (json.RawMessage, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "null" {
-		return json.RawMessage(`{}`), true
+		return json.RawMessage(`{}`), nil
 	}
-	if storableJSON(raw) {
-		return json.RawMessage(raw), true
+	err := storable(raw, maxArgBytes)
+	switch {
+	case err == nil:
+		return json.RawMessage(raw), nil
+	case errors.Is(err, errTooLarge):
+		return json.RawMessage(argsMarker(raw)), err
 	}
 	b, _ := json.Marshal(types.Clean(raw)) // keep what the model said, as a JSON string
-	return b, false
+	return b, err
 }
 
 // seedCounts restores the repeat counts of a resumed turn from the calls it

@@ -71,6 +71,78 @@ func TestUnstorableArgumentsDoNotWedgeTheTurn(t *testing.T) {
 	}
 }
 
+// Numbers Postgres would expand or refuse are answered as invalid, and the
+// turn goes on; a small exponent is plain text and runs.
+func TestExponentArgumentsAreRefused(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "huge", Name: "files__echo", Args: `{"text":"x","n":1e131072}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "spread", Name: "files__echo", Args: `{"text":"x","n":[1e100000]}`}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "small", Name: "files__echo", Args: `{"text":"x","n":1E+5}`}}},
+		fakeprov.Step{Content: "done"})
+	turn := e.post("go")
+	e.waitState(turn, types.StateCompleted)
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != 3 {
+		t.Fatalf("results: %v\n%s", r, e.dump(turn))
+	}
+	for _, i := range []int{0, 1} {
+		if r[i]["is_error"] != true || !strings.HasPrefix(r[i]["content"].(string), "invalid arguments: number out of range") {
+			t.Fatalf("result %d: %v", i, r[i])
+		}
+	}
+	// The echo schema has no number field, so the server refuses the extra
+	// property; what matters is that the loop let the call through to it.
+	if c, _ := r[2]["content"].(string); strings.HasPrefix(c, "invalid arguments") {
+		t.Fatalf("a small exponent was refused as invalid: %v", r[2])
+	}
+}
+
+// A tool name or call id the log cannot hold (NUL, too long) does not wedge the
+// turn: a bad name is an unknown tool, stored cleaned and cut; a bad id is
+// replaced by the generated one. (The provider drops a call with no name.)
+func TestUnstorableNamesAndIDsDoNotWedge(t *testing.T) {
+	long := strings.Repeat("n", 300)
+	for _, c := range []struct{ name, id, wantName, wantID string }{
+		{name: "files__echo\x00", id: "a", wantName: "files__echo", wantID: "a"},
+		{name: long, id: "b", wantName: long[:256], wantID: "b"},
+		{name: "\x00", id: "c", wantName: "(unnamed)", wantID: "c"},
+		{name: "files__echo", id: "d\x00", wantName: "files.echo", wantID: "call_1_0"},
+		{name: "files__echo", id: long, wantName: "files.echo", wantID: "call_1_0"},
+	} {
+		t.Run(c.wantName+" "+c.wantID, func(t *testing.T) {
+			e := setup(t, func(cfg *config.Config) { cfg.Agent.MCP = []string{"files"} },
+				fakeprov.Step{Calls: []fakeprov.Call{{ID: c.id, Name: c.name, Args: `{"text":"x"}`}}},
+				fakeprov.Step{Content: "done"})
+			turn := e.post("go")
+			e.waitState(turn, types.StateCompleted)
+			calls := e.find(turn, types.EventToolCall)
+			if len(calls) != 1 || calls[0]["name"] != c.wantName || calls[0]["call_id"] != c.wantID {
+				t.Fatalf("recorded call: %v\n%s", calls, e.dump(turn))
+			}
+			r := e.find(turn, types.EventToolResult)
+			if len(r) != 1 || r[0]["call_id"] != c.wantID {
+				t.Fatalf("results: %v", r)
+			}
+		})
+	}
+}
+
+// Text the model writes is stored cleaned: a NUL in its reply or its reasoning
+// is dropped, and the turn completes.
+func TestNULInModelTextAndReasoningIsStoredClean(t *testing.T) {
+	e := setup(t, nil, fakeprov.Step{Reasoning: "think\x00", Content: "a\x00b"})
+	turn := e.post("go")
+	e.waitState(turn, types.StateCompleted)
+	msgs := e.find(turn, types.EventMessageText)
+	if len(msgs) != 2 || msgs[1]["text"] != "ab" {
+		t.Fatalf("messages: %v\n%s", msgs, e.dump(turn))
+	}
+	reasoning := e.find(turn, types.EventReasoning)
+	if len(reasoning) != 1 || reasoning[0]["text"] != "think" {
+		t.Fatalf("reasoning: %v", reasoning)
+	}
+}
+
 // A turn that already holds nearly maxTurnEvents (5000) events ends failed in
 // the middle of a reply that asks for more calls: the cap is checked before
 // each call, so the calls past it are never recorded.

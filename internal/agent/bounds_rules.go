@@ -4,13 +4,30 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"slices"
+	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
+)
+
+// maxNumberDigits bounds a number once written out in plain decimal. A float64
+// needs 309 digits, and Postgres allows 131072 before the point and 16383 after.
+const maxNumberDigits = 1000
+
+// maxName bounds a tool name or call id stored in an event.
+const maxName = 256
+
+// Why storable refuses JSON. errTooLarge is also how arguments are refused
+// when their numbers, written out, would outgrow maxArgBytes.
+var (
+	errNotJSON  = errors.New("they are not valid JSON")
+	errNotText  = errors.New("they hold a NUL character, an unpaired surrogate escape or invalid UTF-8")
+	errNumber   = errors.New("number out of range: at most " + strconv.Itoa(maxNumberDigits) + " digits once written out")
+	errTooLarge = errors.New("too large")
 )
 
 // argsMarker stands in for arguments over maxArgBytes, in the event log and in
@@ -23,17 +40,126 @@ func argsMarker(raw string) string {
 	return string(b)
 }
 
-// storableJSON reports whether raw is JSON the event log can hold: valid,
-// UTF-8, free of NUL, and free of unpaired surrogate escapes. Postgres refuses
-// all three in jsonb, and an event that cannot be stored wedges the turn.
-func storableJSON(raw string) bool {
-	if !json.Valid([]byte(raw)) || !utf8.ValidString(raw) || hasLoneSurrogate(raw) {
-		return false
+// storable reports why raw cannot be stored in an event, or nil if it can. An
+// event that cannot be stored wedges the turn. Postgres refuses NUL and unpaired
+// surrogate escapes in jsonb, and it writes each number out in full on every
+// read: 1e100000 is 10 bytes in and 100,003 bytes out. So a number counts at its
+// written-out length, each is capped at maxNumberDigits, and raw plus what
+// writing the numbers out adds must fit limit.
+func storable(raw string, limit int) error {
+	if len(raw) > limit {
+		return errTooLarge
+	}
+	if !json.Valid([]byte(raw)) {
+		return errNotJSON
+	}
+	if !utf8.ValidString(raw) || hasLoneSurrogate(raw) {
+		return errNotText
 	}
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.UseNumber()
 	var v any
-	return dec.Decode(&v) == nil && !jsonHasNUL(v)
+	if dec.Decode(&v) != nil {
+		return errNotJSON
+	}
+	grown := 0
+	if err := walkJSON(v, &grown); err != nil {
+		return err
+	}
+	if len(raw)+grown > limit {
+		return errTooLarge
+	}
+	return nil
+}
+
+// walkJSON refuses NUL in any string or key, and every number too long once
+// written out. grown adds up what writing the numbers out adds to raw.
+func walkJSON(v any, grown *int) error {
+	switch v := v.(type) {
+	case string:
+		if strings.ContainsRune(v, 0) {
+			return errNotText
+		}
+	case json.Number:
+		n, err := writtenLen(string(v))
+		if err != nil {
+			return err
+		}
+		*grown += n - len(v)
+	case []any:
+		for _, x := range v {
+			if err := walkJSON(x, grown); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		for k, x := range v {
+			if strings.ContainsRune(k, 0) {
+				return errNotText
+			}
+			if err := walkJSON(x, grown); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// writtenLen is the length of the JSON number s written out in plain decimal,
+// the exponent expanded as Postgres writes it, or errNumber when that is over
+// maxNumberDigits. The digit counts are upper bounds, never short.
+func writtenLen(s string) (int, error) {
+	mant, exp := s, 0
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		e, err := strconv.Atoi(s[i+1:])
+		if err != nil || e > maxNumberDigits || e < -maxNumberDigits {
+			return 0, errNumber
+		}
+		mant, exp = s[:i], e
+	}
+	sign := 0
+	if strings.HasPrefix(mant, "-") {
+		sign, mant = 1, mant[1:]
+	}
+	whole, frac, _ := strings.Cut(mant, ".")
+	digits := max(len(whole)+exp, 1)
+	after := max(len(frac)-exp, 0)
+	if digits+after > maxNumberDigits {
+		return 0, errNumber
+	}
+	if after > 0 {
+		after++ // the point
+	}
+	return sign + digits + after, nil
+}
+
+// storableText reports whether s can be stored as a tool name or call id
+// unchanged: short enough, with no NUL and no invalid UTF-8.
+func storableText(s string) bool {
+	return len(s) <= maxName && types.Clean(s) == s
+}
+
+// clipName is a tool name as the event log stores it: cleaned and cut to
+// maxName bytes. An empty name is stored as "(unnamed)", since an event needs one.
+func clipName(s string) string {
+	s = truncate(types.Clean(s), maxName)
+	if s == "" {
+		return "(unnamed)"
+	}
+	return s
+}
+
+// keepStored returns raw when it can be stored whole, or nil: the tool's output
+// is dropped with a warning that names the tool, never its content.
+func keepStored(raw json.RawMessage, limit int, what, tool string) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := storable(string(raw), limit); err != nil {
+		slog.Warn("tool's "+what+" dropped", "tool", tool, "reason", err.Error())
+		return nil
+	}
+	return raw
 }
 
 // hasLoneSurrogate reports a \u escape of a surrogate without its pair. The
@@ -65,22 +191,6 @@ func hasLoneSurrogate(raw string) bool {
 			i += 11
 		default:
 			i += 5
-		}
-	}
-	return false
-}
-
-func jsonHasNUL(v any) bool {
-	switch v := v.(type) {
-	case string:
-		return strings.ContainsRune(v, 0)
-	case []any:
-		return slices.ContainsFunc(v, jsonHasNUL)
-	case map[string]any:
-		for k, x := range v {
-			if strings.ContainsRune(k, 0) || jsonHasNUL(x) {
-				return true
-			}
 		}
 	}
 	return false

@@ -263,7 +263,7 @@ func (rt *Runtime) onTurnExhausted(ctx context.Context, job db.JobRow, err error
 		slog.Error("end exhausted turn", "turn", p.TurnEventID, "err", gerr)
 		return
 	}
-	msg := fmt.Sprintf("worker gave up after %d attempts: %v", job.Attempts, err)
+	msg := types.Clean(fmt.Sprintf("worker gave up after %d attempts: %v", job.Attempts, err))
 	if e := rt.Svc.EndTurn(ctx, turn.ConversationID, turn.ID, types.TurnStateEvent{State: types.StateFailed, Reason: "worker failed", Error: msg}); e != nil {
 		slog.Error("end exhausted turn", "turn", turn.ID, "err", e)
 	}
