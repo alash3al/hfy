@@ -17,6 +17,7 @@ plumbing (loop, tools, history, streaming, access) in every app.
 - **One instance = one domain = one tenant.** Many end users can share it
   (isolation is per conversation). Run another instance for another app.
 
+<!-- llms:skip -->
 ## Quick start
 
 ```sh
@@ -42,6 +43,8 @@ curl -N localhost:8080/v1/conversation/events -H "Authorization: Bearer hfy_Qm9�
 curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hfy_Qm9…" -d '{"text":"hello"}'
 # 202 {"turn":"a91e…"}
 ```
+
+<!-- /llms:skip -->
 
 ## Commands
 
@@ -168,6 +171,25 @@ as `exclude`, or a token budget). Put that object and top-level `cache_control` 
 - **`mock`**: the mock provider ignores the controls and `call_timeout`; config
   validation still runs.
 
+### Keys at a glance
+
+- `providers.<name>`: `url`, `api_key`, `timeout` (the longest silence: before the
+  answer starts and between streamed chunks), `type` (`openai` or `mock`),
+  `max_tokens_param` (`max_tokens` by default, or `max_completion_tokens`).
+- `agent` and `agents.<name>`: `model` (`<provider>/<model>`), `settings`
+  (`context_window` required, `temperature`, `vision`: accept image attachments,
+  default false, and the model request controls above), `system` (supports
+  `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`,
+  `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`),
+  `ask_user` (bool), `mcp` (server names).
+- `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
+- `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
+- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app
+  hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch
+  URLs); it only seeds the default of `filesystem.max_bytes`.
+- `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d).
+  `metrics`: `listen`.
+
 ## API
 
 The API is versioned in the path (`/v1`). Within `v1`, changes are additive
@@ -246,15 +268,18 @@ do, so the server secret cannot work from a page. Tokens are never cookies, so
 there is no credentials mode.
 
 - `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
-  Starts the turn, or queues it behind the active one.
+  Starts the turn, or queues it behind the active one. An attachment is
+  `{url, mime, name?}` (hosted by your app, checked against `attachments:`) or
+  `{file, mime, name?}` (an upload slot key, below).
 - `POST /v1/conversation/uploads` `{mime, size}` → `{"file": key,
   "upload_url": url, "expires_at": time, "direct": bool}`. Creates an
   upload slot (needs `files.dsn`); `size` in bytes is required, positive
   and bounded by `files.max_bytes`. A slot lives at
   `uploads/<conversation>/…` and is temporary: retention deletes slots
   after `files.upload_ttl` + 1h. PUT the file bytes to `upload_url`
-  as the slot response directs (`direct` = a presigned S3 URL; otherwise
-  an hfy path, with the grant), then post the message with `{file, mime}`
+  with `Content-Type: <mime>`, as the slot response directs (`direct` = a
+  presigned S3 URL, no auth header; otherwise an hfy path: prefix hfy's base URL
+  and send the grant's `Authorization`), then post the message with `{file, mime}`
   attachments naming the slot. Posting verifies the stored slot (size,
   type, conversation) and copies the file to
   `conversations/<conversation>/…`; events name only that verified key.
@@ -410,6 +435,20 @@ direction otherwise auto-detect from the viewer (`Intl`), with built-in
 English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
 API base, actor, agent, vars) are never configurable from the client.
 
+```yaml
+embed:
+  lang: en              # omit = viewer's browser language
+  dir: auto             # auto | ltr | rtl
+  theme: auto           # light | dark | auto
+  accent: "#0b7d71"     # hex
+  density: comfortable  # comfortable | compact
+  layout: bubbles       # bubbles | transcript
+  tool_calls: summary   # hidden | summary | details
+```
+
+A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of
+those keys, plus `strings` (an object overriding UI strings).
+
 ### Operations
 
 - `GET /healthz` liveness: the process answers (never checks dependencies).
@@ -446,6 +485,11 @@ One envelope for the stream and for history:
 `tool_call.interrupted` · `tool_result` · `approval.requested` ·
 `approval.decided` · `model.usage` · `summary` · ephemeral: `text.delta`,
 `reasoning.delta` (never in history).
+
+Payloads: `message.text` is `{text, attachments?}`; `tool_result` is
+`{call_id, content, is_error, structured?, ui?}` (`ui` is the sanitized
+`_meta["hfy/ui"]` card); `approval.requested` adds `questions`, `ui` and `held`
+when a tool asked questions of its own.
 
 Render text by appending `text.delta` under its turn; the durable
 `message.text` replaces them. Pair `tool_call` and `tool_result` by
@@ -520,7 +564,8 @@ event as stored.
   waits on tools whose annotations say destructive (readOnlyHint not true AND
   destructiveHint explicitly true); unannotated tools never count. The core
   built-ins (hfy.now, hfy.math_calc, hfy.tool_search)
-  never ask, even when a pattern like `hfy.*` matches. hfy.ask_user pauses the
+  never ask, even when a pattern like `hfy.*` matches; a pattern that protects
+  only one of them (`hfy.now`) is a startup error. hfy.ask_user pauses the
   same way and never twice: it always asks the viewer, even if a pattern
   matched its name; it runs after `approval.timeout` (the agent's own if it
   has one, else a fixed 30m).
@@ -546,6 +591,10 @@ event as stored.
   answer in time." after the timeout above. Without the opt-in the tool does
   not exist for that agent (an API-only app would stall); invalid arguments
   come back as an error result without pausing; sub-agents never ask.
+  Small slips from small models (string options, odd ids, type synonyms) are
+  repaired; models around 3B often ask in plain text instead of calling the
+  tool, so use a stronger model or say "ask with hfy.ask_user" in the system
+  prompt.
 - **Cards and questions from tools.** A tool that opts in may ship its own
   display card in `_meta["hfy/ui"]`, and, when its server allows, structured
   questions that attach to the tool's real call. Before anything reaches a
@@ -590,6 +639,28 @@ event as stored.
     `a-z0-9_.-`, at most 64 characters, payload a JSON
     object ≤ 2 KiB; the message goes to the host app, see below).
 
+  Examples (a card with every part; a carousel; what the host receives when
+  "Pay now" is clicked; a card with questions):
+
+  ```json
+  {"v": 1, "type": "card", "title": "Your order", "subtitle": "Pizza Express", "body": "Margherita, extra cheese", "badge": "12 EUR",
+   "kv": [{"label": "Size", "value": "Large"}, {"label": "Delivery", "value": "30–40 min"}],
+   "image": "https://img.shop.example/margherita.jpg", "buttons": [
+     {"send": {"label": "Order it"}},
+     {"link": {"label": "Menu", "url": "https://shop.example/menu"}},
+     {"host": {"label": "Pay now", "name": "pay_host", "payload": {"amount": 12}}}]}
+
+  {"v": 1, "type": "carousel", "cards": [
+    {"v": 1, "type": "card", "title": "Margherita", "body": "12 EUR", "image": "https://img.shop.example/m.jpg"},
+    {"v": 1, "type": "card", "title": "Capriciosa", "body": "14 EUR", "image": "https://img.shop.example/c.jpg"}]}
+
+  {"v": 1, "type": "action", "name": "pay_host", "payload": {"amount": 12}, "call_id": "01JD..."}
+
+  {"v": 1, "type": "card", "title": "Your order", "body": "Margherita, 12 EUR",
+   "buttons": [{"send": {"label": "Order it"}}],
+   "questions": {"questions": [{"id": "size", "text": "Which size?", "type": "single", "options": [{"value": "s", "label": "Small"}, {"value": "l", "label": "Large"}]}]}}
+  ```
+
   When a tool's call carries questions, the turn pauses on that same call
   (no second, synthetic ask): the embedded UI answers them in the approval
   sheet with the card beside it, and the model then receives the tool's own
@@ -615,6 +686,8 @@ event as stored.
   actor is whoever started the turn; `vars` are the grant's, so keep
   secrets out of them: every MCP server, remote ones too, receives them). Return
   `structuredContent` for data meant for the client; the model sees the text.
+  Since v1.1.0 the keys are `hfy/turn` and `hfy/ui` (older servers sent
+  `io.github.alash3al.hfy/*`; that spelling is no longer read).
    Put a display card in `_meta["hfy/ui"]` (the next section) for the viewer.
 - **A conversation is a room.** Every agent that answers in it sees the whole
   conversation: its own messages and tool calls as its own, and, once others
@@ -795,6 +868,15 @@ event as stored.
   first (the older version could not revoke them), so those clients ask your
   backend for a new grant.
 
+## Not in v1
+
+Images returned by MCP tools (they become a text placeholder),
+semantic `tool_search` (keyword today), structured output, provider failover,
+other stream formats, an OpenAI-compatible API (serving
+`/v1/chat/completions`) in front of hfy, script-tag embedding, cookie auth,
+quotas.
+
+<!-- llms:skip -->
 ## Development
 
 ```sh
@@ -804,6 +886,8 @@ golangci-lint run ./... && go test -race ./...   # exactly what CI runs
 
 `make check` runs the whole CI gate (`go mod tidy -diff`, lint, then the tests
 with `HFY_TEST_REQUIRE_DB=1`); `make db` starts the test database.
+`make gen` regenerates `docs/llms.txt` from `docs/llms.head.md` and this file; never edit
+`llms.txt` by hand.
 
 Tests need a Postgres (`HFY_TEST_DB` overrides
 `postgres://postgres:hfy@127.0.0.1:54330/hfy`); each test gets its own
@@ -863,9 +947,4 @@ survive many contributors, so prefer adding a check to adding a sentence.
 - Filesystem storage uses `gocloud.dev/blob` directly, with no homegrown
   Files interface; drivers are `s3` and `file` (`mem` in tests).
 
-### Not in v1
-
-Images returned by MCP tools (they become a text placeholder),
-semantic `tool_search` (keyword today), structured output, provider failover,
-other stream formats, an OpenAI-compatible API (serving
-`/v1/chat/completions`) in front of hfy.
+<!-- /llms:skip -->

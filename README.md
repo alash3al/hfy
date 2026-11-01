@@ -120,8 +120,9 @@ in `hfy.yaml`, then:
 That's it. When a pass expires, the chat asks for a new one by itself.
 
 For **mobile and desktop apps**, open `/embed` in a WebView instead; see
-[WebViews](docs/llms.txt) for Flutter, React Native, iOS and Android. To build
-your own UI, use `/embed/client.js` or the HTTP API.
+[WebViews](docs/llms.txt) for React Native, iOS and Android. Flutter apps use the
+native hfy_flutter SDK (in development), not a WebView. To build your own UI,
+use `/embed/client.js` or the HTTP API.
 
 ## Give it your tools
 

@@ -9,7 +9,7 @@ export HFY_TEST_DB
 
 GOLANGCI_LINT := $(CURDIR)/bin/golangci-lint
 
-.PHONY: check tidy-check lint fmt-check test db
+.PHONY: check tidy-check lint fmt-check test db gen
 
 check: tidy-check lint test
 
@@ -29,6 +29,10 @@ $(GOLANGCI_LINT): Makefile
 
 test:
 	HFY_TEST_REQUIRE_DB=1 go test -race -count=1 ./... || { echo 'make test failed; if the output says "no test postgres", run: make db' >&2; exit 1; }
+
+# Regenerates docs/llms.txt from docs/llms.head.md and docs/reference.md.
+gen:
+	go test . -run '^TestLLMsTxtIsFresh$$' -count=1 -args -update-docs
 
 db:
 	@if [ -n "$$(docker ps -q -f 'name=^$(DB_CONTAINER)$$')" ]; then echo "$(DB_CONTAINER) is already running"; exit 0; fi; \
