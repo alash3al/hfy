@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/types"
@@ -360,5 +362,67 @@ func TestEstimateCountsNotesAndParts(t *testing.T) {
 	req := provider.Request{Messages: []provider.Message{big, {Role: "user", Content: note}}}
 	if requestBytes(req) != maxPromptBytes+len(note) {
 		t.Fatalf("the byte cap counts the note: %d", requestBytes(req))
+	}
+}
+
+// The prompt is a pure function of its events: a hundred builds of the same
+// conversation (notes, room mode, dangling calls, summary, attachments) are
+// the same bytes, and so is a build from a copy of the events.
+func TestBuildPromptIsDeterministic(t *testing.T) {
+	// Six calls that never got an answer, then a note and more: their answers
+	// come in call order, every time.
+	var b evb
+	b.turn()
+	b.say("u1", "hi")
+	for _, id := range []string{"c1", "c2", "c3", "c4", "c5", "c6"} {
+		b.call(id)
+	}
+	b.note("N")
+	b.say("u1", "next")
+	for range 100 {
+		_, msgs := build(t, b.rows)
+		var ids []string
+		for _, m := range msgs {
+			if m.Role == "tool" {
+				ids = append(ids, m.ToolCallID)
+			}
+		}
+		if got := strings.Join(ids, ""); got != "c1c2c3c4c5c6" {
+			t.Fatalf("answers in order %q, want c1c2c3c4c5c6 on every build", got)
+		}
+	}
+
+	r := rand.New(rand.NewPCG(9, 1))
+	for i := range 40 {
+		events, turns := randomEvents(r, 1+r.IntN(5))
+		for k := range 6 { // sprinkle notes
+			typ, p := types.EventContextNote, types.Payload(types.ContextNote{Text: fmt.Sprintf("note %d <&>", k)})
+			if k%2 == 1 {
+				typ, p = types.EventHostMessage, types.HostMessage{Text: fmt.Sprintf("msg %d", k)}
+			}
+			data, _ := json.Marshal(p)
+			at := r.IntN(len(events) + 1)
+			parent := turns[0]
+			events = slices.Insert(events, at, db.EventRow{ID: int64(1000 + k), ParentID: &parent, Type: typ, V: 1, Data: data,
+				ActorType: actorHost, ActorRef: "crm"})
+		}
+		in := promptInput{Events: events, Summary: &types.Summary{Text: "sum"}, Current: turns[len(turns)-1],
+			Spec: &Spec{Name: "main", System: "s", Settings: config.Settings{Vision: true}}, Sign: stubSign}
+		render := func(in promptInput) string {
+			system, msgs, err := buildPrompt(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := json.Marshal(provider.Request{Model: "m", Messages: append([]provider.Message{{Role: "system", Content: system}}, msgs...)})
+			return string(b)
+		}
+		want := render(in)
+		cp := in
+		cp.Events = slices.Clone(events)
+		for range 100 {
+			if got := render(cp); got != want {
+				t.Fatalf("case %d: the prompt changed between builds", i)
+			}
+		}
 	}
 }

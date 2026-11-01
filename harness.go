@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+	"uuid"
 
 	"gocloud.dev/blob"
 
@@ -209,6 +211,30 @@ func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker
 }
 
 // migrate runs "up", "down" or "status" and returns the report.
+// contextShow prints the JSON body of the request a conversation's newest turn
+// would send now, built by this code and config from the stored events, to
+// stdout; a one-line summary goes to stderr. It never writes: the connection
+// is read-only, no model is called and no MCP server is started.
+func contextShow(ctx context.Context, cfg *config.Config, conversation uuid.UUID, agentName string, stdout, stderr io.Writer) error {
+	store, err := db.OpenReadOnly(ctx, cfg.Database.URL, 2)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	rt, err := agent.NewRuntime(cfg, store, mcp.NewManager())
+	if err != nil {
+		return err
+	}
+	v, err := rt.ShowPrompt(ctx, conversation, agentName)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stderr, "agent=%s estimate_tokens=%d context_window=%d (as the current code and config build it now, tools not shown)\n",
+		v.Agent, v.EstimateTokens, v.ContextWindow)
+	_, err = fmt.Fprintf(stdout, "%s\n", v.Body)
+	return err
+}
+
 func migrate(ctx context.Context, cfg *config.Config, cmd string) (string, error) {
 	store, err := db.Open(ctx, cfg.Database.URL, 4)
 	if err != nil {

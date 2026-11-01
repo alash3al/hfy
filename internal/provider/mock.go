@@ -41,7 +41,7 @@ func mockUsage(req Request, content string) (types.Usage, int64) {
 
 func (m *Mock) Chat(ctx context.Context, req Request, o Opts) (*Response, error) {
 	start := time.Now()
-	body, _ := requestBody(req, "") // the body a real provider would get; the mock sends nothing
+	body, _ := RequestBody(req, "") // the body a real provider would get; the mock sends nothing
 	fail := func(err error) (*Response, error) {
 		metrics.ProviderRequests.WithLabelValues(m.Name, "chat", metrics.Outcome(true)).Inc()
 		metrics.Since(metrics.ProviderDuration.WithLabelValues(m.Name, "chat"), start)

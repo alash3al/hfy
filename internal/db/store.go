@@ -60,6 +60,16 @@ var queryNames = []string{
 
 // Open connects, pings and loads the embedded queries.
 func Open(ctx context.Context, url string, maxConns int32) (*Store, error) {
+	return open(ctx, url, maxConns, false)
+}
+
+// OpenReadOnly is Open for commands that only look: every session starts
+// read-only, so a write fails in Postgres instead of happening.
+func OpenReadOnly(ctx context.Context, url string, maxConns int32) (*Store, error) {
+	return open(ctx, url, maxConns, true)
+}
+
+func open(ctx context.Context, url string, maxConns int32, readOnly bool) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("storage.url: %w", err)
@@ -73,6 +83,9 @@ func Open(ctx context.Context, url string, maxConns int32) (*Store, error) {
 	// compiling for microseconds of work. A URL's own jit setting wins.
 	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
 		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
+	if readOnly {
+		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

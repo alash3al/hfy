@@ -165,7 +165,7 @@ func (c *Client) chat(ctx context.Context, req Request, o Opts) (*Response, erro
 	if backoff == 0 {
 		backoff = time.Second
 	}
-	body, err := requestBody(req, c.MaxTokensParam)
+	body, err := RequestBody(req, c.MaxTokensParam)
 	if err != nil {
 		return nil, err
 	}
@@ -404,10 +404,10 @@ func buildBody(r Request, maxParam string) wireRequest {
 	return b
 }
 
-// requestBody is the JSON body of one chat call: the core fields, then the
+// RequestBody is the JSON body of one chat call: the core fields, then the
 // agent's extra keys. extra adds keys and never replaces one hfy sends; a
 // clash is an error, not a silent drop.
-func requestBody(r Request, maxParam string) ([]byte, error) {
+func RequestBody(r Request, maxParam string) ([]byte, error) {
 	core, err := json.Marshal(buildBody(r, maxParam))
 	if err != nil || len(r.Controls.Extra) == 0 {
 		return core, err

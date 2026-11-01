@@ -32,7 +32,7 @@ func TestRequestBodyGoldenWithoutControls(t *testing.T) {
 		`{"role":"tool","content":"ok","tool_call_id":"c1"}],"stream":true,"stream_options":{"include_usage":true},` +
 		`"tools":[{"type":"function","function":{"name":"files__read","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],` +
 		`"temperature":0.2,"top_p":0.9}`
-	got, err := requestBody(goldenRequest(), "")
+	got, err := RequestBody(goldenRequest(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRequestBodyGoldenWithoutControls(t *testing.T) {
 
 func bodyMap(t *testing.T, r Request, maxParam string) map[string]any {
 	t.Helper()
-	b, err := requestBody(r, maxParam)
+	b, err := RequestBody(r, maxParam)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestExtraCannotReplaceCoreFields(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			key := strings.TrimPrefix(c.name, "tools without ")
-			if _, err := requestBody(c.r, c.param); err == nil || !strings.Contains(err.Error(), "extra.") || !strings.Contains(err.Error(), key) {
+			if _, err := RequestBody(c.r, c.param); err == nil || !strings.Contains(err.Error(), "extra.") || !strings.Contains(err.Error(), key) {
 				t.Fatalf("want an error naming extra.%s, got %v", key, err)
 			}
 		})
@@ -143,7 +143,7 @@ func TestExtraCannotReplaceCoreFields(t *testing.T) {
 }
 
 func TestExtraKeysDifferingOnlyInCaseCollide(t *testing.T) {
-	if _, err := requestBody(withExtra(goldenRequest(), map[string]any{"Foo": 1, "foo": 2}), ""); err == nil || !strings.Contains(err.Error(), "extra.foo") {
+	if _, err := RequestBody(withExtra(goldenRequest(), map[string]any{"Foo": 1, "foo": 2}), ""); err == nil || !strings.Contains(err.Error(), "extra.foo") {
 		t.Fatalf("want an error naming extra.foo, got %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func withCap(r Request, n int, extra map[string]any) Request {
 func TestExtraValueMustSerialise(t *testing.T) {
 	r := goldenRequest()
 	r.Controls.Extra = map[string]any{"bad": math.Inf(1)}
-	if _, err := requestBody(r, ""); err == nil || !strings.Contains(err.Error(), "extra.bad") {
+	if _, err := RequestBody(r, ""); err == nil || !strings.Contains(err.Error(), "extra.bad") {
 		t.Fatalf("want an error naming extra.bad, got %v", err)
 	}
 }

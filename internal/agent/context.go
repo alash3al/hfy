@@ -19,6 +19,11 @@ import (
 // durable events of the turns after the ones it covers: one query) and hands
 // it to buildPrompt.
 func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (system string, msgs []provider.Message, err error) {
+	return rt.promptFor(ctx, conversationID, currentTurn, spec, func(key string) string { return rt.downloadURL(ctx, key) })
+}
+
+// promptFor is buildContext with the signer of stored-file URLs chosen by the caller.
+func (rt *Runtime) promptFor(ctx context.Context, conversationID, currentTurn int64, spec *Spec, sign func(string) string) (system string, msgs []provider.Message, err error) {
 	summary, after, err := rt.summaryStart(ctx, conversationID)
 	if err != nil {
 		return "", nil, err
@@ -27,8 +32,7 @@ func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn
 	if err != nil {
 		return "", nil, err
 	}
-	return buildPrompt(promptInput{Events: events, Summary: summary, Current: currentTurn, Spec: spec,
-		Sign: func(key string) string { return rt.downloadURL(ctx, key) }})
+	return buildPrompt(promptInput{Events: events, Summary: summary, Current: currentTurn, Spec: spec, Sign: sign})
 }
 
 // promptInput is everything a prompt is made of.

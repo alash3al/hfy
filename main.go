@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"uuid"
 
 	"github.com/urfave/cli/v3"
 
@@ -94,6 +95,22 @@ func app() *cli.Command {
 					out, err := migrate(ctx, cfg, sub)
 					fmt.Print(out)
 					return err
+				},
+			},
+			{
+				Name: "context:show", Usage: "print the model request a conversation's newest turn would send now (reads only)",
+				ArgsUsage: "<conversation-uuid>",
+				Flags:     []cli.Flag{&cli.StringFlag{Name: "agent", Usage: "build it for this agent (default: the agent of the newest turn)"}},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					cfg, err := load(cmd)
+					if err != nil {
+						return err
+					}
+					id, err := uuid.Parse(cmd.Args().First())
+					if err != nil {
+						return fmt.Errorf("context:show wants a conversation uuid: %w", err)
+					}
+					return contextShow(ctx, cfg, id, cmd.String("agent"), os.Stdout, os.Stderr)
 				},
 			},
 			{
