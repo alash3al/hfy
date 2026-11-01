@@ -638,6 +638,9 @@ func normalizeArgs(raw string) (json.RawMessage, error) {
 		return json.RawMessage(argsMarker(raw)), err
 	}
 	b, _ := json.Marshal(types.Clean(raw)) // keep what the model said, as a JSON string
+	if len(b) > maxReplayArgs {            // escapes can inflate it; replay would clamp it anyway
+		return json.RawMessage(argsMarker(raw)), err
+	}
 	return b, err
 }
 

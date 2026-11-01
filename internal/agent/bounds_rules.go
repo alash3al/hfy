@@ -19,6 +19,11 @@ import (
 // needs 309 digits, and Postgres allows 131072 before the point and 16383 after.
 const maxNumberDigits = 1000
 
+// maxReplayArgs bounds the stored arguments replayed into a prompt. A call that
+// passed storable reads back at most maxArgBytes, so this is twice what any
+// row written by this version needs.
+const maxReplayArgs = 2 * maxArgBytes
+
 // maxName bounds a tool name or call id stored in an event.
 const maxName = 256
 

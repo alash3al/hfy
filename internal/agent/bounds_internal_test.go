@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
@@ -694,5 +695,59 @@ func TestSeedCountsMarksRecordedIDsUsed(t *testing.T) {
 	}, Decided: map[string]types.ApprovalDecided{"q": {CallID: "q", Approve: true}}})
 	if !l.used["x"] || !l.used["q"] || len(l.used) != 2 {
 		t.Fatalf("used: %v", l.used)
+	}
+}
+
+// Rows written before the bounds, or by another version, may hold arguments
+// far over maxArgBytes: replaying them sends a marker, never the megabytes. A
+// row this version could have stored is replayed whole.
+func TestReplayClampsOversizeArguments(t *testing.T) {
+	huge := `{"pad":"` + strings.Repeat("a", 3<<20) + `"}`
+	fits := padArgs(maxReplayArgs)                      // the most a stored row can be: 2x what storable lets in
+	garbage, _ := json.Marshal(strings.Repeat("<", 40)) // invalid JSON the model sent, kept as a string
+	call := func(id, args string) db.EventRow {
+		data, _ := json.Marshal(types.ToolCall{Name: "hfy.now", CallID: id, Arguments: json.RawMessage(args)})
+		return db.EventRow{Type: types.EventToolCall, V: 1, Data: data, ActorType: string(types.ActorAgent), ActorRef: "helper"}
+	}
+	rt := &Runtime{}
+	msgs, err := rt.messagesFrom(context.Background(), []db.EventRow{
+		call("huge", huge), call("fits", fits), call("text", string(garbage))}, 0, &Spec{Name: "helper"}, false)
+	if err != nil || len(msgs) == 0 {
+		t.Fatalf("messages: %v %v", msgs, err)
+	}
+	got := map[string]string{}
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			got[tc.ID] = tc.Arguments
+		}
+	}
+	var marker map[string]any
+	if json.Unmarshal([]byte(got["huge"]), &marker) != nil || marker["truncated"] != true ||
+		marker["bytes"] != float64(len(huge)) || len(got["huge"]) > 1024 {
+		t.Fatalf("oversize row replayed as %.200s (%d bytes)", got["huge"], len(got["huge"]))
+	}
+	if got["fits"] != fits || got["text"] != strings.Repeat("<", 40) {
+		t.Fatalf("a row within the bound changed: %.80s / %q", got["fits"], got["text"])
+	}
+}
+
+// What a refused text is stored as, a JSON string, stays within the replay
+// bound even when escaping inflates it six-fold.
+func TestRefusedTextStoredWithinTheReplayBound(t *testing.T) {
+	raw := `{"a":` + strings.Repeat("\u0001", maxArgBytes-8) // not JSON; each control byte escapes to 6
+	got, err := normalizeArgs(raw)
+	if err == nil || len(got) > maxReplayArgs || !json.Valid(got) {
+		t.Fatalf("stored %d bytes, %v", len(got), err)
+	}
+	var marker map[string]any
+	if json.Unmarshal(got, &marker) != nil || marker["truncated"] != true {
+		t.Fatalf("inflated text must be a marker: %.100s", got)
+	}
+	if text := argsText(got); text != string(got) { // a marker replays as it is
+		t.Fatalf("replayed as %.100s", text)
+	}
+	small, err := normalizeArgs(`{"a":`)
+	if err == nil || string(small) != `"{\"a\":"` {
+		t.Fatalf("a short refused text: %s %v", small, err)
 	}
 }

@@ -271,6 +271,9 @@ func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current
 // argsText converts stored arguments back to the text a provider expects.
 func argsText(raw json.RawMessage) string {
 	s := strings.TrimSpace(string(raw))
+	if len(s) > maxReplayArgs { // a row from before the bounds: never re-send megabytes
+		return argsMarker(s)
+	}
 	if strings.HasPrefix(s, `"`) { // invalid JSON the model sent, stored as a string
 		var text string
 		if json.Unmarshal(raw, &text) == nil {
