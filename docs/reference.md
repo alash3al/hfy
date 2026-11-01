@@ -354,7 +354,8 @@ that follow `theme`: green outgoing, white incoming, wallpaper, a composer bar;
 bubbles up to 65% of the width and 80% on phones). In `whatsapp` the accent is
 WhatsApp green unless `accent` is set in YAML or by `configure`; a set accent
 drives the send button, links, approvals, focus and the new-messages pill, and
-tints the viewer's own bubbles. `density` (`comfortable`, `compact` or `spacious`),
+tints the viewer's own bubbles (timestamps keep 4.5:1 on any tint, and text on an
+accent fill is picked for 4.5:1). `density` (`comfortable`, `compact` or `spacious`),
 `lang`, `dir` and `tool_calls` apply as in the other layouts. Per-viewer overrides
 arrive only via the `configure` bridge message from your glue (which can read
 your page's own `lang`/`dir`, or your app's selected locale; `layout` can be

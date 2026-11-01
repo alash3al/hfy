@@ -1,6 +1,8 @@
 package httpapi_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -73,15 +75,25 @@ const layoutStub = `
 // which loads a component with that page config the way the page does.
 func runLayoutNode(t *testing.T, body string) {
 	t.Helper()
+	runNode(t, body)
+}
+
+// runNode runs the driver and returns its stdout. Without node the test fails
+// when HFY_TEST_REQUIRE_DB=1 (CI), like TestFixturesMatchJS, and skips otherwise.
+func runNode(t *testing.T, body string) string {
+	t.Helper()
 	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node")
+		if os.Getenv("HFY_TEST_REQUIRE_DB") == "1" {
+			t.Fatalf("node is required to run the embed UI under node: %v", err)
+		}
+		t.Skip("node not found in PATH; the embed UI tests run the real ui.js under node")
 	}
 	src, err := os.ReadFile("embed/ui.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	quoted := strconv.Quote(string(src) + `
-;return {hfyEmbed: window.hfyEmbed, resolve: hfyResolveConfig, inbound: hfyHandleInbound, bridge: hfyBridge, setClient: function (v) { hfyClient = v }};`)
+;return {hfyEmbed: window.hfyEmbed, resolve: hfyResolveConfig, inbound: hfyHandleInbound, bridge: hfyBridge, setClient: function (v) { hfyClient = v }, onColor: hfyOnColor};`)
 	driver := layoutStub + `
 		var api = new Function('window', 'document', 'navigator', 'requestAnimationFrame', 'matchMedia', ` + quoted + `)(win, doc, nav, function () {}, matchMediaStub);
 		function boot(raw) {
@@ -93,10 +105,13 @@ func runLayoutNode(t *testing.T, body string) {
 			return c;
 		}
 	` + body
-	out, err := exec.Command("node", "-e", driver).CombinedOutput()
-	if err != nil {
-		t.Fatalf("node: %v\n%s", err, out)
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("node", "-e", driver)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("node: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
+	return stdout.String()
 }
 
 // cssDecls returns the declarations of the first flat rule whose selector is sel
@@ -231,8 +246,9 @@ func TestEmbedWhatsappAccentExplicit(t *testing.T) {
 	}
 	for _, want := range []string{
 		"outline:2px solid var(--hfy-accent);outline-offset:2px}",
-		"--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 58%,#000)",
 		"--hfy-ring:color-mix(in srgb,var(--hfy-accent) 40%,transparent)",
+		// the whatsapp rule's link colour, not the base :root one (58%)
+		`[data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff);--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 40%,#000)}`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("accent must drive %q", want)
@@ -243,7 +259,7 @@ func TestEmbedWhatsappAccentExplicit(t *testing.T) {
 		accents.forEach(function (a) {
 			boot({layout: 'whatsapp', accent: a, accent_set: true});
 			eq(el.style.props['--hfy-accent'], a, 'accent ' + a + ' drives the UI');
-			truthy(el.style.props['--hfy-on-accent'], 'on-accent set for ' + a);
+			eq(el.style.props['--hfy-on-accent'], api.onColor(a, true), 'on-accent for ' + a);
 			eq(el.dataset.accentSet, '', 'accent-set flag for ' + a);
 		});
 	`)
@@ -282,34 +298,115 @@ func TestEmbedWhatsappIndigoExplicit(t *testing.T) {
 	`)
 }
 
-// Accent row (contrast): message text on the own tint, and links on the incoming
-// bubble, are at least 4.5:1 in both themes for every accent, computed with the
-// stylesheet's own percentages.
+// Accent row (contrast): on the own bubble, message text and timestamps keep
+// 4.5:1 and the read and failed ticks keep 3:1 (graphics). Links keep 4.5:1 on the
+// incoming bubble. Checked for the unset accent and the extreme accents, in both
+// themes, from the stylesheet's own colours and percentages.
 func TestEmbedWhatsappAccentContrast(t *testing.T) {
 	css := readUICSS(t)
-	light := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#000\)\}`).FindStringSubmatch(css)
-	dark := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-theme="dark"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#202c33\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\)\}`).FindStringSubmatch(css)
-	if light == nil || dark == nil {
-		t.Fatal("accent-set rules not found")
+	setLight := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#000\)\}`).FindStringSubmatch(css)
+	setDark := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-theme="dark"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#202c33\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\)\}`).FindStringSubmatch(css)
+	unsetLight := regexp.MustCompile(`--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#000\)`).FindStringSubmatch(css)
+	unsetDark := regexp.MustCompile(`(?s)\[data-theme="dark"\]\{[^}]*--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\)`).FindStringSubmatch(css)
+	if setLight == nil || setDark == nil || unsetLight == nil || unsetDark == nil {
+		t.Fatal("accent-set or base link rules not found")
 	}
 	pct := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 100 }
-	lightText := rgbOf(t, cssDecls(t, css, `[data-layout="whatsapp"]{`)["--hfy-wa-text"])
-	darkText := rgbOf(t, cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"]{`)["--hfy-wa-text"])
-	white, black, incomingDark := rgbOf(t, "#fff"), rgbOf(t, "#000"), rgbOf(t, "#202c33")
-	for _, accent := range []string{"#ffee00", "#fef9c3", "#ffffff", "#111111", "#1f2937", "#6366f1", "#e11d48", "#00a884"} {
-		a := rgbOf(t, accent)
-		for _, c := range []struct {
-			name string
-			got  float64
-		}{
-			{"light own text", contrast(lightText, mix(a, pct(light[1]), white))},
-			{"light link", contrast(mix(a, pct(light[2]), black), white)},
-			{"dark own text", contrast(darkText, mix(a, pct(dark[1]), incomingDark))},
-			{"dark link", contrast(mix(a, pct(dark[2]), white), incomingDark)},
-		} {
-			if c.got < 4.5 {
-				t.Errorf("accent %s, %s: contrast %.2f < 4.5", accent, c.name, c.got)
+	palLight := cssDecls(t, css, `[data-layout="whatsapp"]{`)
+	palDark := cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"]{`)
+	ownLight := cssDecls(t, css, `[data-layout="whatsapp"] .is-own .hfy-bubble{`)
+	ownDark := cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"] .is-own .hfy-bubble{`)
+	ownDarkSet := cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"][data-accent-set] .is-own .hfy-bubble{`)
+	err := cssDecls(t, css, ":root{")["--hfy-err"]
+	white, black := rgbOf(t, "#fff"), rgbOf(t, "#000")
+	schemes := []struct {
+		name                 string
+		text, incoming, base [3]float64 // base: the own bubble with no accent
+		tint                 float64    // share of the accent in the own bubble
+		tintOver             [3]float64
+		meta, failed         [3]float64
+		readUnset, readSet   [3]float64
+		linkTint, unsetLink  float64
+		linkOver             [3]float64
+	}{
+		{
+			name: "light", text: rgbOf(t, palLight["--hfy-wa-text"]), incoming: white, base: rgbOf(t, palLight["--hfy-wa-out"]),
+			tint: pct(setLight[1]), tintOver: white, meta: rgbOf(t, ownLight["--hfy-muted"]), failed: rgbOf(t, err),
+			readUnset: rgbOf(t, palLight["--hfy-wa-read"]), readSet: rgbOf(t, palLight["--hfy-wa-read"]),
+			linkTint: pct(setLight[2]), unsetLink: pct(unsetLight[1]), linkOver: black,
+		},
+		{
+			name: "dark", text: rgbOf(t, palDark["--hfy-wa-text"]), incoming: rgbOf(t, "#202c33"), base: rgbOf(t, palDark["--hfy-wa-out"]),
+			tint: pct(setDark[1]), tintOver: rgbOf(t, "#202c33"), meta: rgbOf(t, ownDark["--hfy-muted"]), failed: rgbOf(t, ownDark["--hfy-err"]),
+			readUnset: rgbOf(t, palDark["--hfy-wa-read"]), readSet: rgbOf(t, ownDarkSet["--hfy-tick-read"]),
+			linkTint: pct(setDark[2]), unsetLink: pct(unsetDark[1]), linkOver: white,
+		},
+	}
+	accents := []string{"#ffffff", "#000000", "#111111", "#ffee00", "#6366f1", "#e11d48", "#00a884", "#fef9c3", "#1f2937"}
+	green := rgbOf(t, "#00a884")
+	for _, s := range schemes {
+		check := func(where string, got, min float64, what string) {
+			if got < min {
+				t.Errorf("%s %s: %s contrast %.2f < %.1f", s.name, where, what, got, min)
 			}
+		}
+		// the unset look: the palette's own bubble, the :root link colour from the green accent
+		check("unset", contrast(s.text, s.base), 4.5, "own text")
+		check("unset", contrast(s.meta, s.base), 4.5, "own timestamp")
+		check("unset", contrast(s.readUnset, s.base), 3, "read tick")
+		check("unset", contrast(s.failed, s.base), 3, "failed tick")
+		check("unset", contrast(mix(green, s.unsetLink, s.linkOver), s.incoming), 4.5, "link")
+		for _, accent := range accents {
+			a := rgbOf(t, accent)
+			bubble := mix(a, s.tint, s.tintOver)
+			where := "accent " + accent
+			check(where, contrast(s.text, bubble), 4.5, "own text")
+			check(where, contrast(s.meta, bubble), 4.5, "own timestamp")
+			check(where, contrast(s.readSet, bubble), 3, "read tick")
+			check(where, contrast(s.failed, bubble), 3, "failed tick")
+			check(where, contrast(mix(a, s.linkTint, s.linkOver), s.incoming), 4.5, "link")
+		}
+	}
+}
+
+// Ring row: a set accent rings its own bubble with the palette's muted grey, which
+// keeps 3:1 against the wallpaper in both themes. The unset look has no ring.
+func TestEmbedWhatsappOwnRing(t *testing.T) {
+	css := readUICSS(t)
+	ring := cssDecls(t, css, `[data-layout="whatsapp"][data-accent-set] .is-own .hfy-bubble{`)["box-shadow"]
+	if ring != "var(--hfy-shadow-1),inset 0 0 0 1px var(--hfy-wa-muted)" {
+		t.Fatalf("own ring = %q", ring)
+	}
+	light := cssDecls(t, css, `[data-layout="whatsapp"]{`)
+	dark := cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"]{`)
+	if got := contrast(rgbOf(t, light["--hfy-wa-muted"]), rgbOf(t, light["--hfy-wa-wall"])); got < 3 {
+		t.Errorf("light ring %.2f:1 against the wallpaper, want >= 3", got)
+	}
+	if got := contrast(rgbOf(t, dark["--hfy-wa-muted"]), rgbOf(t, dark["--hfy-wa-wall"])); got < 3 {
+		t.Errorf("dark ring %.2f:1 against the wallpaper, want >= 3", got)
+	}
+}
+
+// On-accent row: text on an accent fill (send, the new-messages pill, approve and
+// submit labels) keeps 4.5:1 for the unset green and every accent set explicitly.
+func TestEmbedWhatsappOnAccent(t *testing.T) {
+	css := readUICSS(t)
+	if got := contrast(rgbOf(t, cssDecls(t, css, `[data-layout="whatsapp"]{`)["--hfy-on-accent"]), rgbOf(t, "#00a884")); got < 4.5 {
+		t.Errorf("unset on-accent contrast %.2f < 4.5", got)
+	}
+	accents := []string{"#ffffff", "#000000", "#111111", "#ffee00", "#6366f1", "#e11d48", "#00a884", "#fef9c3", "#1f2937"}
+	list, _ := json.Marshal(accents)
+	out := runNode(t, `
+		var out = {};
+		`+string(list)+`.forEach(function (a) { out[a] = api.onColor(a, true); });
+		console.log(JSON.stringify(out));`)
+	var on map[string]string
+	if err := json.Unmarshal([]byte(out), &on); err != nil {
+		t.Fatalf("on-accent output %q: %v", out, err)
+	}
+	for _, accent := range accents {
+		if got := contrast(rgbOf(t, on[accent]), rgbOf(t, accent)); got < 4.5 {
+			t.Errorf("accent %s: on-accent %s is %.2f:1, want >= 4.5", accent, on[accent], got)
 		}
 	}
 }
@@ -370,8 +467,8 @@ func TestEmbedWhatsappPalette(t *testing.T) {
 	}{
 		{`[data-layout="whatsapp"]{`, map[string]string{
 			"--hfy-wa-wall": "#efeae2", "--hfy-wa-out": "#d9fdd3", "--hfy-wa-in": "#fff", "--hfy-wa-text": "#111b21",
-			"--hfy-wa-muted": "#667781", "--hfy-wa-read": "#53bdeb", "--hfy-wa-bar": "#f0f2f5", "--hfy-wa-pill": "#fff",
-			"--hfy-wa-send": "#00a884",
+			"--hfy-wa-muted": "#667781", "--hfy-wa-read": "#027eb5", "--hfy-wa-bar": "#f0f2f5", "--hfy-wa-pill": "#fff",
+			"--hfy-wa-send": "#00a884", "--hfy-on-accent": "#111b21",
 		}},
 		{`[data-layout="whatsapp"][data-theme="dark"]{`, map[string]string{
 			"--hfy-wa-wall": "#0b141a", "--hfy-wa-out": "#005c4b", "--hfy-wa-in": "#202c33", "--hfy-wa-text": "#e9edef",

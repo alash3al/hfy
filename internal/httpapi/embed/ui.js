@@ -146,8 +146,9 @@ function hfyInitials(name) {
   return String(name || '').trim().split(/[\s._@-]+/).filter(Boolean).slice(0, 2)
     .map(function (p) { return Array.from(p)[0].toUpperCase(); }).join('');
 }
-// Text color for the accent fill: white unless it would fall under ~4:1.
-function hfyOnColor(hex) {
+// Text color for the accent fill: white unless it would fall under ~4:1. strict picks
+// whichever of white or black reads better, which reaches 4.5:1 for any accent.
+function hfyOnColor(hex, strict) {
   var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
   if (!m) return '#fff';
   var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
@@ -156,6 +157,7 @@ function hfyOnColor(hex) {
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   });
   var lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  if (strict) return 1.05 / (lum + 0.05) >= (lum + 0.05) / 0.05 ? '#fff' : '#000';
   return 1.05 / (lum + 0.05) >= 4 ? '#fff' : '#111827';
 }
 // "read_file" / "readFile" -> "Read file"
@@ -782,7 +784,7 @@ window.hfyEmbed = function () {
       // whatsapp uses its own green unless an accent was set; a set accent then drives the whole UI
       if (this.config.layout === 'whatsapp' && this.config.accent_set) el.dataset.accentSet = ''; else delete el.dataset.accentSet;
       if (this.config.layout !== 'whatsapp' || this.config.accent_set) {
-        el.style.setProperty('--hfy-accent', accent); el.style.setProperty('--hfy-on-accent', hfyOnColor(accent));
+        el.style.setProperty('--hfy-accent', accent); el.style.setProperty('--hfy-on-accent', hfyOnColor(accent, this.config.layout === 'whatsapp'));
       } else { el.style.removeProperty('--hfy-accent'); el.style.removeProperty('--hfy-on-accent'); }
       // the markup puts attach before the input; whatsapp shows it after the input, so the DOM (and tab order) moves with it
       var pill = document.querySelector('.hfy-composer .hfy-pill'), attach = pill && pill.querySelector('.hfy-attach');
