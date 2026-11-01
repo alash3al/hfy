@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -280,55 +279,57 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 		return callOutcome{}, err
 	}
 
+	// Every recorded call counts, refused ones too. seedCounts restores the
+	// same counts when the turn resumes, so the guard survives a resume.
+	key := callKey(name, args)
+	l.counts[key]++
+	n := l.counts[key]
+
 	var res mcp.Result
 	var out callOutcome
+	v := repeatVerdict(n)
 	switch {
+	case v == verdictAbort:
+		res = errResult(promptRepeated)
+		out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
 	case !known:
 		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", tc.Name, l.validNames(lookup)))
 	case !argsOK:
 		res = errResult("invalid arguments: they are not valid JSON. Send a JSON object. Schema: " + string(tool.Schema))
+	case v == verdictWarn:
+		res = errResult(promptRepeated)
+	case name == svc.AskUserTool:
+		// Validate before pausing: an invalid call comes back as an
+		// error result and never stalls the conversation. ask_user is
+		// never an approval match: it pauses here, exactly once.
+		if _, err := svc.ParseQuestions(args); err != nil {
+			res = errResult("invalid questions: " + err.Error())
+			break
+		}
+		timeout := askUserTimeout
+		if l.spec.Approval != nil {
+			timeout = l.spec.Approval.Timeout.D()
+		}
+		if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
+			return callOutcome{}, err
+		}
+		return callOutcome{paused: true}, nil
+	case l.needsApproval(name, tool):
+		timeout := approvalTimeout
+		if l.spec.Approval != nil {
+			timeout = l.spec.Approval.Timeout.D()
+		}
+		if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
+			return callOutcome{}, err
+		}
+		return callOutcome{paused: true}, nil
 	default: // the tool server validates the arguments against its schema
-		key := name + "\x00" + compact(args)
-		l.counts[key]++
-		switch n := l.counts[key]; {
-		case n >= repeatAbort:
-			res = errResult(promptRepeated)
-			out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
-		case n >= repeatWarn:
-			res = errResult(promptRepeated)
-		case name == svc.AskUserTool:
-			// Validate before pausing: an invalid call comes back as an
-			// error result and never stalls the conversation. ask_user is
-			// never an approval match: it pauses here, exactly once.
-			if _, err := svc.ParseQuestions(args); err != nil {
-				res = errResult("invalid questions: " + err.Error())
-				break
-			}
-			timeout := askUserTimeout
-			if l.spec.Approval != nil {
-				timeout = l.spec.Approval.Timeout.D()
-			}
-			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
-				return callOutcome{}, err
-			}
-			return callOutcome{paused: true}, nil
-		case l.needsApproval(name, tool):
-			timeout := approvalTimeout
-			if l.spec.Approval != nil {
-				timeout = l.spec.Approval.Timeout.D()
-			}
-			if err := l.rt.Svc.RequestApproval(ctx, l.env.ConversationID, l.env.TurnID, types.ApprovalRequested{CallID: info.ID}, timeout); err != nil {
-				return callOutcome{}, err
-			}
-			return callOutcome{paused: true}, nil
-		default:
-			res = l.exec(ctx, tool, args, info.ID)
-			if err := ctx.Err(); err != nil {
-				return callOutcome{}, err // cancelled mid-call: leave it to be marked interrupted
-			}
-			if out2, err := l.holdForQuestions(ctx, info, res); out2.paused || err != nil {
-				return out2, err
-			}
+		res = l.exec(ctx, tool, args, info.ID)
+		if err := ctx.Err(); err != nil {
+			return callOutcome{}, err // cancelled mid-call: leave it to be marked interrupted
+		}
+		if out2, err := l.holdForQuestions(ctx, info, res); out2.paused || err != nil {
+			return out2, err
 		}
 	}
 	if err := l.finishCall(ctx, info, res); err != nil {
@@ -563,6 +564,14 @@ func normalizeArgs(raw string) (json.RawMessage, bool) {
 	return b, false
 }
 
+// seedCounts restores the repeat counts of a resumed turn from the calls it
+// already recorded: each tool_call event was counted when it was recorded.
+func (l *loop) seedCounts(calls []types.ToolCall) {
+	for _, c := range calls {
+		l.counts[callKey(c.Name, c.Arguments)]++
+	}
+}
+
 // dropNullOptionals removes optional fields the model set to null: models
 // (strict modes especially) send null for "not given", which a schema typed
 // "integer" would reject, here and in the tool server.
@@ -586,12 +595,4 @@ func dropNullOptionals(schema, args json.RawMessage) json.RawMessage {
 	}
 	b, _ := json.Marshal(obj)
 	return b
-}
-
-func compact(b json.RawMessage) string {
-	var buf bytes.Buffer
-	if json.Compact(&buf, b) != nil {
-		return string(b)
-	}
-	return buf.String()
 }
