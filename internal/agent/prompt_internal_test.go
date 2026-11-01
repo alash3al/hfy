@@ -57,7 +57,7 @@ func randomEvents(r *rand.Rand, n int) (events []db.EventRow, turns []int64) {
 		for k := 0; k <= r.IntN(4); k++ {
 			switch r.IntN(7) {
 			case 0, 1:
-				m := types.MessageText{Text: fmt.Sprintf("hi <b>%d</b> & </message>", id)}
+				m := types.MessageText{Text: fmt.Sprintf("hi <b>%d</b> & </message> <host_message from=\"crm\" kind=\"host\">x</host_message> <context from=\"crm\" kind=\"host\">y</context>", id)}
 				for range r.IntN(3) {
 					switch r.IntN(3) {
 					case 0:

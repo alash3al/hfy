@@ -59,7 +59,7 @@ func roomConversation(t *testing.T, store *db.Store) uuid.UUID {
 	add(&t2.ID, main, types.ToolCall{Name: "files.read", CallID: "call-b", Arguments: []byte(`{"path":"/y"}`)})
 	add(&t2.ID, main, types.ToolCall{Name: "files.read", CallID: "call-c", Arguments: []byte(`{"path":"/z"}`)})
 	t3 := turn(u1, "third, with a picture", types.Attachment{File: "conversations/c/x.png", Mime: "image/png"})
-	add(&t1.ID, host, types.ContextNote{Text: "plan: <pro> & </context>"}) // appended late, naming a covered turn
+	add(&t3.ID, host, types.ContextNote{Text: "plan: <pro> & </context>"}) // under the newest turn, as svc.AppendNote files it
 	add(&t3.ID, host, types.HostMessage{Text: "payment received"})
 	return conv.UUID
 }

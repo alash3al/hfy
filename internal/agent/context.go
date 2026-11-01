@@ -105,7 +105,9 @@ func (rt *Runtime) summaryStart(ctx context.Context, conversationID int64) (*typ
 // them when room is set (see inRoom). Other agents' tool calls are theirs and
 // stay out. Notes and host messages are always framed (see noteMessage), in
 // event order, and wait while a tool call is unanswered: a tool result must
-// follow its call directly.
+// follow its call directly. While the prompt holds any note, everyone else's
+// text is escaped even in a one-to-one chat, so it cannot forge a note's
+// tags; a prompt without notes is unchanged.
 func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool, sign func(string) string) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
@@ -130,6 +132,7 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 		}
 		held = nil
 	}
+	notes := hasNotes(events)
 	notesFrom := firstKeptNote(events)
 	for i, e := range events {
 		own := e.ActorType == string(types.ActorAgent) && e.ActorRef == spec.Name
@@ -149,6 +152,8 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 			msg := userMessage(m, e.TurnID() == currentTurn, spec, sign)
 			if room {
 				msg = framed(msg, e)
+			} else if notes {
+				msg = escaped(msg) // only real note blocks may carry their tags
 			}
 			out = appendUser(out, msg)
 		case types.EventToolCall:
@@ -355,6 +360,18 @@ func framed(m provider.Message, e db.EventRow) provider.Message {
 	}
 	m.Parts = slices.Clone(m.Parts)
 	m.Parts[0].Text = frame(e, "message", m.Parts[0].Text)
+	return m
+}
+
+// escaped escapes a user message's text (its first part when it has parts), so
+// text a person typed cannot pass for a note block (see noteMessage).
+func escaped(m provider.Message) provider.Message {
+	if m.Parts == nil {
+		m.Content = escText.Replace(m.Content)
+		return m
+	}
+	m.Parts = slices.Clone(m.Parts)
+	m.Parts[0].Text = escText.Replace(m.Parts[0].Text)
 	return m
 }
 
