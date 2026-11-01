@@ -90,6 +90,44 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
       mock: { reply: "Hello from mock", embed_dimensions: 768 }
   ```
 
+### Model request controls
+
+`settings` on `agent`, `agents.<name>`, `subagents.<name>` and `summarizer` takes
+four optional controls. Each is sent only when set, and none has a default:
+
+- `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
+  sent as `reasoning_effort`. Each model accepts only some of them; a value it
+  refuses fails the turn with the provider's error.
+- `max_output_tokens`: caps each call's output, reasoning included. It is sent as
+  `max_tokens`, which most OpenAI-compatible servers (Ollama included) read. OpenAI
+  o-series models reject `max_tokens`: set `max_tokens_param: max_completion_tokens`
+  on that provider.
+- `call_timeout`: the longest a whole chat call may take, retries included. Past it
+  the turn fails with "model call exceeded call_timeout" and the call is not retried,
+  since the budget is spent. Embeddings are not chat calls and are not affected. The
+  provider's `timeout` is a different limit: the longest silence, which a long answer
+  that keeps streaming never hits.
+- `extra`: a map merged into the request body after hfy's own fields, for the
+  vendor's extra fields. It cannot set `model`, `messages`, `tools`, `stream` or
+  `stream_options`, nor a field the settings above already send; startup names the
+  key that clashes. Values must be JSON. `extra` is stored with the request in
+  `outbound_requests` (kept for `retention.trace`), so never put a secret in it. The
+  trace keeps the body only, never headers; inline base64 images and signed-URL
+  credentials are redacted.
+
+```yaml
+agent:
+  model: openrouter/anthropic/claude-sonnet-5.5
+  settings:
+    context_window: 200000
+    max_output_tokens: 8192
+    call_timeout: 120s
+    extra: { cache_control: { type: ephemeral }, reasoning: { effort: low } }
+```
+
+OpenRouter takes its own `reasoning` object and top-level `cache_control`, so it
+goes in `extra`, not in `reasoning_effort`.
+
 ## API
 
 The API is versioned in the path (`/v1`). Within `v1`, changes are additive
@@ -299,9 +337,10 @@ event as stored.
 - **Loop rules.** Tool errors, invalid arguments and unknown tools come back to
   the model as error results (an unknown tool lists the valid names). The same
   call a third time is refused with advice; a sixth ends the turn. Model calls
-  retry on 429, 5xx and network errors up to `queue.max_attempts`. A provider's
-  `timeout` is the longest silence allowed (before the answer starts, then
-  between streamed chunks), so long answers are never cut off. `limits`
+  retry on 429, 5xx and network errors up to `queue.max_attempts`, but a call past
+  its `call_timeout` is not retried. A provider's `timeout` is the longest silence
+  allowed (before the answer starts, then between streamed chunks), so long answers
+  are never cut off. `limits`
   (`steps`, `total_tokens`, `timeout`) end the turn when hit.
 - **Approvals.** Default is to never ask. Calls matching `agent.approval.tools`
   (`<server>.<tool>` patterns, `hfy.*` works) pause the turn; nothing waits in
