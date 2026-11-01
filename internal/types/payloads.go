@@ -193,8 +193,8 @@ func (s Summary) Validate() error {
 // MaxNoteBytes bounds the text of one context.note or host.message.
 const MaxNoteBytes = 16 << 10
 
-// CleanNote makes text fit for a note: Clean, and no leading byte order mark.
-func CleanNote(s string) string { return strings.TrimPrefix(Clean(s), "\uFEFF") }
+// CleanNote makes text fit for a note: Clean, and no leading byte order marks.
+func CleanNote(s string) string { return strings.TrimLeft(Clean(s), "\uFEFF") }
 
 func validNote(kind, text string) error {
 	switch {

@@ -289,11 +289,15 @@ func frame(e db.EventRow, tag, text string) string {
 		escText.Replace(text) + "</" + tag + ">"
 }
 
+// TODO: when types.ActorHost lands, use it, and validate a host actor's ref
+// with config's nameRe wherever host actors are created: the ref lands in
+// from="…" (escaped, but a name is all it should ever be).
 const actorHost = "host"
 
-// maxPromptNotes bounds the notes and host messages one prompt carries, as the
-// model reads them (escaped). Past it the oldest are left out, never the
-// newest: they stay in history, and compaction folds them into the summary.
+// maxPromptNotes bounds the notes and host messages one prompt carries, as
+// the model reads them (their framed, escaped size). Past it the oldest are
+// left out, never the newest: they stay in history, and compaction folds them
+// into the summary.
 const maxPromptNotes = 4 * types.MaxNoteBytes
 
 func isNote(t types.EventType) bool {
@@ -313,20 +317,36 @@ func noteText(e db.EventRow) (string, error) {
 	return n.Text, err
 }
 
-// firstKeptNote is the index of the first event whose note is kept: notes
-// count from the newest until maxPromptNotes is reached.
+// firstKeptNote is the index of the first event whose note is kept. While the
+// notes fit maxPromptNotes it is 0. Past it the oldest are dropped in steps of
+// half the budget (the smallest multiple that brings the rest within it), so a
+// prompt that overflows is cut to about half and then keeps the same prefix
+// until the notes have grown by another half budget: dropping one note at a
+// time would change the prompt's start at every new note and defeat the
+// provider's prefix cache. It depends only on the sizes of the notes, in event
+// order, and the newest note is always kept.
 func firstKeptNote(events []db.EventRow) int {
-	total, kept := 0, 0
-	for i, e := range slices.Backward(events) {
+	var at, size []int // event index and framed size of each note
+	total := 0
+	for i, e := range events {
 		if !isNote(e.Type) {
 			continue
 		}
 		text, _ := noteText(e) // a bad row fails when it is rendered
-		total += len(escText.Replace(text))
-		if total > maxPromptNotes && kept > 0 {
-			return i + 1
+		at, size = append(at, i), append(size, len(frame(e, noteTag(e), text)))
+		total += size[len(size)-1]
+	}
+	if total <= maxPromptNotes {
+		return 0
+	}
+	const step = maxPromptNotes / 2
+	drop := (total - maxPromptNotes + step - 1) / step * step
+	before := 0 // size of the notes before k
+	for k := range at {
+		if before >= drop || k == len(at)-1 {
+			return at[k]
 		}
-		kept++
+		before += size[k]
 	}
 	return 0
 }
