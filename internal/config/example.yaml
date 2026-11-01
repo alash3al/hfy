@@ -115,6 +115,7 @@ agents:                              # required; "main" is the default agent
 #   density: comfortable               # comfortable | compact | spacious
 #   layout: bubbles                    # bubbles | transcript | whatsapp (WhatsApp-style; an accent you set tints its own bubbles)
 #   tool_calls: summary                # hidden | summary (friendly row, no JSON) | details (args and results)
+#   # custom_css: /etc/hfy/brand.css   # path of a CSS file served after the layout, read once at start; unset by default
 
 # summarizer:                        # harness-triggered, never callable by the model
 #   model: local/gemma3:1b

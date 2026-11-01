@@ -16,6 +16,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/alash3al/hfy/internal/config"
+	"github.com/alash3al/hfy/internal/httpapi"
 )
 
 // Set at build time with -ldflags "-X main.version=...".
@@ -75,8 +76,14 @@ func app() *cli.Command {
 			{
 				Name: "validate", Usage: "check the config, env expansion and startup rules",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					if _, err := config.Load(cmd.Root().String("config")); err != nil {
+					cfg, err := config.Load(cmd.Root().String("config"))
+					if err != nil {
 						return err
+					}
+					if cfg.Embed.CustomCSS != "" { // a startup rule that reads a file
+						if _, err := httpapi.ReadCustomCSS(cfg.Embed.CustomCSS); err != nil {
+							return err
+						}
 					}
 					fmt.Println("config ok")
 					return nil

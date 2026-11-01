@@ -165,3 +165,40 @@ func TestRemovedAgentKeyStopsEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+// embed.custom_css is resolved against the config file's directory and read
+// at startup: a bad file stops `serve` before the database is touched, and
+// `validate` reports the same error.
+func TestCustomCSSIsCheckedAtStartup(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/hfy.yaml"
+	y := "server: {secret: s}\ndatabase: {url: postgres://127.0.0.1:1/x}\nproviders: {p: {url: http://x}}\n" +
+		"agents: {main: {model: p/m, settings: {context_window: 1}}}\nembed: {custom_css: brand.css}\n"
+	if err := os.WriteFile(path, []byte(y), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) error {
+		return app().Run(context.Background(), append([]string{"hfy", "-c", path}, args...))
+	}
+	want := "embed.custom_css " + dir + "/brand.css: no such file or directory"
+	for _, args := range [][]string{{"validate"}, {"serve"}, {"serve", "--work"}} {
+		if err := run(args...); err == nil || err.Error() != want {
+			t.Errorf("%v: want %q, got %v", args, want, err)
+		}
+	}
+	if err := os.WriteFile(dir+"/brand.css", []byte("@import 'x.css';"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("validate"); err == nil || !strings.Contains(err.Error(), "@import") {
+		t.Errorf("validate with an @import: %v", err)
+	}
+	if err := os.WriteFile(dir+"/brand.css", []byte(":root{--hfy-bg:#fff}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("validate"); err != nil {
+		t.Errorf("validate with a good file: %v", err)
+	}
+	if err := run("queue:work", "--workers", "1"); err != nil && strings.Contains(err.Error(), "custom_css") {
+		t.Errorf("queue:work never reads the stylesheet: %v", err)
+	}
+}

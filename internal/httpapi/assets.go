@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
@@ -175,21 +176,7 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 		if strings.HasPrefix(name, assetsPrefix) {
 			return fmt.Errorf("embed %s: the %s directory is reserved for hashed URLs", name, assetsPrefix)
 		}
-		ft, ok := fileTypes[strings.ToLower(path.Ext(name))]
-		if !ok {
-			ft.ctype = "application/octet-stream"
-		}
-		c, err := newContent(ft.ctype, raw, ft.compress, encs)
-		if err != nil {
-			return fmt.Errorf("embed %s: %w", name, err)
-		}
-		as := &asset{name: name, hashed: hashedName(name, raw), content: c}
-		if other := a.byHashed[as.hashed]; other != nil {
-			return fmt.Errorf("embed %s and %s share the hashed URL %s", other.name, name, as.hashed)
-		}
-		a.byName[name] = as
-		a.byHashed[as.hashed] = as
-		return nil
+		return a.add(name, raw)
 	})
 	if err != nil {
 		return nil, err
@@ -212,6 +199,35 @@ func (a *assets) layouts() map[string]string {
 		}
 	}
 	return out
+}
+
+// add registers one file under name.
+func (a *assets) add(name string, raw []byte) error {
+	ft, ok := fileTypes[strings.ToLower(path.Ext(name))]
+	if !ok {
+		ft.ctype = "application/octet-stream"
+	}
+	c, err := newContent(ft.ctype, raw, ft.compress, a.encs)
+	if err != nil {
+		return fmt.Errorf("embed %s: %w", name, err)
+	}
+	as := &asset{name: name, hashed: hashedName(name, raw), content: c}
+	if other := a.byHashed[as.hashed]; other != nil {
+		return fmt.Errorf("embed %s and %s share the hashed URL %s", other.name, name, as.hashed)
+	}
+	a.byName[name] = as
+	a.byHashed[as.hashed] = as
+	return nil
+}
+
+// with is a copy of the registry that also serves name. The receiver, shared
+// by every Server in the process, is not changed.
+func (a *assets) with(name string, raw []byte) (*assets, error) {
+	b := &assets{encs: a.encs, byName: maps.Clone(a.byName), byHashed: maps.Clone(a.byHashed), template: a.template}
+	if b.byName[name] != nil {
+		return nil, fmt.Errorf("embed %s is already served", name)
+	}
+	return b, b.add(name, raw)
 }
 
 // staleHash splits a hashed name into its stem and extension: ui.<12 hex>.js.

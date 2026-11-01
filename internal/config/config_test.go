@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -948,5 +950,58 @@ func TestAgentsErrorMessages(t *testing.T) {
 	c, err = Parse([]byte(agentsBase+"agents: {main: {model: '${M}', settings: {context_window: 1}}}\n"), env(map[string]string{"M": "p/x"}))
 	if err != nil || c.Main().Model != "p/x" {
 		t.Errorf("${VAR} in agents.main.model: %v", err)
+	}
+}
+
+// embed.custom_css is a path: Parse checks only its shape (the file is read by
+// the server, once), and Load makes a relative path relative to the config file.
+func TestEmbedCustomCSS(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
+	for yaml, want := range map[string]string{
+		"embed: {custom_css: /etc/hfy/brand.css}\n": "/etc/hfy/brand.css",
+		"embed: {custom_css: brand.css}\n":          "brand.css",
+		"embed: {custom_css: ../css/a b.css}\n":     "../css/a b.css",
+		"embed: {custom_css: \"\"}\n":               "",
+		"embed: {layout: whatsapp}\n":               "",
+		"embed: {custom_css: \"${CSS_PATH}\"}\n":    "/srv/x.css",
+		"embed: {custom_css: \"${CSS_PATH:-}\"}\n":  "/srv/x.css",
+		"embed: {custom_css: \"${NOPE:-}\"}\n":      "", // empty after expansion: no custom CSS
+	} {
+		c, err := Parse([]byte(base+yaml), env(map[string]string{"CSS_PATH": "/srv/x.css"}))
+		if err != nil {
+			t.Errorf("%s: %v", yaml, err)
+		} else if c.Embed.CustomCSS != want {
+			t.Errorf("%s: got %q, want %q", yaml, c.Embed.CustomCSS, want)
+		}
+	}
+	for _, v := range []string{"\".a{color:red}\"", "\"a\\nb.css\"", "https://cdn.example.com/a.css", "\"/a/}b.css\"", "\"a\\u0000b\""} {
+		if _, err := Parse([]byte(base+"embed: {custom_css: "+v+"}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.custom_css is the path of a CSS file") {
+			t.Errorf("custom_css %s must be refused as not a path, got %v", v, err)
+		}
+	}
+	if _, err := Parse([]byte(base+"embed: {custom_css: \"${NOPE}\"}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "NOPE") {
+		t.Errorf("an unset variable must fail naming it, got %v", err)
+	}
+	if _, err := Parse([]byte(base+"embed: {custom_style: x}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "custom_css") {
+		t.Errorf("a typo must name the known keys, got %v", err)
+	}
+
+	dir := t.TempDir()
+	for yaml, want := range map[string]string{
+		"embed: {custom_css: brand.css}\n":      filepath.Join(dir, "brand.css"),
+		"embed: {custom_css: ../up/a.css}\n":    filepath.Join(filepath.Dir(dir), "up", "a.css"),
+		"embed: {custom_css: /abs/brand.css}\n": "/abs/brand.css",
+		"embed: {layout: bubbles}\n":            "",
+	} {
+		file := filepath.Join(dir, "hfy.yaml")
+		if err := os.WriteFile(file, []byte(base+yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		if err != nil {
+			t.Errorf("Load %s: %v", yaml, err)
+		} else if c.Embed.CustomCSS != want {
+			t.Errorf("Load %s: got %q, want %q", yaml, c.Embed.CustomCSS, want)
+		}
 	}
 }

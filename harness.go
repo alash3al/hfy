@@ -79,6 +79,14 @@ func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, e
 
 // serve runs the HTTP API and SSE; withWorkers also runs the workers.
 func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
+	var css []byte // read before anything starts: a bad file must not wait behind migrations
+	if p := cfg.Embed.CustomCSS; p != "" {
+		var err error
+		if css, err = httpapi.ReadCustomCSS(p); err != nil {
+			return err
+		}
+		slog.Info("embed custom css", "path", p, "bytes", len(css))
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	inst, err := boot(ctx, cfg, 16)
@@ -93,6 +101,11 @@ func serve(ctx context.Context, cfg *config.Config, withWorkers bool) error {
 	api := httpapi.New(cfg, inst.store, inst.rt.Svc, hub)
 	if inst.bucket != nil {
 		api.EnableFilesystem(inst.bucket)
+	}
+	if cfg.Embed.CustomCSS != "" {
+		if err := api.EnableCustomCSS(css); err != nil {
+			return err
+		}
 	}
 	srv := &http.Server{
 		Addr: cfg.Server.Listen, Handler: api.Handler(),

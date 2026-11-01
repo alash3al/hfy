@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -63,6 +64,9 @@ type Embed struct {
 	accentDefaulted bool
 	Density         string `yaml:"density"`
 	Layout          string `yaml:"layout"`
+	// CustomCSS is the path of a stylesheet served after the layout's, read once
+	// when the server starts (httpapi.ReadCustomCSS). Empty means none.
+	CustomCSS string `yaml:"custom_css"`
 	// ToolCalls is how much of the agent's tool use viewers see: hidden,
 	// summary (a friendly row, no JSON) or details (arguments and results).
 	// Approval requests are always shown: the viewer must decide them.
@@ -257,7 +261,11 @@ func Load(file string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Parse(raw, os.LookupEnv)
+	c, err := Parse(raw, os.LookupEnv)
+	if err == nil && c.Embed.CustomCSS != "" && !filepath.IsAbs(c.Embed.CustomCSS) {
+		c.Embed.CustomCSS = filepath.Join(filepath.Dir(file), c.Embed.CustomCSS) // relative to the config file, not the working directory
+	}
+	return c, err
 }
 
 // Parse is Load without the file read; lookup resolves ${VAR}.
@@ -581,6 +589,9 @@ func (c *Config) Validate() error {
 	}
 	if !slices.Contains(Layouts, c.Embed.Layout) {
 		bad("embed.layout must be one of %s", strings.Join(Layouts, ", "))
+	}
+	if p := c.Embed.CustomCSS; strings.ContainsAny(p, "{}\n\r\x00") || strings.Contains(p, "://") {
+		bad("embed.custom_css is the path of a CSS file, not CSS or a URL")
 	}
 	if !slices.Contains([]string{"hidden", "summary", "details"}, c.Embed.ToolCalls) {
 		bad("embed.tool_calls must be one of hidden, summary, details")

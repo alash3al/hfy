@@ -109,6 +109,10 @@ func (s *Server) buildPage() (*content, string, error) {
 	if href, ok := layouts[s.cfg.Embed.Layout]; ok {
 		sheets = `<link rel="stylesheet" href="` + href + `" data-hfy-layout="` + s.cfg.Embed.Layout + `">`
 	}
+	// then the operator's, so its rules win a tie
+	if custom := s.assets.byName[customCSSName]; custom != nil {
+		sheets += `<link rel="stylesheet" href="/embed/` + assetsPrefix + custom.hashed + `" data-hfy-custom>`
+	}
 	body = bytes.Replace(body, []byte("<!--hfy:sheets-->"), []byte(sheets), 1)
 
 	frameAncestors := "'none'"
