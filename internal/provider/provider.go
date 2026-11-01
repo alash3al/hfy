@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -28,7 +29,9 @@ type Client struct {
 	BaseURL string
 	APIKey  string
 	Timeout time.Duration // longest silence: until the response starts, then between chunks
-	HTTP    *http.Client
+	// MaxTokensParam names the output-cap field: max_tokens (default) or max_completion_tokens.
+	MaxTokensParam string
+	HTTP           *http.Client
 }
 
 func New(name, baseURL, apiKey string, timeout time.Duration) *Client {
@@ -80,7 +83,21 @@ type Request struct {
 	Tools       []ToolDef
 	Temperature *float64
 	TopP        *float64
+	Controls    Controls
 }
+
+// Controls are an agent's model request settings, applied to each of its
+// calls. A zero field is not sent.
+type Controls struct {
+	ReasoningEffort string
+	MaxOutputTokens int
+	CallTimeout     time.Duration  // the whole call, retries included; 0 = none
+	Extra           map[string]any // merged into the body; cannot replace a field hfy sends
+}
+
+// ErrCallTimeout is a call that ran past its Controls.CallTimeout. It is not
+// retried: the budget covers every attempt, so none is left for another.
+var ErrCallTimeout = errors.New("model call exceeded call_timeout")
 
 type Response struct {
 	Content      string
@@ -127,14 +144,28 @@ func (e *APIError) Error() string { return fmt.Sprintf("provider returned %d: %s
 
 func (e *APIError) retryable() bool { return e.Status == 429 || e.Status >= 500 }
 
-// Chat runs one chat completion, retrying transient failures.
+// Chat runs one chat completion, retrying transient failures. The call
+// timeout covers all of them, so it stops the retries too.
 func (c *Client) Chat(ctx context.Context, req Request, o Opts) (*Response, error) {
+	if d := req.Controls.CallTimeout; d > 0 {
+		cctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		resp, err := c.chat(cctx, req, o)
+		if err != nil && ctx.Err() == nil && cctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("%w %s: %w", ErrCallTimeout, d, context.DeadlineExceeded)
+		}
+		return resp, err
+	}
+	return c.chat(ctx, req, o)
+}
+
+func (c *Client) chat(ctx context.Context, req Request, o Opts) (*Response, error) {
 	attempts := max(o.MaxAttempts, 1)
 	backoff := o.Backoff
 	if backoff == 0 {
 		backoff = time.Second
 	}
-	body, err := json.Marshal(buildBody(req))
+	body, err := requestBody(req, c.MaxTokensParam)
 	if err != nil {
 		return nil, err
 	}
@@ -293,9 +324,12 @@ type wireRequest struct {
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
-	Tools       []wireTool `json:"tools,omitempty"`
-	Temperature *float64   `json:"temperature,omitempty"`
-	TopP        *float64   `json:"top_p,omitempty"`
+	Tools               []wireTool `json:"tools,omitempty"`
+	Temperature         *float64   `json:"temperature,omitempty"`
+	TopP                *float64   `json:"top_p,omitempty"`
+	ReasoningEffort     string     `json:"reasoning_effort,omitempty"`
+	MaxTokens           int        `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int        `json:"max_completion_tokens,omitempty"`
 }
 
 type wireMessage struct {
@@ -327,9 +361,18 @@ type wireToolFunc struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
-func buildBody(r Request) wireRequest {
+// buildBody is the core request. maxParam is the output-cap field's name
+// (see Client.MaxTokensParam).
+func buildBody(r Request, maxParam string) wireRequest {
 	b := wireRequest{Model: r.Model, Messages: make([]wireMessage, len(r.Messages)), Stream: true,
-		Temperature: r.Temperature, TopP: r.TopP}
+		Temperature: r.Temperature, TopP: r.TopP, ReasoningEffort: r.Controls.ReasoningEffort}
+	if n := r.Controls.MaxOutputTokens; n > 0 {
+		if maxParam == "max_completion_tokens" {
+			b.MaxCompletionTokens = n
+		} else {
+			b.MaxTokens = n
+		}
+	}
 	b.StreamOptions.IncludeUsage = true
 	for i, m := range r.Messages {
 		wm := wireMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
@@ -354,6 +397,31 @@ func buildBody(r Request) wireRequest {
 			Function: wireToolFunc{Name: t.Name, Description: t.Description, Parameters: params}})
 	}
 	return b
+}
+
+// requestBody is the JSON body of one chat call: the core fields, then the
+// agent's extra keys. extra adds keys and never replaces one hfy sends; a
+// clash is an error, not a silent drop.
+func requestBody(r Request, maxParam string) ([]byte, error) {
+	core, err := json.Marshal(buildBody(r, maxParam))
+	if err != nil || len(r.Controls.Extra) == 0 {
+		return core, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(core, &m); err != nil {
+		return nil, err
+	}
+	for _, k := range slices.Sorted(maps.Keys(r.Controls.Extra)) {
+		if _, taken := m[k]; taken || slices.Contains(types.ExtraKeysReserved, k) {
+			return nil, fmt.Errorf("extra.%s collides with a field hfy sends", k)
+		}
+		raw, err := json.Marshal(r.Controls.Extra[k])
+		if err != nil {
+			return nil, fmt.Errorf("extra.%s: %w", k, err)
+		}
+		m[k] = raw
+	}
+	return json.Marshal(m)
 }
 
 // signedURLRe finds a signature query parameter wherever it appears in a

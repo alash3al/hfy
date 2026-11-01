@@ -17,7 +17,7 @@ import (
 func TestRequestBodyDefaults(t *testing.T) {
 	b, err := json.Marshal(buildBody(Request{Model: "m",
 		Messages: []Message{{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "x__now"}}}},
-		Tools:    []ToolDef{{Name: "x__now"}}}))
+		Tools:    []ToolDef{{Name: "x__now"}}}, ""))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -344,3 +344,64 @@ func TestMCPServerUI(t *testing.T) {
 		}
 	}
 }
+
+// Model request controls parse as written, and each bad value stops startup
+// with an error naming the agent and the key.
+func TestModelRequestControls(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
+	c, err := Parse([]byte(base+"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: none, max_output_tokens: 512, call_timeout: 30s, extra: {cache_control: {type: ephemeral}, reasoning: {effort: high}}}}\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := c.Agent.Settings
+	if s.ReasoningEffort != "none" || s.MaxOutputTokens != 512 || s.CallTimeout.D() != 30*time.Second ||
+		s.Extra["reasoning"].(map[string]any)["effort"] != "high" || c.Providers["p"].MaxTokensParam != "max_tokens" {
+		t.Fatalf("parsed: %+v", s)
+	}
+	c, err = Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: max_completion_tokens}}\n"+
+		"agent: {model: p/m, settings: {context_window: 1}}\n"), env(nil))
+	if err != nil || c.Providers["p"].MaxTokensParam != "max_completion_tokens" {
+		t.Fatalf("max_tokens_param: %v %+v", err, c.Providers["p"])
+	}
+
+	bad := map[string]string{
+		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: maybe}}":                                 "agent.settings.reasoning_effort must be one of none, minimal, low, medium, high, xhigh, max",
+		"agents: {x: {model: p/m, settings: {context_window: 1, reasoning_effort: Low}}}":                             "agents.x.settings.reasoning_effort",
+		"subagents: {r: {description: d, model: p/m, settings: {reasoning_effort: x}}}":                               "subagents.r.settings.reasoning_effort",
+		"summarizer: {model: p/m, settings: {context_window: 1, reasoning_effort: x}}":                                "summarizer.settings.reasoning_effort",
+		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}":                                   "agent.settings.max_output_tokens must be greater than 0",
+		"agents: {x: {model: p/m, settings: {context_window: 1, max_output_tokens: -1}}}":                             "agents.x.settings.max_output_tokens",
+		"summarizer: {model: p/m, settings: {context_window: 1, max_output_tokens: -2}}":                              "summarizer.settings.max_output_tokens",
+		"agent: {model: p/m, settings: {context_window: 1, call_timeout: -5s}}":                                       "agent.settings.call_timeout must not be negative",
+		"subagents: {r: {description: d, model: p/m, settings: {call_timeout: -1s}}}":                                 "subagents.r.settings.call_timeout",
+		"agent: {model: p/m, settings: {context_window: 1, reasoning_efort: low}}":                                    `unknown key "reasoning_efort" in config.agent.settings`,
+		"agent: {model: p/m, settings: {context_window: 1, extra: {model: x}}}":                                       "agent.settings.extra.model is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                                   "agent.settings.extra.messages is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {tools: []}}}":                                      "agent.settings.extra.tools is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {stream: false}}}":                                  "agent.settings.extra.stream is set by hfy",
+		"agents: {x: {model: p/m, settings: {context_window: 1, extra: {stream_options: {}}}}}":                       "agents.x.settings.extra.stream_options is set by hfy",
+		"subagents: {r: {description: d, model: p/m, settings: {extra: {model: x}}}}":                                 "subagents.r.settings.extra.model is set by hfy",
+		"summarizer: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                              "summarizer.settings.extra.messages is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {reasoning_effort: high}}}":  "agent.settings.extra.reasoning_effort clashes with settings.reasoning_effort",
+		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}": "agent.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
+		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_tokens: 5}}}":            "agent.settings.extra.max_tokens clashes with settings.max_output_tokens",
+		"agent: {model: p/m, settings: {context_window: 1, temperature: 0.2, extra: {temperature: 0.5}}}":             "agent.settings.extra.temperature clashes with settings.temperature",
+		"agents: {x: {model: p/m, settings: {context_window: 1, top_p: 0.9, extra: {top_p: 0.5}}}}":                   "agents.x.settings.extra.top_p clashes with settings.top_p",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {bad: .inf}}}":                                      "agent.settings.extra: values must be JSON-serialisable",
+		"summarizer: {model: p/m, settings: {context_window: 1, extra: {bad: .nan}}}":                                 "summarizer.settings.extra: values must be JSON-serialisable",
+	}
+	for tail, want := range bad {
+		_, err := Parse([]byte(base+tail+"\n"), env(nil))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", tail, want, err)
+		}
+	}
+	// the agent's own context window is still required next to the controls
+	if _, err := Parse([]byte(base+"agent: {model: p/m, settings: {reasoning_effort: low}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "context_window") {
+		t.Errorf("controls do not replace context_window: %v", err)
+	}
+	if _, err := Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: tokens}}\n"+
+		"agent: {model: p/m, settings: {context_window: 1}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "providers.p.max_tokens_param must be") {
+		t.Errorf("bad max_tokens_param: %v", err)
+	}
+}

@@ -71,6 +71,19 @@ type Spec struct {
 	Approval    *config.Approval
 }
 
+// controlled is the client of one agent: every call it makes carries the
+// agent's request controls, so the main agent, agents, sub-agents and the
+// summarizer behave alike.
+type controlled struct {
+	provider.Adapter
+	ctl provider.Controls
+}
+
+func (c controlled) Chat(ctx context.Context, req provider.Request, o provider.Opts) (*provider.Response, error) {
+	req.Controls = c.ctl
+	return c.Adapter.Chat(ctx, req, o)
+}
+
 // Runtime is everything the loop needs besides the turn itself.
 type Runtime struct {
 	Cfg    *config.Config
@@ -107,11 +120,15 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 			providers[name] = provider.NewMock(name, o)
 			continue
 		}
-		providers[name] = provider.New(name, p.URL, p.APIKey, p.Timeout.D())
+		client := provider.New(name, p.URL, p.APIKey, p.Timeout.D())
+		client.MaxTokensParam = p.MaxTokensParam
+		providers[name] = client
 	}
 	spec := func(name, model string, st config.Settings, system string, lim config.Limits, servers []string) *Spec {
 		prov, m := config.SplitModel(model)
-		return &Spec{Name: name, Client: providers[prov], Model: m, Settings: st, System: system,
+		ctl := provider.Controls{ReasoningEffort: st.ReasoningEffort, MaxOutputTokens: st.MaxOutputTokens,
+			CallTimeout: st.CallTimeout.D(), Extra: st.Extra}
+		return &Spec{Name: name, Client: controlled{providers[prov], ctl}, Model: m, Settings: st, System: system,
 			Limits: lim, MCP: servers, Builtins: map[string]bool{}}
 	}
 	if cfg.Embeddings != nil {

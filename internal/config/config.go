@@ -85,11 +85,13 @@ type Retention struct {
 }
 
 type Provider struct {
-	Type    string       `yaml:"type"` // openai | mock; empty means openai
-	URL     string       `yaml:"url"`
-	APIKey  string       `yaml:"api_key"`
-	Timeout Duration     `yaml:"timeout"`
-	Mock    MockProvider `yaml:"mock"`
+	Type    string   `yaml:"type"` // openai | mock; empty means openai
+	URL     string   `yaml:"url"`
+	APIKey  string   `yaml:"api_key"`
+	Timeout Duration `yaml:"timeout"`
+	// MaxTokensParam names the output-cap field of openai providers: max_tokens (default) or max_completion_tokens.
+	MaxTokensParam string       `yaml:"max_tokens_param"`
+	Mock           MockProvider `yaml:"mock"`
 }
 
 type MockProvider struct {
@@ -154,12 +156,27 @@ type Filesystem struct {
 	DownloadTTL Duration `yaml:"download_ttl"`
 }
 
+// Settings are one agent's model settings; sub-agents and the summarizer have
+// the same. The request controls are optional: unset, nothing is sent.
 type Settings struct {
 	Temperature   *float64 `yaml:"temperature"`
 	TopP          *float64 `yaml:"top_p"`
 	ContextWindow int      `yaml:"context_window"`
 	Vision        bool     `yaml:"vision"`
+	// ReasoningEffort is sent as reasoning_effort: none, minimal, low, medium, high, xhigh or max.
+	ReasoningEffort string `yaml:"reasoning_effort"`
+	// MaxOutputTokens caps each call's output, reasoning included.
+	MaxOutputTokens int `yaml:"max_output_tokens"`
+	// CallTimeout bounds a whole model call, retries included (0 = none).
+	CallTimeout Duration `yaml:"call_timeout"`
+	// Extra is merged into the request body as the provider's own fields.
+	// It is stored in outbound_requests, so it never holds secrets.
+	Extra map[string]any `yaml:"extra"`
 }
+
+// reasoningEfforts are the reasoning_effort values OpenAI's Chat Completions
+// reference lists; a model may accept only some of them.
+var reasoningEfforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 
 // Var is a {{name}} in a system prompt. Values come only from the grant the
 // app's backend created (a client never sets them), else from defaults.
@@ -375,6 +392,9 @@ func (c *Config) SetDefaults() {
 		if p.Timeout == 0 {
 			p.Timeout = Duration(60 * time.Second)
 		}
+		if p.MaxTokensParam == "" {
+			p.MaxTokensParam = "max_tokens"
+		}
 		c.Providers[k] = p
 	}
 	if c.Embeddings != nil {
@@ -498,6 +518,9 @@ func (c *Config) Validate() error {
 			if p.URL == "" {
 				bad("providers.%s.url is required", name)
 			}
+			if !slices.Contains([]string{"max_tokens", "max_completion_tokens"}, p.MaxTokensParam) {
+				bad("providers.%s.max_tokens_param must be max_tokens or max_completion_tokens", name)
+			}
 		case "mock":
 			if p.Mock.ErrorStatus != 0 && (p.Mock.ErrorStatus < 400 || p.Mock.ErrorStatus > 599) {
 				bad("providers.%s.mock.error_status must be 0 or between 400 and 599", name)
@@ -528,6 +551,45 @@ func (c *Config) Validate() error {
 		}
 		if _, exists := c.Providers[prov]; !exists {
 			bad("%s.model: unknown provider %q", where, prov)
+		}
+	}
+
+	// checkControls validates the request controls of the settings at where
+	// (agent, sub-agent or summarizer).
+	checkControls := func(where string, s Settings) {
+		if s.ReasoningEffort != "" && !slices.Contains(reasoningEfforts, s.ReasoningEffort) {
+			bad("%s.settings.reasoning_effort must be one of %s", where, strings.Join(reasoningEfforts, ", "))
+		}
+		if s.MaxOutputTokens < 0 {
+			bad("%s.settings.max_output_tokens must be greater than 0 (omit it for no cap)", where)
+		}
+		if s.CallTimeout < 0 {
+			bad("%s.settings.call_timeout must not be negative", where)
+		}
+		if _, err := json.Marshal(s.Extra); err != nil {
+			bad("%s.settings.extra: values must be JSON-serialisable: %v", where, err)
+		}
+		// the keys the settings above already send: extra may not set them again
+		owner := map[string]string{}
+		if s.ReasoningEffort != "" {
+			owner["reasoning_effort"] = "reasoning_effort"
+		}
+		if s.Temperature != nil {
+			owner["temperature"] = "temperature"
+		}
+		if s.TopP != nil {
+			owner["top_p"] = "top_p"
+		}
+		if s.MaxOutputTokens > 0 {
+			owner["max_tokens"], owner["max_completion_tokens"] = "max_output_tokens", "max_output_tokens"
+		}
+		for _, k := range slices.Sorted(maps.Keys(s.Extra)) {
+			switch {
+			case slices.Contains(types.ExtraKeysReserved, k):
+				bad("%s.settings.extra.%s is set by hfy and cannot be set here", where, k)
+			case owner[k] != "":
+				bad("%s.settings.extra.%s clashes with settings.%s: set it there, not in extra", where, k, owner[k])
+			}
 		}
 	}
 
@@ -624,6 +686,7 @@ func (c *Config) Validate() error {
 			bad("%s: name is reserved or invalid (use [a-zA-Z0-9_-], no double underscore)", where)
 		}
 		checkModel(where, a.Model)
+		checkControls(where, a.Settings)
 		if a.Settings.ContextWindow < 1 {
 			bad("%s.settings.context_window is required", where)
 		}
@@ -668,6 +731,7 @@ func (c *Config) Validate() error {
 			bad("%s.description is required", where)
 		}
 		checkModel(where, s.Model)
+		checkControls(where, s.Settings)
 		checkMCP(where, s.MCP)
 		if strings.Contains(s.System, "{{") {
 			bad("%s.system: sub-agents receive no vars, so {{...}} is not allowed", where)
@@ -676,6 +740,7 @@ func (c *Config) Validate() error {
 
 	if s := c.Summarizer; s != nil {
 		checkModel("summarizer", s.Model)
+		checkControls("summarizer", s.Settings)
 		if s.Settings.ContextWindow < 1 {
 			bad("summarizer.settings.context_window is required")
 		}

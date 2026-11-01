@@ -79,6 +79,10 @@ const (
 	JobFailed  JobState = "failed"
 )
 
+// ExtraKeysReserved are the request body keys an agent's settings.extra may
+// never set: hfy's own envelope.
+var ExtraKeysReserved = []string{"model", "messages", "tools", "stream", "stream_options"}
+
 type OutboundKind string
 
 const (
