@@ -366,7 +366,9 @@ body. `Range` is not supported: the header is ignored and the whole file is
 sent with `200`. A reverse proxy in front may compress too: we set
 `Content-Encoding`, so a proxy that honours it will not compress twice. The
 first load of the UI (the page and the files it names) is held under 60 KiB
-of brotli by a test.
+of brotli by a test. A layout other than the default is not part of it: its
+stylesheet, `/embed/assets/layouts/<name>.<hash>.css`, is fetched only by a page
+that uses it, and each is held under 4 KiB of brotli by a test.
 
 The grant flow is the integration. Your backend (server secret) creates
 the conversation once and mints a short-lived grant per viewer; your page
@@ -402,7 +404,7 @@ For iframes, parent origins are allow-listed by `server.cors_origins`,
 checked on every `postMessage`, and emitted as CSP `frame-ancestors`.
 
 Presentation is configured in the main YAML (`embed:`: `lang`, `dir`,
-`theme`, `accent`, `density`, `layout`, `tool_calls`), validated at startup and injected
+`theme`, `accent`, `density`, `layout`, `tool_calls`, `custom_css`), validated at startup and injected
 into the page. `tool_calls` is how much of the agent's tool use viewers see:
 `hidden`, `summary` (default: a friendly one-line row, never JSON) or
 `details` (arguments and results, for developers); approval requests always
@@ -425,7 +427,80 @@ English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
 API base, actor, agent, vars) are never configurable from the client.
 
 A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of the
-`embed:` keys above, plus `strings` (an object overriding UI strings).
+`embed:` keys above except `custom_css` (CSS is never configurable from the client),
+plus `strings` (an object overriding UI strings).
+
+#### Layouts and custom CSS
+
+`bubbles` (the default) is in `ui.css`. Every other layout is its own stylesheet
+inside the binary (`embed/layouts/<name>.css`), served at a hashed immutable URL
+and fetched only by pages that use it. The page for the configured
+`embed.layout` links its sheet in `<head>`, so the first paint already has it:
+no flash of the default look. The page config also lists every layout's sheet,
+and that list is all `configure` can pick from.
+
+- `configure` with a `layout` loads that layout's sheet and switches once it has
+  loaded. Until then the viewer keeps the current layout; if the sheet does not
+  load (a `404`, no network) the current layout stays and a later `configure`
+  tries again. A name that is not in the list is ignored, and nothing is
+  requested for it. Repeating the layout the page already has loads nothing.
+- If the sheet of the *configured* layout fails on the first load, the page shows
+  the default layout rather than a half-styled one.
+
+`embed.custom_css` is the path of a CSS file: your brand over any layout, without
+forking the UI.
+
+```yaml
+embed:
+  layout: whatsapp
+  custom_css: /etc/hfy/brand.css   # relative: to the config file's directory
+```
+
+- It is read once, when `hfy serve` starts (and by `hfy validate`); restart to change
+  it. A restart serves the new bytes at a new hashed URL, so viewers pick it up
+  at their next page load. `queue:work` never reads it. `${VAR}` expands in the
+  path like in any value, and an empty path means none (`"${BRAND_CSS:-}"` turns
+  it off per environment).
+- A startup error names the path and the reason: the file is missing, is not a
+  regular file once symlinks are followed (a directory, a device or a pipe is
+  refused unread; a symlink is fine, a Kubernetes ConfigMap is one), is over
+  64 KiB, is not valid UTF-8 (a leading byte order mark is dropped), holds a NUL
+  byte, or has an `@import`. An empty file is accepted. Make it readable by the
+  container's user (`hfy`, uid 10001). This is a startup check, not a sanitizer:
+  the file is trusted.
+- It is served like every embedded file (`custom.<hash>.css`, immutable,
+  compressed) and linked after `ui.css` and the layout's sheet, so where two rules
+  tie on specificity, yours wins. Its bytes are not counted in the 60 KiB budget.
+- The page's CSP stays as it is: the sheet is a same-origin file, never inline.
+  `style-src 'self'` and `font-src 'self'` mean an `@import` of another origin
+  (refused at startup, since it could never load) and web fonts from anywhere
+  cannot load: set `--hfy-font` to fonts the viewer has. `img-src` allows any
+  `https:` host, so a `url(https://...)` image loads, from each viewer's device,
+  and its host sees every viewer (startup logs a warning). Use only CSS you trust.
+
+Recipes, from how the cascade works here:
+
+- `data-theme` is always `light` or `dark`. A bare `:root{...}` applies in both, and
+  beats the dark values of `ui.css` too, because your sheet is later. Scope with
+  `:root[data-theme="light"]{...}` and `:root[data-theme="dark"]{...}`. Density:
+  `:root[data-density="compact"]{...}`.
+- `--hfy-accent` and `--hfy-on-accent` are written inline by the UI from
+  `embed.accent`, so a stylesheet cannot override them without `!important`: set
+  `embed.accent` instead (it also picks `--hfy-on-accent` for contrast; every tint
+  derived from the accent follows). In `whatsapp` they are written only when an
+  accent is set.
+- The `whatsapp` palette tokens live on `[data-layout="whatsapp"]`: override them
+  there, and the dark ones on `[data-layout="whatsapp"][data-theme="dark"]`, which
+  is where the layout sets them.
+- Class rules are unsupported (see below). If you write one anyway, layout rules
+  have the specificity of `[data-layout="x"] .hfy-bubble`, which a bare
+  `.hfy-bubble{...}` loses.
+
+```css
+/* /etc/hfy/brand.css */
+:root { --hfy-bg: #fffaf5; --hfy-own: #ffe4c7; --hfy-fs: 16px; --hfy-max: 640px; }
+:root[data-theme="dark"] { --hfy-bg: #140c07; --hfy-own: #7c2d12; }
+```
 
 #### The `--hfy-*` tokens
 
@@ -1052,6 +1127,7 @@ survive many contributors, so prefer adding a check to adding a sentence.
 | **No silent failure.** Errors are returned, or logged with conversation and turn when nothing can act on them. | `errcheck`; review |
 | **Current Go.** `slices`/`maps`, range-over-int, `new(expr)`, `t.Context()`, generic methods. | `modernize` |
 | **Every `//nolint` names its linter and says why.** | `nolintlint` |
+| **A layout's CSS is its own file, and `config.Layouts` lists them.** A non-default layout lives in `embed/layouts/<name>.css` (at most 4 KiB of brotli), styles only itself, and is named in `config.Layouts`; `ui.css` holds the default layout and what layouts share, under the 60 KiB first-load budget. | `TestLayoutsMatchConfig`, `TestLayoutSheetsOwnTheirSelectors`, `TestLayoutSizeBudget`, `TestShellSizeBudget` |
 | **The restyling surface is the documented `--hfy-*` tokens.** Every token in the reference exists in the stylesheets, and every `--hfy-*` property they define or use is documented or one of two internal ones. | `TestTokenContract` |
 
 ### Design notes
