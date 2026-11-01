@@ -282,17 +282,12 @@ func frame(e db.EventRow, tag, text string) string {
 	switch e.ActorType {
 	case string(types.ActorAgent):
 		kind = "agent"
-	case actorHost: // types.ActorHost, once the host events API defines it
+	case string(types.ActorHost):
 		kind = "host"
 	}
 	return "<" + tag + ` from="` + escAttr.Replace(e.ActorRef) + `" kind="` + kind + `">` +
 		escText.Replace(text) + "</" + tag + ">"
 }
-
-// TODO: when types.ActorHost lands, use it, and validate a host actor's ref
-// with config's nameRe wherever host actors are created: the ref lands in
-// from="…" (escaped, but a name is all it should ever be).
-const actorHost = "host"
 
 // maxPromptNotes bounds the notes and host messages one prompt carries, as
 // the model reads them (their framed, escaped size). Past it the oldest are

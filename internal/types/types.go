@@ -57,6 +57,7 @@ type ActorType string
 const (
 	ActorExternal ActorType = "external"
 	ActorAgent    ActorType = "agent"
+	ActorHost     ActorType = "host" // the app's backend, speaking through POST /v1/conversations/{id}/events; ref is its source name
 )
 
 const (

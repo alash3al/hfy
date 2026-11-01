@@ -19,8 +19,10 @@ import (
 )
 
 var (
-	ErrNoActiveTurn      = errors.New("no active turn")
-	ErrNoTurn            = errors.New("the conversation has no turn yet")
+	ErrNoActiveTurn = errors.New("no active turn")
+	ErrNoTurn       = errors.New("the conversation has no turn yet")
+	// ErrTooManyHostEvents: the turn holds as many host events as the caller allows.
+	ErrTooManyHostEvents = errors.New("too many host events on this turn")
 	ErrNoPendingApproval = errors.New("no pending approval for that call")
 	// ErrStopRequested: a stop arrived before the turn could pause.
 	ErrStopRequested = errors.New("stop requested")
@@ -520,12 +522,33 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 	})
 }
 
+// MaxHostEventsPerTurn bounds the notes and messages hosts file under one turn
+// (NoteInput.Limit). A turn ends at maxTurnEvents (5000) events, and a runaway host
+// would otherwise spend them all, failing the turn it writes into; an idle
+// conversation files under its newest turn, so the bound holds there too.
+// Replays of a key do not count: they store nothing.
+const MaxHostEventsPerTurn = 100
+
+// HostActor returns the actor of a host event source, creating it on first
+// use. The ref is the source's name, which lands in the prompt (from="…"), so
+// it must be a config name: ASCII letters, digits, "_" and "-", at most 64
+// bytes. Refs compare exactly: "CRM" and "crm" are two sources.
+func (s *Service) HostActor(ctx context.Context, ref string) (int64, error) {
+	if ref == "" || len(ref) > 64 || !config.ValidName(ref) {
+		return 0, badf("source must be 1 to 64 letters, digits, _ or -")
+	}
+	return s.store.FindOrCreateActor(ctx, s.store.Pool, types.ActorHost, ref)
+}
+
 // NoteInput is a context.note or host.message to add to a conversation.
 type NoteInput struct {
 	ConversationID int64
 	Actor          int64           // who wrote it: the one name the model sees
 	Type           types.EventType // EventContextNote or EventHostMessage
 	Text           string
+	// Limit, when set, refuses the note (ErrTooManyHostEvents) once its turn
+	// holds that many notes and messages from hosts.
+	Limit int
 }
 
 // AppendNote adds a note or host message through the one event choke point
@@ -537,7 +560,7 @@ type NoteInput struct {
 // summary covers it. The text is cleaned; empty, blank or over
 // types.MaxNoteBytes is a BadRequestError, and a conversation with no turn is
 // ErrNoTurn (history pages by turn, so a note with no turn would be invisible).
-func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, error) {
+func (s *Service) AppendNote(ctx context.Context, in NoteInput) (row db.EventRow, err error) {
 	text := types.CleanNote(in.Text)
 	var p types.Payload
 	switch in.Type {
@@ -551,8 +574,7 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, er
 	if err := p.Validate(); err != nil {
 		return db.EventRow{}, badf("%s", err)
 	}
-	var row db.EventRow
-	err := s.store.Tx(ctx, func(tx pgx.Tx) error {
+	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
 		conv, err := s.store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
@@ -580,8 +602,17 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, er
 		if err != nil {
 			return err
 		}
-		row, err = s.store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID,
-			ActorID: in.Actor, Scope: turn.Scope, Payload: p})
+		if in.Limit > 0 {
+			held, err := s.store.CountHostEvents(ctx, tx, turn.ID)
+			if err != nil {
+				return err
+			}
+			if held >= in.Limit {
+				return ErrTooManyHostEvents
+			}
+		}
+		ev := db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: in.Actor, Scope: turn.Scope, Payload: p}
+		row, err = s.store.AppendEvent(ctx, tx, ev)
 		return err
 	})
 	return row, err

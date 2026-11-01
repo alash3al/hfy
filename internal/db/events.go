@@ -86,6 +86,12 @@ func (s *Store) AppendEvent(ctx context.Context, q DBTX, in NewEvent) (EventRow,
 	return row, err
 }
 
+// CountHostEvents counts the notes and messages hosts filed under a turn.
+func (s *Store) CountHostEvents(ctx context.Context, q DBTX, turn int64) (n int, err error) {
+	err = q.QueryRow(ctx, s.q("CountHostEvents"), pgx.NamedArgs{"turn": turn}).Scan(&n)
+	return n, err
+}
+
 func (s *Store) EventByID(ctx context.Context, q DBTX, id int64) (EventRow, error) {
 	rows, err := events(q.Query(ctx, s.q("SelectEventByID"), pgx.NamedArgs{"id": id}))
 	if err == nil && len(rows) == 0 {

@@ -48,10 +48,10 @@ func (b *evb) result(id string) {
 	b.add(types.EventToolResult, "agent", "main", types.ToolResult{CallID: id, Content: "r-" + id})
 }
 func (b *evb) note(text string) {
-	b.add(types.EventContextNote, actorHost, "crm", types.ContextNote{Text: text})
+	b.add(types.EventContextNote, string(types.ActorHost), "crm", types.ContextNote{Text: text})
 }
 func (b *evb) hostMsg(text string) {
-	b.add(types.EventHostMessage, actorHost, "crm", types.HostMessage{Text: text})
+	b.add(types.EventHostMessage, string(types.ActorHost), "crm", types.HostMessage{Text: text})
 }
 
 func build(t *testing.T, events []db.EventRow) (string, []provider.Message) {
@@ -316,7 +316,7 @@ func TestNotesLeaveTheSkeletonAlone(t *testing.T) {
 				nextID++
 				parent := turns[0]
 				withNotes = append(withNotes, db.EventRow{ID: nextID, ParentID: &parent, Type: typ, V: 1, Data: data,
-					ActorType: actorHost, ActorRef: "crm"})
+					ActorType: string(types.ActorHost), ActorRef: "crm"})
 				markers = append(markers, marker)
 			}
 		}
@@ -465,7 +465,7 @@ func TestBuildPromptIsDeterministic(t *testing.T) {
 			at := r.IntN(len(events) + 1)
 			parent := turns[0]
 			events = slices.Insert(events, at, db.EventRow{ID: int64(1000 + k), ParentID: &parent, Type: typ, V: 1, Data: data,
-				ActorType: actorHost, ActorRef: "crm"})
+				ActorType: string(types.ActorHost), ActorRef: "crm"})
 		}
 		in := promptInput{Events: events, Summary: &types.Summary{Text: "sum"}, Current: turns[len(turns)-1],
 			Spec: &Spec{Name: "main", System: "s", Settings: config.Settings{Vision: true}}, Sign: stubSign}
