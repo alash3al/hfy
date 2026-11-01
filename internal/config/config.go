@@ -43,12 +43,15 @@ type Config struct {
 }
 
 type Embed struct {
-	Lang    string `yaml:"lang"`
-	Dir     string `yaml:"dir"`
-	Theme   string `yaml:"theme"`
-	Accent  string `yaml:"accent"`
-	Density string `yaml:"density"`
-	Layout  string `yaml:"layout"`
+	Lang   string `yaml:"lang"`
+	Dir    string `yaml:"dir"`
+	Theme  string `yaml:"theme"`
+	Accent string `yaml:"accent"`
+	// AccentSet is true when the accent was written, even as the default indigo: the
+	// whatsapp layout uses its own green unless an accent is set.
+	AccentSet bool   `yaml:"-"`
+	Density   string `yaml:"density"`
+	Layout    string `yaml:"layout"`
 	// ToolCalls is how much of the agent's tool use viewers see: hidden,
 	// summary (a friendly row, no JSON) or details (arguments and results).
 	// Approval requests are always shown: the viewer must decide them.
@@ -437,6 +440,8 @@ func (c *Config) SetDefaults() {
 	if c.Embed.Theme == "" {
 		c.Embed.Theme = "auto"
 	}
+	// SetDefaults runs once when a config loads, so this reads what the operator wrote
+	c.Embed.AccentSet = c.Embed.Accent != ""
 	if c.Embed.Accent == "" {
 		c.Embed.Accent = "#6366f1"
 	}
@@ -482,8 +487,8 @@ func (c *Config) Validate() error {
 	if !accentRe.MatchString(c.Embed.Accent) {
 		bad("embed.accent must be a hex color like #6366f1")
 	}
-	if !slices.Contains([]string{"comfortable", "compact"}, c.Embed.Density) {
-		bad("embed.density must be one of comfortable, compact")
+	if !slices.Contains([]string{"comfortable", "compact", "spacious"}, c.Embed.Density) {
+		bad("embed.density must be one of comfortable, compact, spacious")
 	}
 	if !slices.Contains([]string{"bubbles", "transcript", "whatsapp"}, c.Embed.Layout) {
 		bad("embed.layout must be one of bubbles, transcript, whatsapp")

@@ -21,6 +21,7 @@ type embedConfig struct {
 	Dir       string   `json:"dir"`
 	Theme     string   `json:"theme"`
 	Accent    string   `json:"accent"`
+	AccentSet bool     `json:"accent_set"`
 	Density   string   `json:"density"`
 	Layout    string   `json:"layout"`
 	ToolCalls string   `json:"tool_calls"`
@@ -58,6 +59,7 @@ func (s *Server) serveEmbed(w http.ResponseWriter, r *http.Request) {
 		Dir:       s.cfg.Embed.Dir,
 		Theme:     s.cfg.Embed.Theme,
 		Accent:    s.cfg.Embed.Accent,
+		AccentSet: s.cfg.Embed.AccentSet,
 		Density:   s.cfg.Embed.Density,
 		Layout:    s.cfg.Embed.Layout,
 		ToolCalls: s.cfg.Embed.ToolCalls,

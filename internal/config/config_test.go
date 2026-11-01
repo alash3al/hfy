@@ -199,12 +199,50 @@ func TestEmbedValidation(t *testing.T) {
 	if _, err := Parse([]byte(base+"embed: {layout: chat}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.layout") {
 		t.Errorf("unknown layout must fail naming embed.layout, got %v", err)
 	}
+	for _, density := range []string{"comfortable", "compact", "spacious"} {
+		if c, err := Parse([]byte(base+"embed: {density: "+density+"}\n"), env(nil)); err != nil || c.Embed.Density != density {
+			t.Errorf("density %s must be accepted, got %v", density, err)
+		}
+	}
+	if _, err := Parse([]byte(base+"embed: {density: roomy}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.density") {
+		t.Errorf("unknown density must fail naming embed.density, got %v", err)
+	}
+	for _, accent := range []string{"red", "#6366f", "#gggggg", "#6366f1x"} {
+		for _, layout := range []string{"bubbles", "whatsapp"} {
+			if _, err := Parse([]byte(base+"embed: {layout: "+layout+", accent: \""+accent+"\"}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.accent") {
+				t.Errorf("%s accent %q must fail naming embed.accent, got %v", layout, accent, err)
+			}
+		}
+	}
 	c, err := Parse([]byte(base), env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Embed.Dir != "auto" || c.Embed.Theme != "auto" || c.Embed.Accent != "#6366f1" || c.Embed.Density != "comfortable" || c.Embed.Layout != "bubbles" || c.Embed.ToolCalls != "summary" {
 		t.Errorf("embed defaults: %+v", c.Embed)
+	}
+}
+
+// AccentSet is what the whatsapp layout reads: an accent written in YAML is set,
+// even the default indigo; an omitted accent is not.
+func TestEmbedAccentSet(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	for _, tc := range []struct {
+		embed string
+		set   bool
+	}{
+		{"", false},
+		{"embed: {layout: whatsapp}\n", false},
+		{"embed: {accent: \"#6366f1\"}\n", true},
+		{"embed: {accent: \"#e11d48\"}\n", true},
+	} {
+		c, err := Parse([]byte(base+tc.embed), env(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Embed.AccentSet != tc.set {
+			t.Errorf("%q: AccentSet = %v, want %v", tc.embed, c.Embed.AccentSet, tc.set)
+		}
 	}
 }
 
