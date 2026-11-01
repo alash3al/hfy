@@ -17,6 +17,8 @@ import (
 const (
 	defaultGrantTTL = time.Hour
 	maxGrantTTL     = 24 * time.Hour
+	maxGrantLife    = 7 * 24 * time.Hour // a renewable grant's max_lifetime
+	minRenewableTTL = time.Minute        // bounds a chain at maxGrantLife / minRenewableTTL rows
 	maxRefLen       = 256
 	tokenPrefix     = "hfy_"
 )
@@ -27,7 +29,8 @@ type createGrantRequest struct {
 	Scope        string            `json:"scope"`
 	Agent        string            `json:"agent"`
 	Vars         map[string]string `json:"vars"`
-	ExpiresIn    *int              `json:"expires_in"` // seconds
+	ExpiresIn    *int              `json:"expires_in"`   // seconds
+	MaxLifetime  *int              `json:"max_lifetime"` // seconds; set: renewable (see exchangeGrant)
 }
 
 type createGrantResponse struct {
@@ -56,9 +59,19 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) error {
 	}
 	ttl := defaultGrantTTL
 	if req.ExpiresIn != nil {
-		ttl = time.Duration(*req.ExpiresIn) * time.Second
-		if ttl < time.Second || ttl > maxGrantTTL {
+		if *req.ExpiresIn < 1 || *req.ExpiresIn > int(maxGrantTTL/time.Second) { // before converting: n*1e9 overflows
 			return &httpError{http.StatusBadRequest, "expires_in must be 1..86400 seconds"}
+		}
+		ttl = time.Duration(*req.ExpiresIn) * time.Second
+	}
+	var life time.Duration
+	if req.MaxLifetime != nil {
+		if *req.MaxLifetime < 1 || *req.MaxLifetime > int(maxGrantLife/time.Second) {
+			return &httpError{http.StatusBadRequest, "max_lifetime must be 1..604800 seconds"}
+		}
+		life = time.Duration(*req.MaxLifetime) * time.Second
+		if life < ttl || ttl < minRenewableTTL {
+			return &httpError{http.StatusBadRequest, "a renewable grant needs expires_in of at least 60 seconds and max_lifetime of at least expires_in"}
 		}
 	}
 	agent, ok := s.cfg.AgentNamed(req.Agent)
@@ -81,7 +94,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) error {
 	token, hash := newToken()
 	id, expiresAt, err := s.store.CreateGrant(ctx, db.NewGrant{
 		TokenHash: hash, ConversationID: conv.ID, ActorID: actor,
-		Scope: req.Scope, Agent: req.Agent, Vars: req.Vars, ExpiresIn: ttl,
+		Scope: req.Scope, Agent: req.Agent, Vars: req.Vars, ExpiresIn: ttl, MaxLifetime: life,
 	})
 	if err != nil {
 		return err
@@ -89,7 +102,43 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusCreated, createGrantResponse{ID: id, Token: token, ExpiresAt: expiresAt})
 }
 
-// revokeGrant ends a grant now, open streams included.
+type exchangeGrantResponse struct {
+	ID        uuid.UUID `json:"id"` // the one the backend stored: revoking it ends this token too
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Renewable bool      `json:"renewable"` // false at max_lifetime: the next token has to come from the backend
+}
+
+// exchangeGrant swaps a renewable grant's token for a fresh one, the same
+// identity with a new lifetime, capped at the grant's max_lifetime. The old
+// token works for exchangeGrace more seconds (requests in flight, a second tab)
+// but cannot be exchanged again. A live grant that is not renewable is 409; any
+// other token is the same 401 as everywhere, so nothing is learned about dead ones.
+//
+// shortcut: a retired token presented after its exchange is simply refused;
+// the rows would allow telling a replay (theft) from a lost response, and
+// revoking the chain on it, when that is wanted.
+func (s *Server) exchangeGrant(w http.ResponseWriter, r *http.Request, g *db.GrantRow) error {
+	token, hash := newToken()
+	got, err := s.store.ExchangeGrant(r.Context(), hashToken(bearer(r)), hash, exchangeGrace)
+	switch {
+	case db.IsNotFound(err) && !g.Renewable:
+		return &httpError{http.StatusConflict, "grant is not renewable"}
+	case db.IsNotFound(err): // retired, revoked or lost a race: dead for exchange
+		return &httpError{http.StatusUnauthorized, "invalid or expired token"}
+	case err != nil:
+		return err
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	return writeJSON(w, http.StatusOK, exchangeGrantResponse{ID: got.ChainID, Token: token, ExpiresAt: got.ExpiresAt, Renewable: got.Renewable})
+}
+
+// exchangeGrace is how long a retired token keeps working. A variable only so
+// tests can shorten it; it is not a setting.
+var exchangeGrace = 30 * time.Second
+
+// revokeGrant ends a grant now, and every token it was exchanged for, open
+// streams included.
 func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {

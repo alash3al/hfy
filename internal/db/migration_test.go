@@ -22,10 +22,16 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	// Step back over 00003 (its Down is a no-op), then leave a v1 database behind.
-	if _, err := s.Migrate(ctx, "down"); err != nil {
-		t.Fatal(err)
+	// Step back over 00004 and 00003 (its Down is a no-op), then leave a v1 database behind.
+	down := func() {
+		t.Helper()
+		for range 2 {
+			if _, err := s.Migrate(ctx, "down"); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
+	down()
 	gone := []string{"embeddings_3", "embeddings_1536", "embeddings_007"}
 	kept := []string{"embeddings_x", "my_embeddings_3", "embeddings_", "embeddings_3x", "xembeddings_3", "Embeddings_3",
 		"embeddings_1 ", "embeddings_3\n", `embeddings_1"; DROP TABLE jobs; --`}
@@ -98,9 +104,66 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 			t.Fatalf("run %d: indexes %q (%v), want only the decoy", run, idx, err)
 		}
 		if run == 1 {
-			if _, err := s.Migrate(ctx, "down"); err != nil { // so the same SQL runs again
-				t.Fatal(err)
-			}
+			down() // so the same SQL runs again
 		}
+	}
+}
+
+// 00004 gives every grant that exists a chain of its own named by its uuid,
+// not renewable, and leaves room for the previous release to keep inserting
+// grants during a rolling deploy. Its Down drops what it added.
+func TestGrantExchangeMigration(t *testing.T) {
+	s := dbtest.New(t)
+	ctx := context.Background()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.Pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if _, err := s.Migrate(ctx, "down"); err != nil { // back to before 00004
+		t.Fatal(err)
+	}
+	exec(`INSERT INTO actors (type, ref) VALUES ('external', 'u1')`)
+	exec(`INSERT INTO conversations SELECT FROM generate_series(1, 1)`)
+	for i := range 3 { // grants as the previous release made them: none of the new columns
+		exec(`INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at)
+			VALUES ($1, 1, 1, 'u1', '', now() + interval '1 hour')`, []byte{byte(i)})
+	}
+	if _, err := s.Migrate(ctx, "up"); err != nil {
+		t.Fatal(err)
+	}
+	var same, total, renewable int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE root_id = uuid), count(*),
+		count(renew_until) + count(renew_secs) FROM grants`).Scan(&same, &total, &renewable); err != nil {
+		t.Fatal(err)
+	}
+	if same != 3 || total != 3 || renewable != 0 {
+		t.Fatalf("backfill: root_id = uuid on %d of %d rows, %d renewable values", same, total, renewable)
+	}
+	// the previous release inserts without root_id: it must still work, as a chain of one
+	exec(`INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at)
+		VALUES ('\x09', 1, 1, 'u1', '', now() + interval '1 hour')`)
+	var nullable string
+	if err := s.Pool.QueryRow(ctx, `SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'grants' AND column_name = 'root_id'`).Scan(&nullable); err != nil || nullable != "NO" {
+		t.Fatalf("root_id nullable %q: %v", nullable, err)
+	}
+	var indexed bool
+	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()
+		AND tablename = 'grants' AND indexdef LIKE '%(root_id)')`).Scan(&indexed); err != nil || !indexed {
+		t.Fatalf("no index on root_id: %v", err)
+	}
+
+	if _, err := s.Migrate(ctx, "down"); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema()
+		AND table_name = 'grants' AND column_name IN ('renew_until', 'renew_secs', 'root_id')`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("down left %d columns: %v", left, err)
+	}
+	if _, err := s.Migrate(ctx, "up"); err != nil { // and up works over rows that exist
+		t.Fatal(err)
 	}
 }

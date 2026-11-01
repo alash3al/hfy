@@ -77,6 +77,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	route("GET /v1/conversation/config", srv.withGrant(false, srv.conversationConfig))
 	route("GET /v1/conversation/history", srv.withGrant(false, srv.history))
 	route("POST /v1/conversation/approvals", srv.withGrant(false, srv.approve))
+	route("POST /v1/conversation/grant/exchange", srv.withGrant(false, srv.exchangeGrant))
 	route("POST /v1/conversation/stop", srv.withGrant(false, srv.stop))
 	route("POST /v1/conversation/uploads", srv.withGrant(false, srv.requestUpload))
 	route("PUT /v1/conversation/uploads/{key...}", srv.withGrant(false, srv.putUpload))

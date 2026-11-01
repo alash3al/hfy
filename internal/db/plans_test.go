@@ -35,6 +35,9 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 	mustExec(`INSERT INTO jobs (type, queue, payload, state, concurrency_key)
 		SELECT 'run_turn', 'turns', '{}', CASE WHEN g % 50 = 0 THEN 'queued' ELSE 'done' END, 'conversation:' || (g % 5)
 		FROM generate_series(1, 20000) g`)
+	mustExec(`INSERT INTO grants (token_hash, conversation_id, actor_id, scope, agent, expires_at, renew_until, renew_secs)
+		SELECT sha256(g::text::bytea), 1, 1, 'u1', '', now() + interval '1 hour', now() + interval '1 day', 60
+		FROM generate_series(1, 20000) g`)
 	mustExec(`ANALYZE`)
 
 	var mid, last int64
@@ -56,6 +59,10 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 		{"ClaimJob", pgx.NamedArgs{"queue": "turns", "lease": "30s"}, []string{"Seq Scan on jobs"}},
 		{"ReapJobs", pgx.NamedArgs{}, []string{"Seq Scan on jobs"}},
 		{"DeleteExpiredEvents", pgx.NamedArgs{"age": "720h", "limit": 5000}, []string{"Seq Scan on conversation_events"}},
+		{"SelectGrantByToken", pgx.NamedArgs{"token_hash": []byte("x")}, []string{"Seq Scan on grants"}},
+		{"ExchangeGrant", pgx.NamedArgs{"old": []byte("x"), "new": []byte("y"), "grace": 30.0}, []string{"Seq Scan on grants"}},
+		{"LockGrantChainOfToken", pgx.NamedArgs{"token_hash": []byte("x")}, []string{"Seq Scan on grants"}},
+		{"RevokeGrant", pgx.NamedArgs{"id": "00000000-0000-4000-8000-000000000000"}, []string{"Seq Scan on grants"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
