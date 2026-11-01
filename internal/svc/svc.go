@@ -529,23 +529,27 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 // Replays of a key do not count: they store nothing.
 const MaxHostEventsPerTurn = 100
 
-// HostActor returns the actor of a host event source, creating it on first
-// use. The ref is the source's name, which lands in the prompt (from="…"), so
-// it must be a config name: ASCII letters, digits, "_" and "-", at most 64
-// bytes. Refs compare exactly: "CRM" and "crm" are two sources.
-func (s *Service) HostActor(ctx context.Context, ref string) (int64, error) {
+// CheckHostRef reports a source name that cannot be a host's. The ref lands in
+// the prompt (from="…"), so it must be a config name: ASCII letters, digits,
+// "_" and "-", at most 64 bytes. Refs compare exactly: "CRM" and "crm" are two
+// sources.
+func CheckHostRef(ref string) error {
 	if ref == "" || len(ref) > 64 || !config.ValidName(ref) {
-		return 0, badf("source must be 1 to 64 letters, digits, _ or -")
+		return badf("source must be 1 to 64 letters, digits, _ or -")
 	}
-	return s.store.FindOrCreateActor(ctx, s.store.Pool, types.ActorHost, ref)
+	return nil
 }
 
 // NoteInput is a context.note or host.message to add to a conversation.
 type NoteInput struct {
 	ConversationID int64
-	Actor          int64           // who wrote it: the one name the model sees
-	Type           types.EventType // EventContextNote or EventHostMessage
-	Text           string
+	Actor          int64 // who wrote it: the one name the model sees
+	// HostRef, when set, replaces Actor with the host actor of that source
+	// (CheckHostRef), created in the transaction that stores the note: a request
+	// refused for any reason leaves no actor behind.
+	HostRef string
+	Type    types.EventType // EventContextNote or EventHostMessage
+	Text    string
 	// Key, when set, makes the append idempotent per (conversation, actor, key):
 	// a repeat returns the first event and ignores the rest of the input.
 	Key string
@@ -585,13 +589,25 @@ func (s *Service) AppendNoteOnce(ctx context.Context, in NoteInput) (row db.Even
 	if err := p.Validate(); err != nil {
 		return db.EventRow{}, false, badf("%s", err)
 	}
+	if in.HostRef != "" {
+		if err := CheckHostRef(in.HostRef); err != nil {
+			return db.EventRow{}, false, err
+		}
+	}
 	err = s.store.Tx(ctx, func(tx pgx.Tx) error {
 		conv, err := s.store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
 		}
-		if in.Key != "" { // a repeat answers before anything else, even with the turn gone
-			prev, err := s.store.EventByKey(ctx, tx, in.ConversationID, in.Actor, in.Key)
+		actor := in.Actor
+		if in.HostRef != "" { // only looked up: a source never seen has no events to repeat
+			actor, err = s.store.FindActor(ctx, tx, types.ActorHost, in.HostRef)
+			if err != nil && !db.IsNotFound(err) {
+				return err
+			}
+		}
+		if in.Key != "" && actor != 0 { // a repeat answers before anything else, even with the turn gone
+			prev, err := s.store.EventByKey(ctx, tx, in.ConversationID, actor, in.Key)
 			if err == nil {
 				row, created = prev, false
 				return nil
@@ -632,7 +648,12 @@ func (s *Service) AppendNoteOnce(ctx context.Context, in NoteInput) (row db.Even
 				return ErrTooManyHostEvents
 			}
 		}
-		ev := db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: in.Actor, Scope: turn.Scope, Payload: p}
+		if actor == 0 && in.HostRef != "" { // every refusal is behind us: the actor may exist now
+			if actor, err = s.store.FindOrCreateActor(ctx, tx, types.ActorHost, in.HostRef); err != nil {
+				return err
+			}
+		}
+		ev := db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID, ActorID: actor, Scope: turn.Scope, Payload: p}
 		if in.Key == "" {
 			row, err = s.store.AppendEvent(ctx, tx, ev)
 			created = err == nil

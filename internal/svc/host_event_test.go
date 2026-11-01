@@ -12,8 +12,8 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-func hostEvent(conv db.ConversationRow, host int64, key, text string) svc.NoteInput {
-	return svc.NoteInput{ConversationID: conv.ID, Actor: host, Type: types.EventContextNote, Text: text, Key: key, Limit: svc.MaxHostEventsPerTurn}
+func hostEvent(conv db.ConversationRow, host, key, text string) svc.NoteInput {
+	return svc.NoteInput{ConversationID: conv.ID, HostRef: host, Type: types.EventContextNote, Text: text, Key: key, Limit: svc.MaxHostEventsPerTurn}
 }
 
 // A keyed note is stored once per (conversation, actor, key): a repeat gives
@@ -22,11 +22,7 @@ func hostEvent(conv db.ConversationRow, host int64, key, text string) svc.NoteIn
 // another conversation, has its own keys; keys are case-sensitive.
 func TestAppendNoteOnceReplaysTheFirstEvent(t *testing.T) {
 	ctx, store, s, conv, user := noteFixture(t)
-	crm, err := s.HostActor(ctx, "crm")
-	if err != nil {
-		t.Fatal(err)
-	}
-	erp, _ := s.HostActor(ctx, "erp")
+	const crm, erp = "crm", "erp"
 	post := func() {
 		t.Helper()
 		if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
@@ -96,7 +92,7 @@ func mustTurn(t *testing.T, store *db.Store, conv db.ConversationRow) int64 {
 // Host events never start a turn: no job is queued, however many arrive.
 func TestAppendNoteOnceNeverQueuesAJob(t *testing.T) {
 	ctx, store, s, conv, user := noteFixture(t)
-	crm, _ := s.HostActor(ctx, "crm")
+	const crm = "crm"
 	if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +110,7 @@ func TestAppendNoteOnceNeverQueuesAJob(t *testing.T) {
 // Concurrent sends of one key store one event: the same row comes back to all.
 func TestAppendNoteOnceConcurrentSameKey(t *testing.T) {
 	ctx, store, s, conv, user := noteFixture(t)
-	crm, _ := s.HostActor(ctx, "crm")
+	const crm = "crm"
 	if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +148,7 @@ func TestAppendNoteOnceConcurrentSameKey(t *testing.T) {
 // notes do not count, and the next turn starts at zero.
 func TestHostEventsAreBoundedPerTurn(t *testing.T) {
 	ctx, store, s, conv, user := noteFixture(t)
-	crm, _ := s.HostActor(ctx, "crm")
+	const crm = "crm"
 	if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +174,7 @@ func TestHostEventsAreBoundedPerTurn(t *testing.T) {
 	if _, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, crm, "over", "n")); !errors.Is(err, svc.ErrTooManyHostEvents) {
 		t.Fatalf("over the bound: %v", err)
 	}
-	erp, _ := s.HostActor(ctx, "erp")
+	const erp = "erp"
 	if _, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, erp, "x", "n")); !errors.Is(err, svc.ErrTooManyHostEvents) {
 		t.Fatalf("the bound is per turn, not per source: %v", err)
 	}
@@ -201,30 +197,92 @@ func TestHostEventsAreBoundedPerTurn(t *testing.T) {
 	}
 }
 
-// A host's source name lands in the prompt, so it is a config name.
-func TestHostActorRefusesBadNames(t *testing.T) {
-	ctx, store, s, _, _ := noteFixture(t)
+// A host's source name lands in the prompt, so it is a config name; refs
+// compare exactly, and the actor is a host's.
+func TestHostRefsAreNames(t *testing.T) {
+	ctx, store, s, conv, user := noteFixture(t)
+	if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, ref := range []string{"", " crm", "crm ", "a b", "cr\nm", "a\"b", "a<b", "a'b", "crm\x00", "é", "crm\u202e", "\ufeffcrm",
 		"a.b", "a/b", strings.Repeat("a", 65)} {
 		var br *svc.BadRequestError
-		if _, err := s.HostActor(ctx, ref); !errors.As(err, &br) {
+		if err := svc.CheckHostRef(ref); !errors.As(err, &br) {
 			t.Errorf("%q: want a BadRequestError, got %v", ref, err)
 		}
-	}
-	for _, ref := range []string{"host", "HOST", "crm", "CRM", "a-b_C9", strings.Repeat("a", 64)} {
-		if _, err := s.HostActor(ctx, ref); err != nil {
-			t.Errorf("%q: %v", ref, err)
+		if ref != "" { // "" means no HostRef: the Actor is used
+			if _, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, ref, "k", "n")); !errors.As(err, &br) {
+				t.Errorf("%q: AppendNoteOnce: want a BadRequestError, got %v", ref, err)
+			}
 		}
 	}
-	a, _ := s.HostActor(ctx, "crm")
-	b, _ := s.HostActor(ctx, "CRM")
-	c, _ := s.HostActor(ctx, "crm")
-	if a == b || a != c {
-		t.Fatalf("refs compare exactly: crm=%d CRM=%d crm=%d", a, b, c)
+	ids := map[string]int64{}
+	for _, ref := range []string{"host", "HOST", "crm", "CRM", "a-b_C9", strings.Repeat("a", 64)} {
+		r, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, ref, "k", "n"))
+		if err != nil {
+			t.Fatalf("%q: %v", ref, err)
+		}
+		ids[ref] = r.ActorID
+		if r.ActorType != "host" || r.ActorRef != ref {
+			t.Errorf("%q: actor %s/%s", ref, r.ActorType, r.ActorRef)
+		}
 	}
-	var typ string
-	store.Pool.QueryRow(ctx, `SELECT type FROM actors WHERE id = $1`, a).Scan(&typ)
-	if typ != "host" {
-		t.Fatalf("actor type %q", typ)
+	if ids["crm"] == ids["CRM"] || ids["host"] == ids["HOST"] {
+		t.Fatalf("refs compare exactly: %v", ids)
+	}
+	again, _, _ := s.AppendNoteOnce(ctx, hostEvent(conv, "crm", "k2", "n"))
+	var n int
+	store.Pool.QueryRow(ctx, `SELECT count(*) FROM actors WHERE type = 'host'`).Scan(&n)
+	if again.ActorID != ids["crm"] || n != 6 {
+		t.Fatalf("a source keeps its actor: %d vs %d, %d host actors", again.ActorID, ids["crm"], n)
+	}
+}
+
+// A request that is refused leaves no actor behind for its source: not a bad
+// text, not a conversation with no turn, not a full turn. The actor is made
+// only with the note that needs it.
+func TestRefusedHostEventsLeaveNoActor(t *testing.T) {
+	ctx, store, s, conv, user := noteFixture(t)
+	hosts := func() (n int) {
+		store.Pool.QueryRow(ctx, `SELECT count(*) FROM actors WHERE type = 'host'`).Scan(&n)
+		return n
+	}
+	if _, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, "ghost", "k", "n")); !errors.Is(err, svc.ErrNoTurn) {
+		t.Fatalf("no turn: %v", err)
+	}
+	if _, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	bad := hostEvent(conv, "ghost", "k", "  ")
+	var br *svc.BadRequestError
+	if _, _, err := s.AppendNoteOnce(ctx, bad); !errors.As(err, &br) {
+		t.Fatalf("blank text: %v", err)
+	}
+	full := hostEvent(conv, "ghost", "k", "n")
+	full.Limit = 1
+	if _, err := s.AppendNote(ctx, svc.NoteInput{ConversationID: conv.ID, Actor: user, Type: types.EventContextNote, Text: "u"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AppendNoteOnce(ctx, hostEvent(conv, "other", "a", "n")); err != nil { // one host event: the turn is full at Limit 1
+		t.Fatal(err)
+	}
+	before := hosts()
+	if _, _, err := s.AppendNoteOnce(ctx, full); !errors.Is(err, svc.ErrTooManyHostEvents) {
+		t.Fatalf("full turn: %v", err)
+	}
+	if hosts() != before {
+		t.Fatalf("refused requests left %d host actors", hosts()-before)
+	}
+	var ghost int
+	store.Pool.QueryRow(ctx, `SELECT count(*) FROM actors WHERE ref = 'ghost'`).Scan(&ghost)
+	if ghost != 0 {
+		t.Fatalf("%d ghost actors", ghost)
+	}
+	if _, created, err := s.AppendNoteOnce(ctx, hostEvent(conv, "ghost", "k", "n")); err != nil || !created {
+		// Limit is the default here: the turn has room
+		t.Fatalf("accepted: created=%v %v", created, err)
+	}
+	if hosts() != before+1 {
+		t.Fatalf("the accepted note made %d actors", hosts()-before)
 	}
 }

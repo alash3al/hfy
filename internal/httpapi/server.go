@@ -20,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
@@ -254,9 +255,13 @@ func bindJSON(r *http.Request, v any) error {
 }
 
 // bindStrictJSON is bindJSON for a body whose every byte counts: one JSON
-// object and nothing after it, no key twice (encoding/json matches keys in any
-// letter case, so "Key" repeats "key"), no key that v does not name. An empty
-// body is an empty object. max bounds the body.
+// object and nothing after it, no key twice, no key that v does not name. An
+// empty body is an empty object. max bounds the body.
+//
+// encoding/json matches a key to a field by Unicode case folding ("ſource" and
+// the Kelvin sign fold to "source" and "key"), so a key is exact ASCII or refused,
+// and ASCII lowering is then the whole folding there is, for both the repeat
+// check and the unknown-key check.
 func bindStrictJSON(w http.ResponseWriter, r *http.Request, max int64, v any) error {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, max))
 	if _, tooBig := errors.AsType[*http.MaxBytesError](err); tooBig {
@@ -277,7 +282,7 @@ func bindStrictJSON(w http.ResponseWriter, r *http.Request, max int64, v any) er
 	for dec.More() {
 		tok, err := dec.Token()
 		key, isKey := tok.(string)
-		if err != nil || !isKey || seen[strings.ToLower(key)] {
+		if err != nil || !isKey || !isASCII(key) || seen[strings.ToLower(key)] {
 			return bad
 		}
 		seen[strings.ToLower(key)] = true
@@ -297,6 +302,15 @@ func bindStrictJSON(w http.ResponseWriter, r *http.Request, max int64, v any) er
 		return bad
 	}
 	return nil
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 // handler is an endpoint. The error it returns is answered in JSON, unless

@@ -30,6 +30,13 @@ func (s *Store) FindOrCreateActor(ctx context.Context, q DBTX, typ types.ActorTy
 	return id, nil
 }
 
+// FindActor returns an actor's internal id without creating it (pgx.ErrNoRows
+// if there is none).
+func (s *Store) FindActor(ctx context.Context, q DBTX, typ types.ActorType, ref string) (id int64, err error) {
+	err = q.QueryRow(ctx, s.q("SelectActor"), pgx.NamedArgs{"type": string(typ), "ref": ref}).Scan(&id)
+	return id, err
+}
+
 // NewEvent describes an event to append.
 type NewEvent struct {
 	ConversationID int64

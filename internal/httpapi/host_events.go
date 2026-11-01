@@ -58,12 +58,8 @@ func (s *Server) postHostEvent(w http.ResponseWriter, r *http.Request) error {
 	if req.Source != nil && *req.Source != "" {
 		source = *req.Source
 	}
-	actor, err := s.svc.HostActor(ctx, source)
-	if err != nil {
-		return err
-	}
 	row, created, err := s.svc.AppendNoteOnce(ctx, svc.NoteInput{
-		ConversationID: conv.ID, Actor: actor, Type: typ, Text: req.Text, Key: req.Key, Limit: svc.MaxHostEventsPerTurn})
+		ConversationID: conv.ID, HostRef: source, Type: typ, Text: req.Text, Key: req.Key, Limit: svc.MaxHostEventsPerTurn})
 	if err != nil {
 		return err
 	}

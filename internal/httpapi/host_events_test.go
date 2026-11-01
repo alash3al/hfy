@@ -424,6 +424,15 @@ func TestHostEventHostileInput(t *testing.T) {
 		{"duplicate source", `{"type":"note","text":"a","key":"k","source":"a","source":"b"}`, 400},
 		{"duplicate with a bad first value", `{"type":1,"type":"note","text":"a","key":"k"}`, 400},
 		{"key case folding", `{"TYPE":"note","TEXT":"a","KEY":"k9"}`, 201}, // encoding/json is case-insensitive; one of each
+		// encoding/json folds ſ (U+017F) to s and the Kelvin sign (U+212A) to k: no such key is a key of ours
+		{"duplicate by fold ſ", `{"source":"a","ſource":"b","type":"note","text":"x","key":"@@"}`, 400},
+		{"duplicate by fold ſ escaped", `{"source":"a","\u017fource":"b","type":"note","text":"x","key":"@@"}`, 400},
+		{"duplicate by fold ſ first", `{"ſource":"b","source":"a","type":"note","text":"x","key":"@@"}`, 400},
+		{"lone ſ key", `{"type":"note","text":"x","key":"@@","ſource":"crm"}`, 400},
+		{"lone Kelvin key", `{"type":"note","text":"x","\u212aey":"@@"}`, 400},
+		{"duplicate by fold Kelvin", `{"type":"note","text":"x","key":"a","\u212aey":"b"}`, 400},
+		{"duplicate Type", `{"type":"note","Type":"message","text":"x","key":"@@"}`, 400},
+		{"duplicate KEY", `{"type":"note","text":"x","key":"@@","KEY":"b"}`, 400},
 		{"unknown field", body(typ, text, key, `"extra":1`), 400},
 		{"unknown field nested", body(typ, text, key, `"metadata":{"a":1}`), 400},
 		{"invalid utf-8 in the body", "{\"type\":\"note\",\"text\":\"a\xffb\",\"key\":\"k\"}", 201},
@@ -657,5 +666,45 @@ func TestHostEventRouteMetrics(t *testing.T) {
 	}
 	if seen["hfy_http_request_duration_seconds"]["/v1/conversation/events"] {
 		t.Error("the event stream has a latency series")
+	}
+}
+
+// A request that is refused leaves no actor behind for a new source: not a bad
+// body, text or key, not a conversation with no turn, not a full turn.
+func TestRefusedHostEventsLeaveNoActor(t *testing.T) {
+	ghosts := func(h *hostConv) (n int) {
+		h.rt.Store.Pool.QueryRow(context.Background(), `SELECT count(*) FROM actors WHERE type = 'host' AND ref = 'ghost'`).Scan(&n)
+		return n
+	}
+	a := start(t, nil)
+	empty := &hostConv{api: a, conv: a.newConversation()}
+	if code, _ := empty.send(`{"type":"note","text":"x","key":"k","source":"ghost"}`); code != 409 {
+		t.Fatalf("no turn: %d", code)
+	}
+	h := startHostConv(t)
+	for name, body := range map[string]string{
+		"blank text":  `{"type":"note","text":" ","key":"k","source":"ghost"}`,
+		"bad key":     `{"type":"note","text":"x","key":"a b","source":"ghost"}`,
+		"bad type":    `{"type":"x","text":"x","key":"k","source":"ghost"}`,
+		"big text":    `{"type":"note","text":"` + strings.Repeat("a", types.MaxNoteBytes+1) + `","key":"k","source":"ghost"}`,
+		"extra field": `{"type":"note","text":"x","key":"k","source":"ghost","x":1}`,
+	} {
+		if code, _ := h.send(body); code != 400 {
+			t.Fatalf("%s: %d", name, code)
+		}
+	}
+	if code, _ := h.raw("POST", "/v1/conversations/"+uuid.New().String()+"/events", secret, "", `{"type":"note","text":"x","key":"k","source":"ghost"}`); code != 404 {
+		t.Fatalf("unknown conversation: %d", code)
+	}
+	for i := range 100 {
+		if code, out := h.send(fmt.Sprintf(`{"type":"note","text":"n","key":"k%d"}`, i)); code != 201 {
+			t.Fatalf("%d %s", code, out)
+		}
+	}
+	if code, _ := h.send(`{"type":"note","text":"x","key":"k","source":"ghost"}`); code != 429 {
+		t.Fatalf("full turn: %d", code)
+	}
+	if n := ghosts(h) + ghosts(empty); n != 0 {
+		t.Fatalf("refused requests left %d actors for a new source", n)
 	}
 }
