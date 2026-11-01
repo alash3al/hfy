@@ -21,7 +21,7 @@ Choose the client surface first:
 - **Conversation.** A room, created by the host backend. Holds the full, never-deleted event history. Several people and several agents may share one.
 - **Grant.** Access for one person (an `actor`) to one conversation. The backend creates it with the server secret and gets a token `hfy_…` (default lifetime 1 h, max 24 h). The client uses only that token. Tokens are never cookies.
 - **Actor.** The host's own user id for the person (max 256 bytes). It is recorded on their messages and shown to the model and to other participants.
-- **Agent.** A configured assistant: model, system prompt, tools, limits. `agent:` is the default agent `main`; `agents:` adds named ones. The grant picks which agent answers that person.
+- **Agent.** A configured assistant: model, system prompt, tools, limits. `agents.main` is required and is the default agent; `agents.<name>` adds named ones. The grant picks which agent answers that person (none named = `main`).
 - **Turn.** One user message and everything the agent does in response. Turns run one at a time per conversation; later messages queue.
 - **Event.** Every step (message, tool call, tool result, state change, approval) is an append-only event. History and the live stream use the same envelope.
 - **Tools.** All external tools come from MCP servers (local stdio commands or remote Streamable HTTP). hfy also ships core built-ins: `hfy.now`, `hfy.math_calc`, `hfy.tool_search`, opt-in `hfy.ask_user`, and sub-agents as `hfy.<name>`.
@@ -31,7 +31,7 @@ Choose the client surface first:
 
 ### 1. Run hfy
 
-Requirements: Postgres 17, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config). The commands (`serve`, `queue:work`, `validate`, `migrate`, `config:example`) are in "Commands" below; health endpoints are in "Operations".
+Requirements: Postgres 17, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config).
 
 Prebuilt binary (Linux, macOS, Windows; amd64 and arm64), from the latest GitHub release:
 
@@ -65,6 +65,8 @@ hfy -c hfy.yaml validate          # checks config, env expansion, startup rules
 hfy -c hfy.yaml serve --work      # API + workers in one process
 ```
 
+Commands: `serve [--work]`, `queue:work [-q turns,maintenance] [--workers N]` (workers only, scale separately), `validate`, `migrate [up|down|status]`, `config:example`, `version`. `-c` may also come from `HFY_CONFIG`. Health: `GET /healthz` (process alive), `GET /readyz` (Postgres reachable, else 503). `metrics: {listen: "127.0.0.1:9090"}` opens a separate Prometheus `/metrics` listener (also `/healthz`, `/readyz`) in every process.
+
 ### 2. Minimal config
 
 ```yaml
@@ -81,15 +83,16 @@ providers:
     api_key: ${OPENAI_API_KEY}
     timeout: 60s
 
-agent:
-  model: openai/gpt-4o-mini          # <provider name>/<model id>
-  settings: { temperature: 0.2, context_window: 128000 }   # context_window is REQUIRED
-  system: |
-    You are the support assistant for {{company}}. You are talking to {{user_name}}.
-  vars:
-    company:   { default: "Acme" }
-    user_name: { required: true }
-  ask_user: true                     # optional: lets the agent ask structured questions
+agents:
+  main:                              # required: the default agent
+    model: openai/gpt-4o-mini        # <provider name>/<model id>
+    settings: { temperature: 0.2, context_window: 128000 }   # context_window is REQUIRED
+    system: |
+      You are the support assistant for {{company}}. You are talking to {{user_name}}.
+    vars:
+      company:   { default: "Acme" }
+      user_name: { required: true }
+    ask_user: true                   # optional: lets the agent ask structured questions
 ```
 
 No model yet? Use the mock provider. It streams a fixed reply in-process, so the whole stack (UI included) runs without a model server:
@@ -99,16 +102,28 @@ providers:
   mock:
     type: mock
     mock: { reply: "Hello from mock" }
-agent:
-  model: mock/demo
-  settings: { context_window: 8192 }
+agents:
+  main:
+    model: mock/demo
+    settings: { context_window: 8192 }
 ```
+
+Keys at a glance (`hfy config:example` prints every key with comments; unknown keys stop startup with their line):
+
+- `providers.<name>`: `url`, `api_key`, `timeout` (the longest silence: before the answer starts and between streamed chunks), `type` (`openai` or `mock`), `max_tokens_param` (`max_tokens` by default; OpenAI o-series models need `max_completion_tokens`).
+- `agents.<name>`: `model` (`<provider>/<model>`), `settings` (`context_window` required, `temperature`, `vision`: accept image attachments, default false, and the model request controls below), `system` (supports `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`, `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`), `ask_user` (bool), `mcp` (server names).
+- `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
+- `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
+- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch URLs); it only seeds the default of `filesystem.max_bytes`.
+- `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d). `metrics`: `listen`.
+
+Vendor quirks of the model request controls (Anthropic and DeepSeek thinking, reasoning-model output caps, Gemini) are in "Provider notes" of the full reference: https://github.com/alash3al/hfy/blob/main/docs/reference.md.
 
 ### 3. Backend: create conversations and grants
 
 All backend calls use `Authorization: Bearer <server.secret>` and JSON bodies: `POST /v1/conversations` returns the conversation id, `POST /v1/grants` returns the token (fields in "API" below).
 
-Persist the conversation id in your own database (for example one per user, per support ticket or per order), and create it once. Create a fresh grant every time the widget asks for one, and only after your normal session/auth check. Never cache or reuse tokens across users. The token is returned once (hfy stores only its SHA-256). Pick `max_lifetime` as short as the product allows, or leave it out.
+Persist the conversation id in your own database (for example one per user, per support ticket or per order), and create it once. Create a fresh grant every time the widget asks for one, and only after your normal session/auth check. Never cache or reuse tokens across users. The token is returned once (hfy stores only its SHA-256). Pick `max_lifetime` (renewable grants, see "Renewing a grant") as short as the product allows, or leave it out. Do not mint grants with `max_lifetime` until every hfy instance runs this version: an older instance ignores the field, and its revoke ends only one token of a renewable chain.
 
 Example backend endpoint (Node/Express; translate to the app's stack):
 
@@ -163,7 +178,7 @@ The host page's origin must be listed in `server.cors_origins`. That list is als
 </script>
 ```
 
-The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string. Keep answering `token-needed` even for renewable grants (see "Renewing a grant").
+The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string. Keep answering `token-needed` even for renewable grants (see "Renewing a grant"): it comes with reason `initial` (first load), `expired` (the token ran out, or a renewal failed or hit its cap) or `unauthorized` (a request was refused). When you re-mint after `unauthorized`, revoke the previous grant's `id`: that ends its whole chain.
 
 ### 5. Mobile: embed the chat in a WebView
 
@@ -214,7 +229,20 @@ For a UI of your own instead of `/embed`. The page's origin must be in `server.c
 
 ### 7. Presentation
 
-Defaults live in YAML under `embed:` (see "Embedded UI and JS client" below) and are validated at startup. What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
+Defaults live in YAML under `embed:`, are validated at startup and injected into the page:
+
+```yaml
+embed:
+  lang: en              # omit = viewer's browser language
+  dir: auto             # auto | ltr | rtl
+  theme: auto           # light | dark | auto
+  accent: "#0b7d71"     # hex
+  density: comfortable  # comfortable | compact | spacious
+  layout: bubbles       # bubbles | transcript | whatsapp (WhatsApp-style; an accent you set tints its own bubbles)
+  tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers); approval requests always show
+```
+
+Per-viewer overrides come only from a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls` and `strings` (an object overriding UI strings). An `accent` there must be a six-digit hex such as `#e11d48`; anything else is ignored. Built-in strings are English and Arabic; time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable. The `/embed` page and its files are cached and compressed by hfy itself; there is nothing to configure. What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
 
 ### 8. Give the agent tools (MCP)
 
@@ -233,8 +261,9 @@ mcp:
     command: [mcp-filesystem, /data]
     environment: { LOG: "1" }                     # its only env besides PATH, HOME, USER, locale, TMPDIR, TZ
     timeout: 2m                                   # per tool call (default 2m)
-agent:
-  mcp: [orders]        # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
+agents:
+  main:
+    mcp: [orders]      # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
 ```
 
 **Authorize inside the MCP server from `_meta["hfy/turn"].actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content.
@@ -271,20 +300,6 @@ Don't:
 - **Model ignores an image**: the provider cannot fetch its URL. Local model servers need a URL reachable from their host, so set `filesystem.public_url` accordingly.
 - **Uploads fail with S3**: the bucket CORS must allow PUT from the embed origins; `region=` is required in the dsn.
 - **Startup error naming a line**: an unknown or misspelled config key.
-
-## Commands
-
-| Command | |
-|---|---|
-| `hfy -c hfy.yaml serve [--work]` | HTTP API and SSE; `--work` adds workers in the same process |
-| `hfy queue:work [-q turns,maintenance] [--workers N]` | workers only; `-q` is a priority-ordered list (default: all) |
-| `hfy validate` | check config, env expansion and startup rules |
-| `hfy migrate [up\|down\|status]` | goose migrations (`serve` and `queue:work` also run `up` on boot) |
-| `hfy config:example` | print the commented starter config |
-| `hfy version` | |
-
-`-c` also reads `HFY_CONFIG`. API and workers scale separately: workers append
-events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 ## Config
 
@@ -327,7 +342,7 @@ four optional controls. Each is sent only when set, and none has a default:
 
 - `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
   sent as `reasoning_effort`. Providers and models accept different subsets; see
-  [Provider notes](#provider-notes).
+  "Provider notes" below.
 - `max_output_tokens`: caps each call's output, reasoning included. It is sent as
   `max_tokens`, or as `max_completion_tokens` when the provider sets
   `max_tokens_param: max_completion_tokens`.
@@ -370,51 +385,6 @@ agents:
 OpenRouter reads `reasoning_effort` and also its own `reasoning` object (options such
 as `exclude`, or a token budget). Put that object and top-level `cache_control` in
 `extra`; set one or the other, not both. The example above sets no `reasoning_effort`.
-
-#### Provider notes
-
-- **Anthropic** (its OpenAI-compatible endpoint) silently ignores `reasoning_effort`.
-  Enable thinking with `extra: {thinking: {type: enabled, budget_tokens: N}}`, where N
-  is at least 1024 and below `max_output_tokens`.
-- **DeepSeek**: a `thinking` object in `extra` overrides `reasoning_effort`, so set one
-  or the other.
-- **Reasoning models**: the output cap covers reasoning too, so a small
-  `max_output_tokens` can return an empty reply with `finish_reason: length`.
-- **Output-cap field**: Ollama and DeepSeek read only `max_tokens`. OpenAI prefers
-  `max_completion_tokens`: `max_tokens` is deprecated there and o-series models reject
-  it, so set `max_tokens_param: max_completion_tokens` on that provider. OpenRouter
-  accepts both.
-- **Effort values**: a value the model does not support is either rejected (the turn
-  fails with the provider's error) or silently ignored or mapped, depending on the
-  provider.
-- **Alias values**: the `reasoning_effort` list is strict. For a value it does not
-  list, leave `reasoning_effort` unset and send `extra: {reasoning_effort: <value>}`;
-  hfy does not check it.
-- **Sampling**: newer reasoning models and Claude 4.7+ reject `temperature` below 1 or
-  `top_p` other than 0.99. Leave both unset for them.
-- **Gemini** (its OpenAI-compatible endpoint): vendor extras nest, as in
-  `extra: {extra_body: {google: {...}}}`. `none` effort works only on the 2.5 models.
-- **`mock`**: the mock provider ignores the controls and `call_timeout`; config
-  validation still runs.
-
-### Keys at a glance
-
-- `providers.<name>`: `url`, `api_key`, `timeout` (the longest silence: before the
-  answer starts and between streamed chunks), `type` (`openai` or `mock`),
-  `max_tokens_param` (`max_tokens` by default, or `max_completion_tokens`).
-- `agent` and `agents.<name>`: `model` (`<provider>/<model>`), `settings`
-  (`context_window` required, `temperature`, `vision`: accept image attachments,
-  default false, and the model request controls above), `system` (supports
-  `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`,
-  `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`),
-  `ask_user` (bool), `mcp` (server names).
-- `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
-- `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
-- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app
-  hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch
-  URLs); it only seeds the default of `filesystem.max_bytes`.
-- `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d).
-  `metrics`: `listen`.
 
 ## API
 
@@ -548,154 +518,6 @@ conversation or grant, `409` no pending approval, or an exchange of a grant that
 `429` an exchange before its time
 (an upload PUT is instead bounded by `files.max_bytes`).
 
-### Embedded UI and JS client
-
-hfy serves a ready-made conversation UI and the JS client it is built on,
-both embedded in the binary (no npm, no build step, no extra hosting):
-
-- `GET /embed` — the conversation page. Embed it in an `<iframe>` or a
-  WebView; those are the only two supported shells. There is no script-tag
-  mode and no URL-parameter configuration: `/embed` is a bare URL.
-- `GET /embed/client.js` — the foundational client: a DOM-free protocol
-  unit. Commands go down as promise methods (`connect`, `send`, `upload`,
-  `approve`, `stop`, `loadOlder`); notifications come up as fired events
-  (the raw event envelopes, plus connection state). It owns the grant in
-  memory, token refresh, resume and dedupe, and knows nothing about
-  rendering, locale or theme. `ui.js` (the UI) is built on it; custom
-  UIs may use it directly.
-- `GET /embed/ui.js`, `GET /embed/ui.css`, `GET /embed/alpine.min.js` — the
-  UI itself (Alpine.js, vendored into the binary, provides reactivity).
-
-Caching and compression (nothing to configure). Every file of the embedded UI
-is served under two URLs:
-
-- `/embed/<name>` (`/embed/ui.js`, `/embed/client.js`, ...) keeps working
-  forever, so hosts and WebViews that pinned it do not break. It is sent with
-  `Cache-Control: no-cache` and an `ETag`: the client revalidates and gets
-  `304` while nothing changed.
-- `/embed/assets/<name>.<hash><ext>` (`/embed/assets/ui.3fa9c1d2e4b5.js`) is
-  named by the first 12 hex digits of the file's sha256, so its bytes never
-  change: `Cache-Control: public, max-age=31536000, immutable`. `GET /embed`
-  (the page, always at that one URL, `no-cache` + `ETag`) points at these URLs,
-  so an upgrade reaches clients with the next page load and nothing is
-  re-downloaded otherwise. A hash that is not the current one (an old page
-  open across an upgrade, or a rolling deploy behind a load balancer, where a
-  page from one version reaches an instance of another) is not an error:
-  when the name before the hash and the extension is a known file
-  (`ui.0123456789ab.js` asks for `ui.js`), the instance answers `200` with
-  its current bytes, `Cache-Control: no-store` (never `immutable`, so no cache
-  keeps mismatched bytes under a hash) and the same `ETag`, `Vary` and
-  encoding as the current URL. A mixed fleet therefore never leaves a widget
-  without its scripts, and a page that ended up with files of two versions is
-  fixed by the next page load. An unknown name (or a malformed hash: 12
-  lowercase hex digits) is a plain `404`. The page's CSP and the bridge are
-  unchanged, and a bare `/embed` URL still works in a WebView. All of
-  `/embed/*` shares one metrics route label, `GET /embed/{name...}`.
-
-Text files, and the page, are compressed once when the server starts (brotli
-and gzip, about 0.3 s for the whole UI) and the bytes are reused.
-`Accept-Encoding` picks `br`, `gzip` or the plain file by q-value (`br;q=0`
-and `identity;q=0` are honoured; an unparseable or oversized header means
-plain; a client that refuses every encoding we have gets `406`), and `Vary: Accept-Encoding` is always sent. Each
-encoding has its own strong `ETag`, the hash of the bytes sent; `If-None-Match`
-takes lists, weak tags (`W/"..."`) and `*`. `HEAD` answers like `GET` without a
-body. `Range` is not supported: the header is ignored and the whole file is
-sent with `200`. A reverse proxy in front may compress too: we set
-`Content-Encoding`, so a proxy that honours it will not compress twice. The
-first load of the UI (the page and the files it names) is held under 60 KiB
-of brotli by a test.
-
-The grant flow is the integration. Your backend (server secret) creates
-the conversation once and mints a short-lived grant per viewer; your page
-or app hands `{token, expires_at}` to the widget, which keeps it in JS
-memory only — never cookies, web storage, or a URL (the one exception is
-`?token=` on the SSE stream, where `EventSource` cannot set a header).
-On expiry or `401` the widget asks for a fresh grant and resumes the
-stream from its last event; your backend re-mints only after its own
-login checks. A grant extends itself only when you minted it with
-`max_lifetime` (see "Renewing a grant"): the widget then exchanges its token
-before expiry, up to that cap, and asks you only when the exchange fails or the
-cap is reached. Grants never travel in a URL query (a fragment bootstrap must
-be erased immediately after reading).
-
-Bridge protocol (envelope `{"v":1,"type":…}`): the widget sends `ready`
-on load and `token-needed` when it needs a grant; the host answers
-`grant` (`{token, expires_at}`) and may send `configure` (below). Always
-answer `token-needed`, even for renewable grants: it comes with reason
-`initial`, and again when an exchange fails or the cap is reached (reason
-`expired`) or a request is refused (`unauthorized`). When you re-mint after
-`unauthorized`, revoke the previous grant's `id`; that ends its whole chain.
-Outbound, the widget calls `window.HfyBridge.postMessage(json)` when
-present (Android `addJavascriptInterface`); React Native and other
-shells inject a one-line shim onto their native bridge — and otherwise
-sniffs the known bridges (`ReactNativeWebView`,
-`webkit.messageHandlers.hfy`, `chrome.webview`), falling back to
-`window.parent.postMessage` only when genuinely framed. Inbound, every
-shell calls `window.hfy.receive(json)`. `window.parent` is never
-redefined: it is a built-in that equals `window` in a top-level
-WebView. Flutter apps: use the native hfy_flutter SDK (in development);
-do not embed `/embed` in a WebView.
-For iframes, parent origins are allow-listed by `server.cors_origins`,
-checked on every `postMessage`, and emitted as CSP `frame-ancestors`.
-
-Presentation is configured in the main YAML (`embed:`: `lang`, `dir`,
-`theme`, `accent`, `density`, `layout`, `tool_calls`), validated at startup and injected
-into the page. `tool_calls` is how much of the agent's tool use viewers see:
-`hidden`, `summary` (default: a friendly one-line row, never JSON) or
-`details` (arguments and results, for developers); approval requests always
-show, since the viewer must decide them. `layout` picks the look: `bubbles`
-(default: tails, wallpaper, colours derived from `accent`), `transcript` (plain
-rows, no bubbles or wallpaper) or `whatsapp` (bubbles with WhatsApp-style colours
-that follow `theme`: green outgoing, white incoming, wallpaper, a composer bar;
-bubbles up to 65% of the width and 80% on phones). In `whatsapp` the accent is
-WhatsApp green unless `accent` is set in YAML or by `configure`; a set accent
-drives the send button, links, approvals, focus and the new-messages pill, and
-tints the viewer's own bubbles (timestamps keep 4.5:1 on any tint, and text on an
-accent fill is picked for 4.5:1). `density` (`comfortable`, `compact` or `spacious`),
-`lang`, `dir` and `tool_calls` apply as in the other layouts. Per-viewer overrides
-arrive only via the `configure` bridge message from your glue (which can read
-your page's own `lang`/`dir`, or your app's selected locale; `layout` can be
-set there too; an `accent` there must be a six-digit hex such as `#e11d48`, and any
-other value is ignored). Timezone, language and
-direction otherwise auto-detect from the viewer (`Intl`), with built-in
-English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
-API base, actor, agent, vars) are never configurable from the client.
-
-```yaml
-embed:
-  lang: en              # omit = viewer's browser language
-  dir: auto             # auto | ltr | rtl
-  theme: auto           # light | dark | auto
-  accent: "#0b7d71"     # hex
-  density: comfortable  # comfortable | compact
-  layout: bubbles       # bubbles | transcript
-  tool_calls: summary   # hidden | summary | details
-```
-
-A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of
-those keys, plus `strings` (an object overriding UI strings).
-
-### Operations
-
-- `GET /healthz` liveness: the process answers (never checks dependencies).
-- `GET /readyz` readiness: Postgres is reachable (`503` otherwise).
-- `metrics: {listen: "127.0.0.1:9090"}` opens an operational listener in every
-  process (`serve` and `queue:work`) with `/metrics` (Prometheus), `/healthz`
-  and `/readyz`. It is separate from the public API port.
-
-| Metric | Labels |
-|---|---|
-| `hfy_http_requests_total`, `hfy_http_request_duration_seconds` | `route` (pattern), `method`, `code` |
-| `hfy_event_streams` | open SSE streams on the instance |
-| `hfy_turns_total` | `state` (final) |
-| `hfy_tokens_total` | `agent`, `kind` (`input` `output` `cached`) |
-| `hfy_provider_requests_total`, `hfy_provider_request_duration_seconds` | `provider`, `kind` (`chat`), `outcome` |
-| `hfy_tool_calls_total`, `hfy_tool_call_duration_seconds` | `server`, `outcome` |
-| `hfy_jobs_total`, `hfy_job_duration_seconds` | `type`, `outcome` (`done` `retry` `failed` `lost` `released` `expired`) |
-| `hfy_jobs` | `queue`, `state` (`queued` `running`), across all instances |
-
-Plus the Go runtime and process collectors.
-
 ### Events
 
 One envelope for the stream and for history:
@@ -742,21 +564,9 @@ event as stored.
   (stalled, then reaped) is cancelled at its next heartbeat and can no longer
   complete or retry the job. Graceful shutdown hands running jobs straight back.
 - **Loop rules.** Tool errors, invalid arguments and unknown tools come back to
-  the model as error results (an unknown tool lists the valid names). The
-  database cannot store NUL characters, unpaired surrogate escapes or numbers it
-  would expand past reason, so arguments holding any of them, or a number over
-  1000 digits once written out, are answered as invalid arguments; a tool name
-  holding them or over 256 bytes is an unknown tool, stored cleaned and cut; a
-  call id holding them, over 256 bytes, empty or already used in the conversation gets a
-  generated unique one; a tool's
-  structured result, card or questions that cannot be stored are dropped with a
-  warning; and model and tool text is stored with NUL characters removed. Every
-  string, key and number is checked, also under a repeated key (Postgres parses
-  them all and keeps the last), and nesting deeper than 64 levels is refused. The
-  size counted is what Postgres reads back: a space after every `,` and `:`, and
-  each number at its written-out length (it writes `1e100000` out in full), so
-  that must fit 64 KiB. Valid but extreme values are refused too (a number of
-  over 1000 digits, `0e1000`). A call that repeats an
+  the model as error results (an unknown tool lists the valid names).
+
+  A call that repeats an
   earlier one in the same turn (same tool and arguments; key order does not
   matter) is refused with advice from its third occurrence, and the sixth ends
   the turn. The count survives a resume: a turn that crashed, waited for approval
@@ -983,116 +793,6 @@ event as stored.
   are permanent.
 - Tool names reach the provider as `<server>__<tool>` (`files.read` →
   `files__read`); events and approval patterns use `files.read`.
-
-## Upgrading to v2
-
-- `attachments:` and `filesystem:` are now one flat `files:` block. A config that
-  still sets either key stops EVERY command that reads the config (`serve`,
-  `queue:work`, `validate`, `migrate`) with
-  `attachments was removed in v2; merge it into files: …` or
-  `filesystem was removed in v2; merge it into files: …` (an old key is reported
-  even when `files:` also has a mistake). Move the fields as below; nothing else
-  changes (the `{file}` / `{url}` attachment payloads, the upload protocol and
-  `GET /v1/conversation/config` are the same).
-
-  ```yaml nocheck
-  # before (v1: refused by v2)
-  attachments:
-    allowed_hosts: [cdn.example.com]
-    types: [image/png, image/jpeg]
-    max_bytes: 5MB
-    max_count: 10
-  filesystem:
-    dsn: s3://hfy-uploads?region=eu-central-1
-    types: [image/png, image/jpeg, application/pdf]
-    max_bytes: 10MB
-    upload_ttl: 5m
-    download_ttl: 15m
-  ```
-
-  ```yaml
-  # after
-  files:
-    types: [image/png, image/jpeg, application/pdf]  # the union of both lists
-    max_count: 10
-    max_bytes: 10MB
-    allowed_hosts: [cdn.example.com]
-    dsn: s3://hfy-uploads?region=eu-central-1
-    upload_ttl: 5m
-    download_ttl: 15m
-  ```
-
-  | v1 | v2 |
-  |---|---|
-  | `attachments.allowed_hosts` | `files.allowed_hosts` (setting it turns URL attachments on) |
-  | `attachments.types` and `filesystem.types` | `files.types`, ONE list for URLs and uploads: use the union |
-  | `attachments.max_count` | `files.max_count` (default 10; it also caps uploads when no URL attachments are set: that was a fixed 10 before) |
-  | `attachments.max_bytes` | no key of its own: it capped uploads only when `filesystem.max_bytes` was unset (5MB by default). Set `files.max_bytes` to keep that limit |
-  | `filesystem.dsn` | `files.dsn` (setting it turns uploads on) |
-  | `filesystem.public_url`, `max_bytes`, `upload_ttl`, `download_ttl` | the same names under `files` |
-
-- If your two lists differed, `files.types` is their union: a type that was
-  upload-only (a PDF) is now also accepted as a URL attachment, and the other
-  way round. Non-image files reach the model only as their key, never as data.
-- `files.max_bytes` defaults to 10MB, as documented. In v1 an unset
-  `filesystem.max_bytes` inherited `attachments.max_bytes` when `attachments:` was
-  set (5MB by default), and that never applied to URLs, which hfy does not fetch.
-  If you set `attachments.max_bytes` and relied on it as the upload limit, set
-  `files.max_bytes` to the same value.
-- Stricter checks, reported at startup: `types` entries must be lowercase
-  `type/subtype` (no `*`, parameters or duplicates), `allowed_hosts` entries
-  lowercase hosts (`localhost`, IPs and `*.example.com` are fine; no scheme,
-  port, path, trailing dot or duplicates; `*.com` is refused), and an empty
-  `dsn` (an unset `${VAR}`, or `~`/`null`) is an error instead of quietly switching
-  uploads off. A name whose last label starts with a digit (`1.2.3`, `*.0.0.1`) is
-  refused, since it would be IPv4 in disguise. In v1 a `0` in `max_bytes`,
-  `max_count` or a TTL meant "use the default" and `max_count: 1.5` became 1;
-  now an explicit zero, or a non-integer `max_count`, is an error (leave the key
-  out for the default). Sizes that overflow (`9999999999GB`) are invalid.
-- The top-level `agent:` config key is gone; `agents:` is the only home for
-  agents. Move the contents of `agent:` under `agents.main:` (same fields,
-  indented one level). A config that still sets `agent:` stops EVERY command that
-  reads the config (`serve`, `queue:work`, `validate`, `migrate`) with
-  `agent was removed in v2; move it to agents.main`. `agents.main` is required:
-  grants that omit `agent` still run it, and existing grants and turns need no
-  migration. Error paths now read `agents.main.settings…`, not `agent.settings…`.
-- The `embeddings:` config key and the `hfy.conversation_search` tool are gone.
-  A config that still sets `embeddings:` stops EVERY command that reads the
-  config (`serve`, `queue:work`, `validate`, `migrate`) with
-  `embeddings was removed in v2; expose memory as an MCP tool`: delete the key,
-  and the mock provider's `embed_dimensions` with it. To keep recall, expose it
-  from your own MCP server as a tool.
-- Migration `00003` drops the old `embeddings_<dims>` tables, any unfinished
-  `embed_events` jobs and the `message.text` index that only the embeddings
-  backfill read, when hfy starts. The `vector` extension is left in place
-  (`DROP EXTENSION vector` is yours to run if nothing else uses it). hfy now
-  runs on plain `postgres:17`; pgvector is no longer needed.
-- Do not run v1 and v2 against the same database side by side. A v1 instance
-  keeps enqueuing `embed_events` jobs that no v2 worker claims: they stay queued
-  forever and `hfy_jobs{queue="embeddings",state="queued"}` never drops. A v1
-  instance that restarts after `00003` ran recreates `embeddings_<dims>`, and the
-  migration will not run again. Remove `embeddings:` from the v1 config, or stop
-  every v1 instance, BEFORE starting v2.
-- The only queues now are `turns` and `maintenance` (the default for
-  `queue:work`). Drop `embeddings` from `queue:work -q`: naming it is not an
-  error, the worker just polls that queue and finds nothing it can run, since
-  no `embed_events` handler exists.
-
-## Upgrading to renewable grants
-
-- Migration `00004` adds three nullable columns to `grants` (no table rewrite, no
-  lock beyond the catalog) and an index on `root_id`. It gives up after 5 s if a
-  long transaction holds `grants` (then run it again), rather than block token
-  lookups behind its `ALTER`. Grants that exist, or that
-  an older instance mints during a rolling deploy, are chains of one and are never
-  renewable.
-- Do not mint grants with `max_lifetime` until every instance runs this version.
-  An older instance ignores the field (the grant is simply not renewable), and its
-  revoke ends only the row it is given, so the later tokens of a renewable chain
-  would outlive it.
-- `hfy migrate down` past `00004` ends the later tokens of every renewable chain
-  first (the older version could not revoke them), so those clients ask your
-  backend for a new grant.
 
 ## Not in v1
 

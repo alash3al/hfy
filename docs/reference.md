@@ -44,8 +44,6 @@ curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hf
 # 202 {"turn":"a91e…"}
 ```
 
-<!-- /llms:skip -->
-
 ## Commands
 
 | Command | |
@@ -59,6 +57,8 @@ curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hf
 
 `-c` also reads `HFY_CONFIG`. API and workers scale separately: workers append
 events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
+
+<!-- /llms:skip -->
 
 ## Config
 
@@ -101,7 +101,7 @@ four optional controls. Each is sent only when set, and none has a default:
 
 - `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
   sent as `reasoning_effort`. Providers and models accept different subsets; see
-  [Provider notes](#provider-notes).
+  "Provider notes" below.
 - `max_output_tokens`: caps each call's output, reasoning included. It is sent as
   `max_tokens`, or as `max_completion_tokens` when the provider sets
   `max_tokens_param: max_completion_tokens`.
@@ -145,6 +145,7 @@ OpenRouter reads `reasoning_effort` and also its own `reasoning` object (options
 as `exclude`, or a token budget). Put that object and top-level `cache_control` in
 `extra`; set one or the other, not both. The example above sets no `reasoning_effort`.
 
+<!-- llms:skip -->
 #### Provider notes
 
 - **Anthropic** (its OpenAI-compatible endpoint) silently ignores `reasoning_effort`.
@@ -171,24 +172,7 @@ as `exclude`, or a token budget). Put that object and top-level `cache_control` 
 - **`mock`**: the mock provider ignores the controls and `call_timeout`; config
   validation still runs.
 
-### Keys at a glance
-
-- `providers.<name>`: `url`, `api_key`, `timeout` (the longest silence: before the
-  answer starts and between streamed chunks), `type` (`openai` or `mock`),
-  `max_tokens_param` (`max_tokens` by default, or `max_completion_tokens`).
-- `agent` and `agents.<name>`: `model` (`<provider>/<model>`), `settings`
-  (`context_window` required, `temperature`, `vision`: accept image attachments,
-  default false, and the model request controls above), `system` (supports
-  `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`,
-  `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`),
-  `ask_user` (bool), `mcp` (server names).
-- `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
-- `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
-- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app
-  hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch
-  URLs); it only seeds the default of `filesystem.max_bytes`.
-- `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d).
-  `metrics`: `listen`.
+<!-- /llms:skip -->
 
 ## API
 
@@ -322,6 +306,7 @@ conversation or grant, `409` no pending approval, or an exchange of a grant that
 `429` an exchange before its time
 (an upload PUT is instead bounded by `files.max_bytes`).
 
+<!-- llms:skip -->
 ### Embedded UI and JS client
 
 hfy serves a ready-made conversation UI and the JS client it is built on,
@@ -435,19 +420,8 @@ direction otherwise auto-detect from the viewer (`Intl`), with built-in
 English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
 API base, actor, agent, vars) are never configurable from the client.
 
-```yaml
-embed:
-  lang: en              # omit = viewer's browser language
-  dir: auto             # auto | ltr | rtl
-  theme: auto           # light | dark | auto
-  accent: "#0b7d71"     # hex
-  density: comfortable  # comfortable | compact
-  layout: bubbles       # bubbles | transcript
-  tool_calls: summary   # hidden | summary | details
-```
-
-A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of
-those keys, plus `strings` (an object overriding UI strings).
+A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of the
+`embed:` keys above, plus `strings` (an object overriding UI strings).
 
 ### Operations
 
@@ -469,6 +443,8 @@ those keys, plus `strings` (an object overriding UI strings).
 | `hfy_jobs` | `queue`, `state` (`queued` `running`), across all instances |
 
 Plus the Go runtime and process collectors.
+
+<!-- /llms:skip -->
 
 ### Events
 
@@ -516,8 +492,10 @@ event as stored.
   (stalled, then reaped) is cancelled at its next heartbeat and can no longer
   complete or retry the job. Graceful shutdown hands running jobs straight back.
 - **Loop rules.** Tool errors, invalid arguments and unknown tools come back to
-  the model as error results (an unknown tool lists the valid names). The
-  database cannot store NUL characters, unpaired surrogate escapes or numbers it
+  the model as error results (an unknown tool lists the valid names).
+
+  <!-- llms:skip -->
+  The database cannot store NUL characters, unpaired surrogate escapes or numbers it
   would expand past reason, so arguments holding any of them, or a number over
   1000 digits once written out, are answered as invalid arguments; a tool name
   holding them or over 256 bytes is an unknown tool, stored cleaned and cut; a
@@ -530,7 +508,10 @@ event as stored.
   size counted is what Postgres reads back: a space after every `,` and `:`, and
   each number at its written-out length (it writes `1e100000` out in full), so
   that must fit 64 KiB. Valid but extreme values are refused too (a number of
-  over 1000 digits, `0e1000`). A call that repeats an
+  over 1000 digits, `0e1000`).
+  <!-- /llms:skip -->
+
+  A call that repeats an
   earlier one in the same turn (same tool and arguments; key order does not
   matter) is refused with advice from its third occurrence, and the sixth ends
   the turn. The count survives a resume: a turn that crashed, waited for approval
@@ -758,6 +739,7 @@ event as stored.
 - Tool names reach the provider as `<server>__<tool>` (`files.read` →
   `files__read`); events and approval patterns use `files.read`.
 
+<!-- llms:skip -->
 ## Upgrading to v2
 
 - `attachments:` and `filesystem:` are now one flat `files:` block. A config that
@@ -867,6 +849,8 @@ event as stored.
 - `hfy migrate down` past `00004` ends the later tokens of every renewable chain
   first (the older version could not revoke them), so those clients ask your
   backend for a new grant.
+
+<!-- /llms:skip -->
 
 ## Not in v1
 

@@ -20,7 +20,7 @@ Choose the client surface first:
 - **Conversation.** A room, created by the host backend. Holds the full, never-deleted event history. Several people and several agents may share one.
 - **Grant.** Access for one person (an `actor`) to one conversation. The backend creates it with the server secret and gets a token `hfy_…` (default lifetime 1 h, max 24 h). The client uses only that token. Tokens are never cookies.
 - **Actor.** The host's own user id for the person (max 256 bytes). It is recorded on their messages and shown to the model and to other participants.
-- **Agent.** A configured assistant: model, system prompt, tools, limits. `agent:` is the default agent `main`; `agents:` adds named ones. The grant picks which agent answers that person.
+- **Agent.** A configured assistant: model, system prompt, tools, limits. `agents.main` is required and is the default agent; `agents.<name>` adds named ones. The grant picks which agent answers that person (none named = `main`).
 - **Turn.** One user message and everything the agent does in response. Turns run one at a time per conversation; later messages queue.
 - **Event.** Every step (message, tool call, tool result, state change, approval) is an append-only event. History and the live stream use the same envelope.
 - **Tools.** All external tools come from MCP servers (local stdio commands or remote Streamable HTTP). hfy also ships core built-ins: `hfy.now`, `hfy.math_calc`, `hfy.tool_search`, opt-in `hfy.ask_user`, and sub-agents as `hfy.<name>`.
@@ -30,7 +30,7 @@ Choose the client surface first:
 
 ### 1. Run hfy
 
-Requirements: Postgres 17, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config). The commands (`serve`, `queue:work`, `validate`, `migrate`, `config:example`) are in "Commands" below; health endpoints are in "Operations".
+Requirements: Postgres 17, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config).
 
 Prebuilt binary (Linux, macOS, Windows; amd64 and arm64), from the latest GitHub release:
 
@@ -64,6 +64,8 @@ hfy -c hfy.yaml validate          # checks config, env expansion, startup rules
 hfy -c hfy.yaml serve --work      # API + workers in one process
 ```
 
+Commands: `serve [--work]`, `queue:work [-q turns,maintenance] [--workers N]` (workers only, scale separately), `validate`, `migrate [up|down|status]`, `config:example`, `version`. `-c` may also come from `HFY_CONFIG`. Health: `GET /healthz` (process alive), `GET /readyz` (Postgres reachable, else 503). `metrics: {listen: "127.0.0.1:9090"}` opens a separate Prometheus `/metrics` listener (also `/healthz`, `/readyz`) in every process.
+
 ### 2. Minimal config
 
 ```yaml
@@ -80,15 +82,16 @@ providers:
     api_key: ${OPENAI_API_KEY}
     timeout: 60s
 
-agent:
-  model: openai/gpt-4o-mini          # <provider name>/<model id>
-  settings: { temperature: 0.2, context_window: 128000 }   # context_window is REQUIRED
-  system: |
-    You are the support assistant for {{company}}. You are talking to {{user_name}}.
-  vars:
-    company:   { default: "Acme" }
-    user_name: { required: true }
-  ask_user: true                     # optional: lets the agent ask structured questions
+agents:
+  main:                              # required: the default agent
+    model: openai/gpt-4o-mini        # <provider name>/<model id>
+    settings: { temperature: 0.2, context_window: 128000 }   # context_window is REQUIRED
+    system: |
+      You are the support assistant for {{company}}. You are talking to {{user_name}}.
+    vars:
+      company:   { default: "Acme" }
+      user_name: { required: true }
+    ask_user: true                   # optional: lets the agent ask structured questions
 ```
 
 No model yet? Use the mock provider. It streams a fixed reply in-process, so the whole stack (UI included) runs without a model server:
@@ -98,16 +101,28 @@ providers:
   mock:
     type: mock
     mock: { reply: "Hello from mock" }
-agent:
-  model: mock/demo
-  settings: { context_window: 8192 }
+agents:
+  main:
+    model: mock/demo
+    settings: { context_window: 8192 }
 ```
+
+Keys at a glance (`hfy config:example` prints every key with comments; unknown keys stop startup with their line):
+
+- `providers.<name>`: `url`, `api_key`, `timeout` (the longest silence: before the answer starts and between streamed chunks), `type` (`openai` or `mock`), `max_tokens_param` (`max_tokens` by default; OpenAI o-series models need `max_completion_tokens`).
+- `agents.<name>`: `model` (`<provider>/<model>`), `settings` (`context_window` required, `temperature`, `vision`: accept image attachments, default false, and the model request controls below), `system` (supports `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`, `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`), `ask_user` (bool), `mcp` (server names).
+- `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
+- `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
+- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch URLs); it only seeds the default of `filesystem.max_bytes`.
+- `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d). `metrics`: `listen`.
+
+Vendor quirks of the model request controls (Anthropic and DeepSeek thinking, reasoning-model output caps, Gemini) are in "Provider notes" of the full reference: https://github.com/alash3al/hfy/blob/main/docs/reference.md.
 
 ### 3. Backend: create conversations and grants
 
 All backend calls use `Authorization: Bearer <server.secret>` and JSON bodies: `POST /v1/conversations` returns the conversation id, `POST /v1/grants` returns the token (fields in "API" below).
 
-Persist the conversation id in your own database (for example one per user, per support ticket or per order), and create it once. Create a fresh grant every time the widget asks for one, and only after your normal session/auth check. Never cache or reuse tokens across users. The token is returned once (hfy stores only its SHA-256). Pick `max_lifetime` as short as the product allows, or leave it out.
+Persist the conversation id in your own database (for example one per user, per support ticket or per order), and create it once. Create a fresh grant every time the widget asks for one, and only after your normal session/auth check. Never cache or reuse tokens across users. The token is returned once (hfy stores only its SHA-256). Pick `max_lifetime` (renewable grants, see "Renewing a grant") as short as the product allows, or leave it out. Do not mint grants with `max_lifetime` until every hfy instance runs this version: an older instance ignores the field, and its revoke ends only one token of a renewable chain.
 
 Example backend endpoint (Node/Express; translate to the app's stack):
 
@@ -162,7 +177,7 @@ The host page's origin must be listed in `server.cors_origins`. That list is als
 </script>
 ```
 
-The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string. Keep answering `token-needed` even for renewable grants (see "Renewing a grant").
+The widget keeps the token in memory only. It asks again (`token-needed`) on expiry or a 401, then resumes the stream from its last event without gaps or duplicates. There is no URL configuration: `/embed` is always a bare URL, and you must never put a token in its query string. Keep answering `token-needed` even for renewable grants (see "Renewing a grant"): it comes with reason `initial` (first load), `expired` (the token ran out, or a renewal failed or hit its cap) or `unauthorized` (a request was refused). When you re-mint after `unauthorized`, revoke the previous grant's `id`: that ends its whole chain.
 
 ### 5. Mobile: embed the chat in a WebView
 
@@ -213,7 +228,20 @@ For a UI of your own instead of `/embed`. The page's origin must be in `server.c
 
 ### 7. Presentation
 
-Defaults live in YAML under `embed:` (see "Embedded UI and JS client" below) and are validated at startup. What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
+Defaults live in YAML under `embed:`, are validated at startup and injected into the page:
+
+```yaml
+embed:
+  lang: en              # omit = viewer's browser language
+  dir: auto             # auto | ltr | rtl
+  theme: auto           # light | dark | auto
+  accent: "#0b7d71"     # hex
+  density: comfortable  # comfortable | compact | spacious
+  layout: bubbles       # bubbles | transcript | whatsapp (WhatsApp-style; an accent you set tints its own bubbles)
+  tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers); approval requests always show
+```
+
+Per-viewer overrides come only from a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls` and `strings` (an object overriding UI strings). An `accent` there must be a six-digit hex such as `#e11d48`; anything else is ignored. Built-in strings are English and Arabic; time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable. The `/embed` page and its files are cached and compressed by hfy itself; there is nothing to configure. What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
 
 ### 8. Give the agent tools (MCP)
 
@@ -232,8 +260,9 @@ mcp:
     command: [mcp-filesystem, /data]
     environment: { LOG: "1" }                     # its only env besides PATH, HOME, USER, locale, TMPDIR, TZ
     timeout: 2m                                   # per tool call (default 2m)
-agent:
-  mcp: [orders]        # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
+agents:
+  main:
+    mcp: [orders]      # optional; omit = all servers, reached through hfy.tool_search (smaller prompt)
 ```
 
 **Authorize inside the MCP server from `_meta["hfy/turn"].actor.ref`** (the person who started the turn); the model cannot change `_meta`. Return MCP `structuredContent` for data meant for client UIs; the model sees the text content.

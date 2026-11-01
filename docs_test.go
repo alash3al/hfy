@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // docs/llms.txt is generated: docs/llms.head.md, then docs/reference.md from its first
@@ -86,7 +87,8 @@ func dropSkipped(lines []string) ([]string, error) {
 	open := 0 // 1-based line of the open marker, 0 = not in a skip block
 	for i := 0; i < len(lines); i++ {
 		l := strings.TrimSpace(lines[i])
-		isMarker := !in[i] && strings.Contains(l, "<!-- ") && (strings.Contains(l, "llms:") || strings.Contains(l, "/llms"))
+		// only a line that starts with a comment is a marker: prose may quote one in code
+		isMarker := !in[i] && strings.HasPrefix(l, "<!--") && (strings.Contains(l, "llms:") || strings.Contains(l, "/llms:"))
 		switch {
 		case isMarker && l == skipOpen:
 			if open != 0 {
@@ -192,6 +194,20 @@ var (
 	linkRe     = regexp.MustCompile(`\]\(([^)\s]+)`)
 )
 
+// headingSlug is GitHub's anchor for a heading: lowercase, punctuation dropped, spaces as hyphens.
+func headingSlug(h string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(h)) {
+		switch {
+		case r == ' ':
+			b.WriteByte('-')
+		case r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // The generated file is served alone from GitHub Pages, so it must not hold markers,
 // lose the core reference sections, or link to a path that only exists in the repo.
 func TestLLMsTxtShape(t *testing.T) {
@@ -221,9 +237,20 @@ func TestLLMsTxtShape(t *testing.T) {
 	}
 	lines := splitLines(txt)
 	in, _, _ := scanFences(lines)
+	anchors := map[string]bool{}
+	for i, l := range lines {
+		if !in[i] && strings.HasPrefix(l, "#") {
+			anchors[headingSlug(strings.TrimLeft(l, "# "))] = true
+		}
+	}
 	for i, l := range lines {
 		if in[i] {
 			continue
+		}
+		for _, m := range linkRe.FindAllStringSubmatch(codeSpanRe.ReplaceAllString(l, ""), -1) {
+			if a, ok := strings.CutPrefix(m[1], "#"); ok && !anchors[a] {
+				t.Errorf("line %d: link to #%s, but no such heading is left in llms.txt (a skipped section?)", i+1, a)
+			}
 		}
 		for _, m := range linkRe.FindAllStringSubmatch(codeSpanRe.ReplaceAllString(l, ""), -1) {
 			if target := m[1]; !strings.HasPrefix(target, "http") && !strings.HasPrefix(target, "#") {
@@ -260,6 +287,11 @@ func TestGenLLMs(t *testing.T) {
 		{name: "marker inside a code fence is literal", head: head,
 			ref:  body("## A\n\n```md\n<!-- llms:skip -->\n```\n\ntext\n"),
 			want: llmsBanner + "\n# hfy\n\nhead text\n\n## A\n\n```md\n<!-- llms:skip -->\n```\n\ntext\n"},
+		{name: "marker quoted in prose or code spans is not a marker", head: head + "Wrap it in `<!-- llms:skip -->` and `<!-- /llms:skip -->`.\n",
+			ref:  body("## A\n\nUse `<!-- llms:skip -->` to skip. Text <!-- llms:skip --> mid-line.\n\n- `<!-- /llms:skip -->` ends it\n"),
+			want: llmsBanner + "\n# hfy\n\nhead text\nWrap it in `<!-- llms:skip -->` and `<!-- /llms:skip -->`.\n\n## A\n\nUse `<!-- llms:skip -->` to skip. Text <!-- llms:skip --> mid-line.\n\n- `<!-- /llms:skip -->` ends it\n"},
+		{name: "other html comments are left alone", head: head, ref: body("## A\n<!-- note -->\ntext\n"),
+			want: llmsBanner + "\n# hfy\n\nhead text\n\n## A\n<!-- note -->\ntext\n"},
 		{name: "## inside a fence is not the first heading", head: head,
 			ref:  "# ref\n\n```md\n## not a heading\n```\n\n## Real\n",
 			want: llmsBanner + "\n# hfy\n\nhead text\n\n## Real\n"},
