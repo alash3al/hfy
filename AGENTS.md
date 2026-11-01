@@ -8,7 +8,7 @@ The host app keeps its users and data; hfy runs the agent loop, calls MCP tools,
 ## Standing rules
 
 - Bad text never reaches Postgres: strings go through `types.Clean` (drops NUL, replaces invalid UTF-8); JSON with a NUL or a lone `\u` surrogate is refused by `storable`, not cleaned.
-- Errors a turn or a job records go through `types.ErrorText` (bounded, URL-scrubbed), never raw. Outbound trace rows do not: `internal/agent/loop.go` (MCP calls) stores raw text, and `internal/provider/provider.go` only redacts signed URLs. Do not copy either.
+- Errors a turn or a job records go through `types.ErrorText` (bounded, URL-scrubbed), never raw. Outbound trace rows do too: `recorder` (`internal/agent/sink.go`) applies `ErrorText` and `traceJSON` to every row, and the provider client removes its own API key from error text.
 - Stack traces go to the log only (`internal/jobs/worker.go`), never into a turn, job, event or error text.
 - Every new config section is strict-keyed (`checkKeys` in `internal/config/strict.go`), appears in `example.yaml` and in `docs/reference.md`. A removed key goes in `removedKeys` (`internal/config/strict.go`) with a tailored message.
 - Breaking config changes get an "Upgrading to vN" section in `docs/reference.md`, as "Upgrading to v2" does.

@@ -114,7 +114,10 @@ four optional controls. Each is sent only when set, and none has a default:
   refused. Values must be JSON. `extra` is stored with the request in
   `outbound_requests` (kept for `retention.trace`), so never put a secret in it. The
   trace keeps the body only, never headers; inline base64 images and signed-URL
-  credentials are redacted.
+  credentials are redacted. A trace row's error text (a provider's or an MCP
+  server's) is cut to 2 KiB with every URL replaced by `<url>` and the provider's
+  own API key removed; a request or response that Postgres would refuse is stored
+  as `{"dropped":"not storable"}`.
   - `tool_choice`, `parallel_tool_calls`, `response_format`, `store` and `user` are
     not reserved, so they pass through unchecked. `tool_choice: required` (or a forced
     named tool) makes every reply call a tool, so the turn never ends on a text answer:

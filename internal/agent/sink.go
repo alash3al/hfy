@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -40,14 +41,34 @@ type Sink interface {
 	CallFinished(ctx context.Context, c CallInfo, r mcp.Result) error
 }
 
-// recorder writes outbound_requests rows for a turn.
+// maxTraceJSON bounds a stored request or response; a model request carries
+// the whole prompt, so this is far above any real one.
+const maxTraceJSON = 32 << 20
+
+// traceJSON is raw as outbound_requests may store it: a row's JSON that
+// Postgres would refuse (NUL, a lone surrogate, too deep or large) is replaced
+// by a note, so the trace row still lands.
+func traceJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := storable(string(raw), maxTraceJSON); err != nil {
+		slog.Warn("outbound trace json dropped", "reason", err.Error())
+		return json.RawMessage(`{"dropped":"not storable"}`)
+	}
+	return raw
+}
+
+// recorder writes outbound_requests rows for a turn. Everything it stores is
+// made storable here, whatever the caller built: the error text is the
+// bounded, URL-scrubbed ErrorText.
 func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provider.Record) int64 {
 	return func(r provider.Record) int64 {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		id, err := rt.Store.InsertOutbound(ctx, db.OutboundRow{
-			TurnEventID: turnID, Kind: kind, URL: r.URL, Request: r.Request, Response: r.Response,
-			StatusCode: r.Status, LatencyMS: r.LatencyMS, Attempt: r.Attempt, Error: types.Clean(r.Error),
+			TurnEventID: turnID, Kind: kind, URL: types.Clean(r.URL), Request: traceJSON(r.Request), Response: traceJSON(r.Response),
+			StatusCode: r.Status, LatencyMS: r.LatencyMS, Attempt: r.Attempt, Error: errorField(r.Error),
 		})
 		if err != nil { // the call itself goes on; only its trace is lost
 			slog.Warn("record outbound request", "turn", turnID, "kind", kind, "url", r.URL, "err", err)
@@ -55,6 +76,13 @@ func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provide
 		}
 		return id
 	}
+}
+
+func errorField(s string) string {
+	if s == "" {
+		return ""
+	}
+	return types.ErrorText(errors.New(s))
 }
 
 // turnSink persists the main agent's run as events under its turn.

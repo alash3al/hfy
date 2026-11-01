@@ -239,7 +239,7 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 			err = fmt.Errorf("no data from the provider for %s: %w", c.Timeout, err)
 		}
 		if err != nil {
-			rec.Error = redactSigned(err.Error()) // provider errors may echo signed URLs
+			rec.Error = c.scrub(err.Error())
 		}
 		rec.LatencyMS = int(time.Since(start).Milliseconds())
 		metrics.ProviderRequests.WithLabelValues(c.Name, kind, metrics.Outcome(err != nil)).Inc()
@@ -269,7 +269,7 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(r, 8<<10))
-		return 0, &APIError{Status: resp.StatusCode, Body: redactSigned(strings.TrimSpace(string(b))),
+		return 0, &APIError{Status: resp.StatusCode, Body: c.scrub(strings.TrimSpace(string(b))),
 			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	rec.Response, err = read(resp.Header, r)
@@ -438,6 +438,15 @@ func hasKeyFold(m map[string]json.RawMessage, k string) bool {
 // string: from it to the end of its token is the credential, and redactSigned
 // drops it. Only real query params match, so ?design=1 stays.
 var signedURLRe = regexp.MustCompile(`[?&](X-Amz-[A-Za-z-]+|X-Goog-[A-Za-z-]+|Signature|sig)=`)
+
+// scrub removes from a provider's error text what it may echo back: signed
+// URL credentials and our own API key.
+func (c *Client) scrub(s string) string {
+	if c.APIKey != "" {
+		s = strings.ReplaceAll(s, c.APIKey, "[redacted]")
+	}
+	return redactSigned(s)
+}
 
 // redactSigned removes the credentials of any signed URL in s: everything
 // from a signature query parameter to the end of its token.

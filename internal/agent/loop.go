@@ -516,7 +516,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		req, _ := json.Marshal(map[string]any{"tool": tool.Name, "arguments": json.RawMessage(args)})
 		rec := provider.Record{URL: src.Endpoint(), Request: req, Attempt: 1, LatencyMS: int(time.Since(start).Milliseconds())}
 		if err != nil {
-			rec.Error = err.Error()
+			rec.Error = types.ErrorText(err)
 		} else {
 			rec.Response, _ = json.Marshal(map[string]any{"is_error": res.IsError, "bytes": len(res.Content)})
 		}
