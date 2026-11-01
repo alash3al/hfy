@@ -149,3 +149,38 @@ data: [DONE]
 		seen[id] = true
 	}
 }
+
+// A key that a provider echoes is removed from the error, also when it sits
+// across the 8 KiB cut of the body; a key too short to scrub safely (a local
+// server's "x") leaves the text alone.
+func TestAPIErrorScrubsTheKey(t *testing.T) {
+	long := "sk-live-0123456789"
+	for _, c := range []struct {
+		name, key, body, want string
+	}{
+		{"long key", long, "bad key " + long + " rejected", "bad key [redacted] rejected"},
+		{"short key", "x", "xxx next", "xxx next"},
+		{"seven bytes", "1234567", "key 1234567", "key 1234567"},
+		{"eight bytes", "12345678", "key 12345678", "key [redacted]"},
+		{"across the cut", long, strings.Repeat("a", maxErrorBody-5) + long + "tail", strings.Repeat("a", maxErrorBody-5) + "[reda"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, c.body, http.StatusBadRequest)
+			}))
+			defer srv.Close()
+			cl := New("p", srv.URL, c.key, time.Second)
+			_, err := cl.Chat(t.Context(), Request{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}}, Opts{MaxAttempts: 1})
+			apiErr, ok := errors.AsType[*APIError](err)
+			if !ok {
+				t.Fatalf("error: %v", err)
+			}
+			if apiErr.Body != c.want {
+				t.Errorf("body %.60q... (%d bytes), want %.60q... (%d)", apiErr.Body, len(apiErr.Body), c.want, len(c.want))
+			}
+			if c.name == "across the cut" && strings.Contains(apiErr.Body, long[:4]) {
+				t.Errorf("the key's first characters survive the cut")
+			}
+		})
+	}
+}

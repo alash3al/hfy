@@ -268,8 +268,13 @@ func (c *Client) post(ctx context.Context, kind string, rec Record, body []byte,
 		r = idleReader{r: resp.Body, t: idle, d: c.Timeout}
 	}
 	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(io.LimitReader(r, 8<<10))
-		return 0, &APIError{Status: resp.StatusCode, Body: c.scrub(strings.TrimSpace(string(b))),
+		// Read len(key) extra so a key across the cut is scrubbed whole, then cut.
+		b, _ := io.ReadAll(io.LimitReader(r, int64(maxErrorBody+len(c.APIKey))))
+		body := c.scrub(string(b))
+		if len(body) > maxErrorBody {
+			body = body[:maxErrorBody]
+		}
+		return 0, &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(body),
 			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	rec.Response, err = read(resp.Header, r)
@@ -439,10 +444,17 @@ func hasKeyFold(m map[string]json.RawMessage, k string) bool {
 // drops it. Only real query params match, so ?design=1 stays.
 var signedURLRe = regexp.MustCompile(`[?&](X-Amz-[A-Za-z-]+|X-Goog-[A-Za-z-]+|Signature|sig)=`)
 
+// maxErrorBody bounds the body of a failed answer that is kept.
+const maxErrorBody = 8 << 10
+
+// minScrubKey is the shortest API key removed from error text: a shorter one
+// (a local server's "x") would garble every such letter of the text.
+const minScrubKey = 8
+
 // scrub removes from a provider's error text what it may echo back: signed
 // URL credentials and our own API key.
 func (c *Client) scrub(s string) string {
-	if c.APIKey != "" {
+	if len(c.APIKey) >= minScrubKey {
 		s = strings.ReplaceAll(s, c.APIKey, "[redacted]")
 	}
 	return redactSigned(s)
