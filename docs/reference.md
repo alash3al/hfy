@@ -347,9 +347,16 @@ Presentation is configured in the main YAML (`embed:`: `lang`, `dir`,
 into the page. `tool_calls` is how much of the agent's tool use viewers see:
 `hidden`, `summary` (default: a friendly one-line row, never JSON) or
 `details` (arguments and results, for developers); approval requests always
-show, since the viewer must decide them. Per-viewer overrides arrive only via the `configure`
-bridge message from your glue (which can read your page's own
-`lang`/`dir`, or your app's selected locale). Timezone, language and
+show, since the viewer must decide them. `layout` picks the look: `bubbles`
+(default: tails, wallpaper, colours derived from `accent`), `transcript` (plain
+rows, no bubbles or wallpaper) or `whatsapp` (bubbles in a fixed WhatsApp-style
+palette: green outgoing, white incoming, wallpaper, a green send button, tighter
+spacing, bubbles up to 65% of the width and 80% on phones). `whatsapp` owns its
+colours and spacing, so `accent` and `density` do not apply to it; sheets,
+approvals, cards, RTL and dark mode work as in `bubbles`. Per-viewer overrides
+arrive only via the `configure` bridge message from your glue (which can read
+your page's own `lang`/`dir`, or your app's selected locale; `layout` can be
+set there too). Timezone, language and
 direction otherwise auto-detect from the viewer (`Intl`), with built-in
 English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
 API base, actor, agent, vars) are never configurable from the client.

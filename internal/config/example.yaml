@@ -117,7 +117,7 @@ agent:                               # the default agent ("main")
 #   theme: auto                        # light | dark | auto
 #   accent: "#6366f1"                  # hex color
 #   density: comfortable               # comfortable | compact
-#   layout: bubbles                    # bubbles | transcript
+#   layout: bubbles                    # bubbles | transcript | whatsapp (fixed WhatsApp-style palette; ignores accent and density)
 #   tool_calls: summary                # hidden | summary (friendly row, no JSON) | details (args and results)
 
 # summarizer:                        # harness-triggered, never callable by the model

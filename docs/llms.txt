@@ -225,7 +225,7 @@ embed:
   theme: auto           # light | dark | auto
   accent: "#0b7d71"     # hex
   density: comfortable  # comfortable | compact
-  layout: bubbles       # bubbles | transcript
+  layout: bubbles       # bubbles | transcript | whatsapp (fixed WhatsApp-style palette; ignores accent and density)
   tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers)
 ```
 
