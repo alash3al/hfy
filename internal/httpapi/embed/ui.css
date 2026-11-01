@@ -81,10 +81,10 @@
   --hfy-wa-text:#e9edef; --hfy-wa-muted:#8696a0; --hfy-wa-read:#53bdeb; --hfy-wa-bar:#202c33;
   --hfy-wa-pill:#2a3942; --hfy-wa-line:#2a3942; --hfy-wa-inset:#111b21;
 }
-/* an accent set explicitly tints only the own bubbles; 15% light and 25% dark keep bubble text >= 4.5:1 for any accent */
+/* an accent set explicitly tints the own bubbles (15% light, 25% dark) and darkens or lightens links so they keep >= 4.5:1 on incoming bubbles; message text stays >= 4.5:1 on the tint */
 @supports (color:color-mix(in srgb,red 50%,blue)){
-  [data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff)}
-  [data-layout="whatsapp"][data-theme="dark"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 25%,#202c33)}
+  [data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff);--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 40%,#000)}
+  [data-layout="whatsapp"][data-theme="dark"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 25%,#202c33);--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 45%,#fff)}
 }
 
 /* ---- base ---- */

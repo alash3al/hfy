@@ -261,7 +261,7 @@ func TestEmbedWhatsappAccentUnset(t *testing.T) {
 	if light["--hfy-wa-out"] != "#d9fdd3" || dark["--hfy-wa-out"] != "#005c4b" {
 		t.Errorf("unset own bubbles: light %q dark %q", light["--hfy-wa-out"], dark["--hfy-wa-out"])
 	}
-	if !strings.Contains(css, `[data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff)}`) {
+	if !strings.Contains(css, `[data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff)`) {
 		t.Error("an explicit accent must tint the own bubbles")
 	}
 	runLayoutNode(t, `
@@ -282,26 +282,34 @@ func TestEmbedWhatsappIndigoExplicit(t *testing.T) {
 	`)
 }
 
-// Accent row (contrast): bubble text on the own tint is at least 4.5:1 in both
-// themes for every accent, computed with the stylesheet's own percentages.
+// Accent row (contrast): message text on the own tint, and links on the incoming
+// bubble, are at least 4.5:1 in both themes for every accent, computed with the
+// stylesheet's own percentages.
 func TestEmbedWhatsappAccentContrast(t *testing.T) {
 	css := readUICSS(t)
-	lightPct := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\)\}`).FindStringSubmatch(css)
-	darkPct := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-theme="dark"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#202c33\)\}`).FindStringSubmatch(css)
-	if lightPct == nil || darkPct == nil {
-		t.Fatal("own-bubble tint rules not found")
+	light := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#000\)\}`).FindStringSubmatch(css)
+	dark := regexp.MustCompile(`\[data-layout="whatsapp"\]\[data-theme="dark"\]\[data-accent-set\]\{--hfy-wa-out:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#202c33\);--hfy-accent-text:color-mix\(in srgb,var\(--hfy-accent\) (\d+)%,#fff\)\}`).FindStringSubmatch(css)
+	if light == nil || dark == nil {
+		t.Fatal("accent-set rules not found")
 	}
-	lp, _ := strconv.ParseFloat(lightPct[1], 64)
-	dp, _ := strconv.ParseFloat(darkPct[1], 64)
+	pct := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 100 }
 	lightText := rgbOf(t, cssDecls(t, css, `[data-layout="whatsapp"]{`)["--hfy-wa-text"])
 	darkText := rgbOf(t, cssDecls(t, css, `[data-layout="whatsapp"][data-theme="dark"]{`)["--hfy-wa-text"])
+	white, black, incomingDark := rgbOf(t, "#fff"), rgbOf(t, "#000"), rgbOf(t, "#202c33")
 	for _, accent := range []string{"#ffee00", "#fef9c3", "#ffffff", "#111111", "#1f2937", "#6366f1", "#e11d48", "#00a884"} {
 		a := rgbOf(t, accent)
-		if got := contrast(lightText, mix(a, lp/100, rgbOf(t, "#fff"))); got < 4.5 {
-			t.Errorf("light own bubble, accent %s: text contrast %.2f < 4.5", accent, got)
-		}
-		if got := contrast(darkText, mix(a, dp/100, rgbOf(t, "#202c33"))); got < 4.5 {
-			t.Errorf("dark own bubble, accent %s: text contrast %.2f < 4.5", accent, got)
+		for _, c := range []struct {
+			name string
+			got  float64
+		}{
+			{"light own text", contrast(lightText, mix(a, pct(light[1]), white))},
+			{"light link", contrast(mix(a, pct(light[2]), black), white)},
+			{"dark own text", contrast(darkText, mix(a, pct(dark[1]), incomingDark))},
+			{"dark link", contrast(mix(a, pct(dark[2]), white), incomingDark)},
+		} {
+			if c.got < 4.5 {
+				t.Errorf("accent %s, %s: contrast %.2f < 4.5", accent, c.name, c.got)
+			}
 		}
 	}
 }
@@ -320,8 +328,14 @@ func TestEmbedWhatsappNeutralSurfaces(t *testing.T) {
 		}
 	}
 	for _, sel := range []string{`[data-layout="whatsapp"][data-accent-set]{`, `[data-layout="whatsapp"][data-theme="dark"][data-accent-set]{`} {
-		if decls := cssDecls(t, css, sel); len(decls) != 1 || decls["--hfy-wa-out"] == "" {
-			t.Errorf("%s must change only the own tint, got %v", sel, decls)
+		decls := cssDecls(t, css, sel)
+		if decls["--hfy-wa-out"] == "" {
+			t.Errorf("%s must tint the own bubbles, got %v", sel, decls)
+		}
+		for name := range decls {
+			if name != "--hfy-wa-out" && name != "--hfy-accent-text" {
+				t.Errorf("%s changes %s: only the own tint and the link colour follow the accent", sel, name)
+			}
 		}
 	}
 	for _, want := range []string{
