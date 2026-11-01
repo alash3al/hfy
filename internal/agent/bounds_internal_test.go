@@ -775,3 +775,74 @@ func TestDanglingCallsKeepTheirOrder(t *testing.T) {
 		t.Fatalf("not in call order: %s", want)
 	}
 }
+
+func callEvent(id string) db.EventRow {
+	data, _ := json.Marshal(types.ToolCall{Name: "hfy.now", CallID: id, Arguments: json.RawMessage(`{}`)})
+	return db.EventRow{Type: types.EventToolCall, V: 1, Data: data, ActorType: string(types.ActorAgent), ActorRef: "helper"}
+}
+
+func resultEvent(id string) db.EventRow {
+	data, _ := json.Marshal(types.ToolResult{CallID: id, Content: "ok"})
+	return db.EventRow{Type: types.EventToolResult, V: 1, Data: data, ActorType: string(types.ActorAgent), ActorRef: "helper"}
+}
+
+func userEvent(text string) db.EventRow {
+	data, _ := json.Marshal(types.MessageText{Text: text})
+	return db.EventRow{Type: types.EventMessageText, V: 1, Data: data, ActorType: string(types.ActorExternal), ActorRef: "u1"}
+}
+
+// shape lists messages as "role" or "role:id" (a tool answer) for ordering checks.
+func shape(msgs []provider.Message) string {
+	var parts []string
+	for _, m := range msgs {
+		switch m.Role {
+		case "tool":
+			parts = append(parts, "tool:"+m.ToolCallID)
+		case "user":
+			parts = append(parts, "user:"+m.Content)
+		default:
+			ids := ""
+			for _, tc := range m.ToolCalls {
+				ids += tc.ID
+			}
+			parts = append(parts, "assistant:"+ids)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// A call id reused after it was answered is answered at its last use: the
+// dangling answers follow the order of the calls they belong to.
+func TestReusedCallIDIsAnsweredAtItsLastUse(t *testing.T) {
+	events := []db.EventRow{callEvent("x"), resultEvent("x"), callEvent("y"), callEvent("x")}
+	var want string
+	for range 50 {
+		msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := shape(msgs)
+		if want == "" {
+			want = got
+		}
+		if got != want || got != "assistant:x tool:x assistant:yx tool:y tool:x" {
+			t.Fatalf("got %q", got)
+		}
+	}
+}
+
+// A call left unanswered in an earlier turn is answered right after the
+// assistant message that made it, never after the user messages that follow:
+// providers reject a tool answer that is not next to its call.
+func TestDanglingCallOfAnEarlierTurnIsAnsweredInPlace(t *testing.T) {
+	events := []db.EventRow{userEvent("one"), callEvent("a"), callEvent("b"), resultEvent("a"),
+		userEvent("two"), callEvent("c"), userEvent("three")}
+	msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "user:one assistant:ab tool:a tool:b user:two assistant:c tool:c user:three"
+	if got := shape(msgs); got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}

@@ -79,9 +79,13 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	var out []provider.Message
 	var asst *provider.Message
 	pending := map[string]bool{}
-	var calls []string // call ids in event order, for a deterministic prompt
+	var calls []string     // every call id in event order, for a deterministic prompt
+	at := map[string]int{} // call id -> index in out of the assistant message of its last use
 	flush := func() {
 		if asst != nil {
+			for _, tc := range asst.ToolCalls {
+				at[tc.ID] = len(out)
+			}
 			out = append(out, *asst)
 			asst = nil
 		}
@@ -118,9 +122,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			}
 			asst.ToolCalls = append(asst.ToolCalls, provider.ToolCall{
 				ID: c.CallID, Name: mcp.WireNameOf(c.Name), Arguments: argsText(c.Arguments)})
-			if !pending[c.CallID] {
-				calls = append(calls, c.CallID)
-			}
+			calls = append(calls, c.CallID)
 			pending[c.CallID] = true
 		case types.EventToolResult:
 			r, err := e.Payload[types.ToolResult]()
@@ -148,14 +150,30 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 		}
 	}
 	flush()
-	// A call with no result at all (stopped mid-flight) must not break the API contract.
-	for _, id := range calls {
-		if pending[id] {
-			delete(pending, id) // a reused id is answered once
-			out = append(out, provider.Message{Role: "tool", ToolCallID: id, Content: interrupted})
+	// A call with no result at all (stopped mid-flight) must not break the API
+	// contract: it is answered right after the tool answers that follow its
+	// assistant message, at its last use if the id was reused.
+	late := map[int][]provider.Message{}
+	for i, id := range calls {
+		if pending[id] && !slices.Contains(calls[i+1:], id) {
+			late[at[id]] = append(late[at[id]], provider.Message{Role: "tool", ToolCallID: id, Content: interrupted})
 		}
 	}
-	return out, nil
+	if len(late) == 0 {
+		return out, nil
+	}
+	merged := make([]provider.Message, 0, len(out)+len(calls))
+	for i := 0; i < len(out); i++ {
+		merged = append(merged, out[i])
+		if answers, ok := late[i]; ok {
+			for i+1 < len(out) && out[i+1].Role == "tool" {
+				i++
+				merged = append(merged, out[i])
+			}
+			merged = append(merged, answers...)
+		}
+	}
+	return merged, nil
 }
 
 // inRoom reports whether anyone besides self and one person speaks in
