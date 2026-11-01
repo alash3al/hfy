@@ -16,7 +16,7 @@ import (
 
 // A failed listen must stop the process, not leave it hanging on its workers.
 func TestServeReturnsWhenTheAddressIsTaken(t *testing.T) {
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	taken, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func get(t *testing.T, url string) (int, string) {
 // The API lives under /v1; /healthz and /readyz answer on both listeners;
 // /metrics only on the operational one.
 func TestOperationalEndpoints(t *testing.T) {
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	api, ops := freeAddr(t), freeAddr(t)
 	cfg := &config.Config{
 		Server:    config.Server{Listen: api, Secret: "s"},

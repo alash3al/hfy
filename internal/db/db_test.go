@@ -17,7 +17,7 @@ import (
 )
 
 func TestEventsAndActors(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	conv, err := s.CreateConversation(ctx)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestEventsAndActors(t *testing.T) {
 }
 
 func TestJobsClaimAndConcurrency(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	for i := range 2 {
 		if _, err := s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: map[string]int{"n": i}, Key: "conversation:1"}); err != nil {
@@ -92,16 +92,16 @@ func TestJobsClaimAndConcurrency(t *testing.T) {
 }
 
 func TestReapAndRetry(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
-	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobEmbedEvents, Queue: "embeddings", Payload: struct{}{}, MaxAttempts: 2})
-	s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
+	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobApprovalTimeout, Queue: "turns", Payload: struct{}{}, MaxAttempts: 2})
+	s.ClaimJob(ctx, "turns", allTypes, 50*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	reaped, err := s.ReapJobs(ctx)
 	if err != nil || len(reaped) != 1 || reaped[0].State != types.JobQueued {
 		t.Fatalf("reap: %+v %v", reaped, err)
 	}
-	j, _ := s.ClaimJob(ctx, "embeddings", allTypes, 50*time.Millisecond)
+	j, _ := s.ClaimJob(ctx, "turns", allTypes, 50*time.Millisecond)
 	if j == nil || j.Attempts != 2 {
 		t.Fatalf("second claim: %+v", j)
 	}
@@ -112,7 +112,7 @@ func TestReapAndRetry(t *testing.T) {
 }
 
 func TestDedupe(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	nj := db.NewJob{Type: types.JobRetentionClean, Queue: "maintenance", Payload: struct{}{}, DedupeStates: []types.JobState{types.JobQueued, types.JobRunning}}
 	ok1, _ := s.Enqueue(ctx, s.Pool, nj)
@@ -123,7 +123,7 @@ func TestDedupe(t *testing.T) {
 }
 
 func TestNotify(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := t.Context()
 	got := make(chan string, 4)
 	go s.Listen(ctx, func(ch, p string) { got <- ch + ":" + p }, nil, db.ChanEvents)
@@ -147,38 +147,10 @@ func TestNotify(t *testing.T) {
 	}
 }
 
-func TestEmbeddingsSearch(t *testing.T) {
-	s := dbtest.New(t, &db.Embeddings{Model: "m", Dims: 3})
-	ctx := context.Background()
-	conv, _ := s.CreateConversation(ctx)
-	a, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
-	var ids []int64
-	for _, txt := range []string{"apples", "boats"} {
-		e, err := s.AppendEvent(ctx, s.Pool, db.NewEvent{ConversationID: conv.ID, ActorID: a, Scope: "u1", Payload: types.MessageText{Text: txt}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, e.ID)
-	}
-	missing, err := s.MissingEmbeddings(ctx, 0, 10)
-	if err != nil || len(missing) != 2 {
-		t.Fatalf("missing: %v %v", missing, err)
-	}
-	s.UpsertEmbedding(ctx, ids[0], "u1", []float32{1, 0, 0})
-	s.UpsertEmbedding(ctx, ids[1], "u1", []float32{0, 1, 0})
-	hits, err := s.SearchEmbeddings(ctx, "u1", []float32{0.9, 0.1, 0}, 1)
-	if err != nil || len(hits) != 1 || hits[0].Text != "apples" {
-		t.Fatalf("search: %+v %v", hits, err)
-	}
-	if hits, _ := s.SearchEmbeddings(ctx, "other", []float32{1, 0, 0}, 5); len(hits) != 0 {
-		t.Fatal("scope filter leaked")
-	}
-}
-
 // A worker whose lease expired must not complete, retry or extend the job once
 // another worker has claimed it again: the attempt number fences it out.
 func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns", Payload: 1, Key: "conversation:1", MaxAttempts: 5})
 	stale, _ := s.ClaimJob(ctx, "turns", allTypes, 50*time.Millisecond)
@@ -218,7 +190,7 @@ func TestStaleWorkerCannotTouchAReclaimedJob(t *testing.T) {
 // Stored events carry their payload version. A row from a newer hfy (a rolling
 // deploy) is served as stored, but never interpreted by this binary.
 func TestEventVersions(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	conv, _ := s.CreateConversation(ctx)
 	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")
@@ -246,12 +218,12 @@ func TestEventVersions(t *testing.T) {
 	}
 }
 
-var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobEmbedEvents, types.JobRetentionClean}
+var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobRetentionClean}
 
 // A worker only claims job types it can run: an older worker in a rolling
 // deploy leaves a newer job type alone instead of failing it.
 func TestClaimOnlyHandledTypes(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	s.Enqueue(ctx, s.Pool, db.NewJob{Type: "run_turn.v2", Queue: "turns", Payload: 1})
 	if j, err := s.ClaimJob(ctx, "turns", allTypes, time.Minute); err != nil || j != nil {
@@ -265,7 +237,7 @@ func TestClaimOnlyHandledTypes(t *testing.T) {
 // Down removes every table up made, reverting one migration at a time until
 // goose says there is nothing left, and up runs again after it.
 func TestMigrateDownAndUp(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	for {
 		_, err := s.Migrate(ctx, "down")
@@ -296,7 +268,7 @@ func TestMigrateDownAndUp(t *testing.T) {
 // Retention deletes grants that ended longer ago than its age, whether they
 // expired or were revoked, and keeps live ones.
 func TestRetentionDeletesEndedGrants(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx := context.Background()
 	conv, _ := s.CreateConversation(ctx)
 	actor, _ := s.FindOrCreateActor(ctx, s.Pool, types.ActorExternal, "u1")

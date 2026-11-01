@@ -32,7 +32,6 @@ type Config struct {
 	Retention   Retention            `yaml:"retention"`
 	Providers   map[string]Provider  `yaml:"providers"`
 	MCP         map[string]MCPServer `yaml:"mcp"`
-	Embeddings  *Embeddings          `yaml:"embeddings"`
 	Attachments *Attachments         `yaml:"attachments"`
 	Filesystem  *Filesystem          `yaml:"filesystem"`
 	Agent       Agent                `yaml:"agent"`  // the default agent, named "main"
@@ -95,12 +94,11 @@ type Provider struct {
 }
 
 type MockProvider struct {
-	Reply           string        `yaml:"reply"`
-	Reasoning       string        `yaml:"reasoning"`
-	Delay           Duration      `yaml:"delay"`
-	ErrorStatus     int           `yaml:"error_status"`
-	EmbedDimensions int           `yaml:"embed_dimensions"`
-	ToolCall        *MockToolCall `yaml:"tool_call"`
+	Reply       string        `yaml:"reply"`
+	Reasoning   string        `yaml:"reasoning"`
+	Delay       Duration      `yaml:"delay"`
+	ErrorStatus int           `yaml:"error_status"`
+	ToolCall    *MockToolCall `yaml:"tool_call"`
 }
 
 type MockToolCall struct {
@@ -133,11 +131,6 @@ type MCPServer struct {
 // empty list drops images.
 type UI struct {
 	ImageHosts []string `yaml:"image_hosts"`
-}
-
-type Embeddings struct {
-	Model      string `yaml:"model"`
-	Dimensions int    `yaml:"dimensions"`
 }
 
 type Attachments struct {
@@ -397,13 +390,6 @@ func (c *Config) SetDefaults() {
 		}
 		c.Providers[k] = p
 	}
-	if c.Embeddings != nil {
-		prov, _ := SplitModel(c.Embeddings.Model)
-		if p, ok := c.Providers[prov]; ok && p.Type == "mock" && p.Mock.EmbedDimensions == 0 {
-			p.Mock.EmbedDimensions = c.Embeddings.Dimensions
-			c.Providers[prov] = p
-		}
-	}
 	for k, s := range c.MCP {
 		if s.Timeout == 0 {
 			s.Timeout = Duration(2 * time.Minute)
@@ -525,9 +511,6 @@ func (c *Config) Validate() error {
 			if p.Mock.ErrorStatus != 0 && (p.Mock.ErrorStatus < 400 || p.Mock.ErrorStatus > 599) {
 				bad("providers.%s.mock.error_status must be 0 or between 400 and 599", name)
 			}
-			if p.Mock.EmbedDimensions < 0 || p.Mock.EmbedDimensions > 4000 {
-				bad("providers.%s.mock.embed_dimensions must be 0 or between 1 and 4000", name)
-			}
 			if p.Mock.Delay < 0 {
 				bad("providers.%s.mock.delay must not be negative", name)
 			}
@@ -639,16 +622,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Embeddings != nil {
-		checkModel("embeddings", c.Embeddings.Model)
-		if c.Embeddings.Dimensions < 1 || c.Embeddings.Dimensions > 4000 {
-			bad("embeddings.dimensions must be between 1 and 4000")
-		}
-		if prov, _ := SplitModel(c.Embeddings.Model); c.Providers[prov].Type == "mock" &&
-			c.Providers[prov].Mock.EmbedDimensions != 0 && c.Providers[prov].Mock.EmbedDimensions != c.Embeddings.Dimensions {
-			bad("embeddings.dimensions does not match providers.%s.mock.embed_dimensions", prov)
-		}
-	}
 	if a := c.Attachments; a != nil {
 		if len(a.AllowedHosts) == 0 || len(a.Types) == 0 {
 			bad("attachments needs allowed_hosts and types")
@@ -784,13 +757,13 @@ const BuiltinServer = "hfy"
 
 // BuiltinTools are the names hfy's own tools take on that server, so no
 // sub-agent may (a test in package builtins keeps the list complete).
-var BuiltinTools = []string{"tool_search", "conversation_search", "now", "math_calc", "ask_user"}
+var BuiltinTools = []string{"tool_search", "now", "math_calc", "ask_user"}
 
 // coreNoApprovalTools are the full names of the built-ins that never wait for
 // approval (the agent decides the same at call time), so a pattern protecting
 // only one of them can never work and is rejected at startup. hfy.ask_user is
 // not one: it pauses on its own branch before approval ever applies.
-var coreNoApprovalTools = []string{"hfy.now", "hfy.math_calc", "hfy.tool_search", "hfy.conversation_search"}
+var coreNoApprovalTools = []string{"hfy.now", "hfy.math_calc", "hfy.tool_search"}
 
 // AllAgents returns every agent by name; the default "agent" is "main".
 func (c *Config) AllAgents() map[string]*Agent {

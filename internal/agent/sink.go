@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/provider"
@@ -80,22 +78,17 @@ func newTurnSink(ctx context.Context, rt *Runtime, env *TurnEnv, actor int64) *t
 }
 
 func (s *turnSink) append(ctx context.Context, p types.Payload, req *int64) error {
-	_, err := s.appendRow(ctx, s.rt.Store.Pool, p, req)
-	return err
-}
-
-func (s *turnSink) appendRow(ctx context.Context, q db.DBTX, p types.Payload, req *int64) (db.EventRow, error) {
 	var rid *int64
 	if req != nil && *req != 0 {
 		rid = req
 	}
-	row, err := s.rt.Store.AppendEvent(ctx, q, db.NewEvent{
+	_, err := s.rt.Store.AppendEvent(ctx, s.rt.Store.Pool, db.NewEvent{
 		ConversationID: s.env.ConversationID, ParentID: &s.env.TurnID, ActorID: s.actor,
 		Scope: s.env.Scope, Payload: p, RequestID: rid})
 	if err == nil && !types.Ephemeral(p.EventType()) {
 		s.env.events.Add(1)
 	}
-	return row, err
+	return err
 }
 
 func (s *turnSink) TextDelta(t string) {
@@ -169,14 +162,7 @@ func (s *turnSink) Step(ctx context.Context, o StepOut) error {
 		}
 	}
 	if o.Text != "" {
-		err := s.rt.Store.Tx(ctx, func(tx pgx.Tx) error { // the reply and its embed job commit together
-			row, err := s.appendRow(ctx, tx, types.MessageText{Text: o.Text}, &o.RequestID)
-			if err != nil || s.rt.Cfg.Embeddings == nil {
-				return err
-			}
-			return s.rt.Svc.EnqueueEmbed(ctx, tx, row.ID)
-		})
-		if err != nil {
+		if err := s.append(ctx, types.MessageText{Text: o.Text}, &o.RequestID); err != nil {
 			return err
 		}
 	}

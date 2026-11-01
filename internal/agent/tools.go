@@ -12,7 +12,6 @@ import (
 	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
 	"github.com/alash3al/hfy/internal/svc"
-	"github.com/alash3al/hfy/internal/types"
 )
 
 // builtin is an hfy.* tool. The loop runs it itself: most need the calling
@@ -38,9 +37,6 @@ func (rt *Runtime) registerBuiltins() {
 		return errResult("hfy.ask_user is handled by the harness, not by running it"), nil
 	}})
 	rt.builtins = append(rt.builtins, builtin{builtins.ToolSearchTool(), rt.toolSearch})
-	if rt.Cfg.Embeddings != nil {
-		rt.builtins = append(rt.builtins, builtin{builtins.ConversationSearchTool(), rt.conversationSearch})
-	}
 	for _, name := range slices.Sorted(maps.Keys(rt.subs)) {
 		sub := rt.subs[name]
 		rt.builtins = append(rt.builtins, builtin{builtins.SubagentTool(name, sub.Description),
@@ -125,34 +121,6 @@ func (rt *Runtime) toolSearch(ctx context.Context, l *loop, raw json.RawMessage)
 	b, _ := json.Marshal(res)
 	return mcp.Result{Content: string(b)}, nil
 }
-
-func (rt *Runtime) conversationSearch(ctx context.Context, l *loop, raw json.RawMessage) (mcp.Result, error) {
-	var a searchArgs
-	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
-		return errResult("query is required"), nil
-	}
-	if a.Limit <= 0 || a.Limit > 20 {
-		a.Limit = 5
-	}
-	// The harness injects the scope; the model never passes it.
-	vecs, err := rt.embedder.Embed(ctx, rt.embModel, []string{truncate(a.Query, maxEmbedChars)},
-		rt.recorder(&l.env.TurnID, types.OutboundEmbedding))
-	if err != nil {
-		return errResult("search is unavailable: " + err.Error()), nil
-	}
-	hits, err := rt.Store.SearchEmbeddings(ctx, l.env.Scope, vecs[0], a.Limit)
-	if err != nil {
-		return mcp.Result{}, err
-	}
-	if len(hits) == 0 {
-		return mcp.Result{Content: "No matching earlier messages."}, nil
-	}
-	b, _ := json.Marshal(hits)
-	return mcp.Result{Content: string(b)}, nil
-}
-
-// maxEmbedChars caps text sent to the embedding model (stored and queried alike).
-const maxEmbedChars = 8000
 
 // truncate cuts s to at most n bytes, never inside a character.
 func truncate(s string, n int) string {

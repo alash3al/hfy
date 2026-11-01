@@ -3,10 +3,8 @@ package agent_test
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/alash3al/hfy/internal/config"
-	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/provider/fakeprov"
 	"github.com/alash3al/hfy/internal/types"
 )
@@ -146,89 +144,4 @@ func TestSubagentIsIsolatedAndCounted(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("sub-agent usage events: %d", n)
 	}
-}
-
-func TestConversationSearchIsScopedAndFindsMemory(t *testing.T) {
-	e := setup(t, func(c *config.Config) {
-		c.Embeddings = &config.Embeddings{Model: "fake/e", Dimensions: 3}
-	},
-		fakeprov.Step{Content: "noted"},
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "s", Name: "hfy__conversation_search", Args: `{"query":"fruit apples"}`}}},
-		fakeprov.Step{Content: "you like apples"},
-	)
-	t1 := e.post("my favorite fruit is apples")
-	e.waitState(t1, types.StateCompleted)
-	waitFor(t, func() bool {
-		var n int
-		e.store.Pool.QueryRow(e.ctx, "SELECT count(*) FROM embeddings_3").Scan(&n)
-		if n < 2 { // user message and reply
-			rows, _ := e.store.Pool.Query(e.ctx, "SELECT type, queue, state, attempts, coalesce(last_error,'') FROM jobs")
-			for rows.Next() {
-				var a, b, c, d string
-				var at int
-				rows.Scan(&a, &b, &c, &at, &d)
-				t.Logf("job %s %s %s attempts=%d err=%s", a, b, c, at, d)
-			}
-			rows.Close()
-		}
-		return n >= 2
-	})
-	// A message from another scope must not be visible.
-	other, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorExternal, "someone-else")
-	e.store.Pool.Exec(e.ctx, `INSERT INTO embeddings_3 (embeddable_type, embeddable_id, scope, model, embedding)
-		SELECT 'conversation_event', id, 'other-scope', 'e', '[1,0,0]' FROM conversation_events WHERE type='turn' LIMIT 1`)
-	_ = other
-
-	t2 := e.post("what do I like?")
-	e.waitState(t2, types.StateCompleted)
-	r := e.find(t2, types.EventToolResult)
-	if len(r) != 1 || !strings.Contains(r[0]["content"].(string), "apples") {
-		t.Fatalf("conversation_search result: %v\n%s", r, e.dump(t2))
-	}
-}
-
-func waitFor(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("condition not met in time")
-}
-
-func TestEmbeddingsTargetedBackfillAndDimensionMismatch(t *testing.T) {
-	e := setup(t, func(c *config.Config) {
-		c.Embeddings = &config.Embeddings{Model: "fake/e", Dimensions: 3}
-	}, fakeprov.Step{Content: "the reply gets a vector too"})
-	count := func() int {
-		var n int
-		e.store.Pool.QueryRow(e.ctx, "SELECT count(*) FROM embeddings_3").Scan(&n)
-		return n
-	}
-	// Targeted jobs: the user message (from Post) and the agent reply (from the loop).
-	turn := e.post("hello there")
-	e.waitState(turn, types.StateCompleted)
-	waitFor(t, func() bool { return count() == 2 })
-
-	// Backfill: a message written without a job is picked up on the next boot.
-	main, _ := e.store.FindOrCreateActor(e.ctx, e.store.Pool, types.ActorAgent, "main")
-	e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{ConversationID: e.conv.ID, ParentID: &turn, ActorID: main,
-		Scope: "u1", Payload: types.MessageText{Text: "written behind the queue's back"}})
-	if err := e.rt.Boot(e.ctx); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, func() bool { return count() == 3 })
-
-	// A model whose vectors do not match embeddings.dimensions fails the job loudly.
-	e.fake.EmbedDim = 4
-	e.post("this one cannot be stored")
-	waitFor(t, func() bool {
-		var msg string
-		e.store.Pool.QueryRow(e.ctx, `SELECT coalesce(last_error, '') FROM jobs WHERE type = 'embed_events'
-			AND last_error IS NOT NULL ORDER BY id DESC LIMIT 1`).Scan(&msg)
-		return strings.Contains(msg, "returned 4 dimensions, embeddings.dimensions is 3")
-	})
 }

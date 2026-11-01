@@ -18,25 +18,6 @@
       ]
     }
   },
-  "conversation_search": {
-    "description": "Search earlier conversations by meaning. Returns the most similar past messages that you are allowed to see, with who said them and when. Use it to recall facts, decisions or preferences from before.",
-    "schema": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "What to look for, in natural language"
-        },
-        "limit": {
-          "type": "integer",
-          "description": "Maximum results (default 5)"
-        }
-      },
-      "required": [
-        "query"
-      ]
-    }
-  },
   "now": {
     "description": "The current date and time: UTC and, for an IANA time zone, the local time, weekday and UTC offset. Use it whenever the answer depends on today, now, a deadline or opening hours.",
     "schema": {

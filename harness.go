@@ -42,12 +42,7 @@ func (i *instance) close() {
 
 // boot connects, migrates and prepares the runtime. Every process does this.
 func boot(ctx context.Context, cfg *config.Config, extraConns int) (*instance, error) {
-	var emb *db.Embeddings
-	if e := cfg.Embeddings; e != nil {
-		_, model := config.SplitModel(e.Model)
-		emb = &db.Embeddings{Model: model, Dims: e.Dimensions}
-	}
-	store, err := db.Open(ctx, cfg.Database.URL, int32(extraConns+cfg.Queue.Workers+8), emb)
+	store, err := db.Open(ctx, cfg.Database.URL, int32(extraConns+cfg.Queue.Workers+8))
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +201,7 @@ func listen(ctx context.Context, inst *instance, hub *httpapi.Hub, w *jobs.Worke
 
 func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker {
 	if len(queues) == 0 {
-		queues = []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance}
+		queues = []string{types.QueueTurns, types.QueueMaintenance}
 	}
 	w := jobs.NewWorker(inst.store, cfg.Queue.Lease.D(), queues)
 	inst.rt.RegisterJobs(w)
@@ -215,7 +210,7 @@ func newWorker(cfg *config.Config, inst *instance, queues []string) *jobs.Worker
 
 // migrate runs "up", "down" or "status" and returns the report.
 func migrate(ctx context.Context, cfg *config.Config, cmd string) (string, error) {
-	store, err := db.Open(ctx, cfg.Database.URL, 4, nil)
+	store, err := db.Open(ctx, cfg.Database.URL, 4)
 	if err != nil {
 		return "", err
 	}

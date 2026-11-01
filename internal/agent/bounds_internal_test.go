@@ -33,10 +33,6 @@ func (s *scripted) Chat(_ context.Context, req provider.Request, _ provider.Opts
 	return r, nil
 }
 
-func (s *scripted) Embed(context.Context, string, []string, func(provider.Record) int64) ([][]float32, error) {
-	return nil, errors.New("embeddings are not scripted")
-}
-
 // testSink is a quiet sink (as sub-agents run with): it keeps nothing, but
 // counts its durable events the way a turn's sink does.
 type testSink struct{ env *TurnEnv }
@@ -472,7 +468,7 @@ func TestToolOutputThatCannotBeStoredIsDropped(t *testing.T) {
 }
 
 // A provider error can carry raw response bytes, and the failure reason is stored.
-type failing struct{ scripted }
+type failing struct{}
 
 func (failing) Chat(context.Context, provider.Request, provider.Opts) (*provider.Response, error) {
 	return nil, errors.New("provider error in stream: x\x00y")

@@ -206,7 +206,7 @@ server: { secret: s }
 database: { url: u }
 providers:
   p: { url: http://x }
-  fake: { type: mock, mock: { reply: "Hello from mock", embed_dimensions: 768 } }
+  fake: { type: mock, mock: { reply: "Hello from mock" } }
 agent: { model: p/m, settings: { context_window: 10 } }
 `
 	c, err := Parse([]byte(y), env(nil))
@@ -216,7 +216,7 @@ agent: { model: p/m, settings: { context_window: 10 } }
 	if c.Providers["p"].Type != "openai" {
 		t.Errorf("provider without type must default to openai, got %q", c.Providers["p"].Type)
 	}
-	if got := c.Providers["fake"]; got.Type != "mock" || got.Mock.Reply != "Hello from mock" || got.Mock.EmbedDimensions != 768 {
+	if got := c.Providers["fake"]; got.Type != "mock" || got.Mock.Reply != "Hello from mock" {
 		t.Errorf("mock provider: %+v", got)
 	}
 }
@@ -235,21 +235,35 @@ agent: { model: fake/m, settings: { context_window: 10 } }
 	}
 }
 
-func TestMockEmbeddingsDimensionDefaulting(t *testing.T) {
-	y := `
-server: { secret: s }
-database: { url: u }
-providers:
-  fake: { type: mock, mock: { reply: hi } }
-embeddings: { model: fake/embed, dimensions: 768 }
-agent: { model: fake/m, settings: { context_window: 10 } }
-`
-	c, err := Parse([]byte(y), env(nil))
-	if err != nil {
-		t.Fatal(err)
+func TestRemovedEmbeddingsKeyFailsWithTailoredError(t *testing.T) {
+	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagent: {model: p/m, settings: {context_window: 1}}\n"
+	if _, err := Parse([]byte(base), env(nil)); err != nil {
+		t.Fatalf("the base config must parse: %v", err)
 	}
-	if got := c.Providers["fake"].Mock.EmbedDimensions; got != 768 {
-		t.Errorf("EmbedDimensions = %d, want 768", got)
+	const want = "embeddings was removed in v2; expose memory as an MCP tool"
+	for name, set := range map[string]string{
+		"map":       "embeddings: {model: p/e, dimensions: 8}\n",
+		"empty map": "embeddings: {}\n",
+		"null":      "embeddings: null\n",
+		"bare":      "embeddings:\n",
+		"scalar":    "embeddings: yes\n",
+		"list":      "embeddings: [a]\n",
+		"unset env": "embeddings: ${NOPE}\n", // refused before ${VAR} expansion could fail first
+	} {
+		_, err := Parse([]byte(base+set), env(nil))
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "line 5") {
+			t.Errorf("%s: want %q at line 5, got %v", name, want, err)
+		}
+	}
+	// Keys match case-sensitively everywhere: a variant is just unknown.
+	_, err := Parse([]byte(base+"Embeddings: {}\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), `unknown key "Embeddings"`) {
+		t.Errorf("case variant: want the generic unknown-key error, got %v", err)
+	}
+	// Only the top-level key is removed; a nested one is not special.
+	_, err = Parse([]byte(base+"embed: {embeddings: 1}\n"), env(nil))
+	if err == nil || strings.Contains(err.Error(), "removed in v2") {
+		t.Errorf("nested key: want the generic unknown-key error, got %v", err)
 	}
 }
 
@@ -293,7 +307,7 @@ func TestMCPServerApproval(t *testing.T) {
 		t.Fatalf("approval parsed: %v", a)
 	}
 	plain := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
-	for _, p := range []string{"hfy.now", "hfy.math_calc", "hfy.tool_search", "hfy.conversation_search"} {
+	for _, p := range []string{"hfy.now", "hfy.math_calc", "hfy.tool_search"} {
 		y := plain + `agent: {model: p/m, settings: {context_window: 1}, approval: {tools: ["` + p + `"]}}` + "\n"
 		if _, err := Parse([]byte(y), env(nil)); err == nil || !strings.Contains(err.Error(), "core tool and never needs approval") {
 			t.Errorf("%q must be rejected, got %v", p, err)

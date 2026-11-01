@@ -4,7 +4,6 @@ package fakeprov
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,11 +40,10 @@ type Server struct {
 	script   []Step
 	Requests []map[string]any
 	Default  Step
-	EmbedDim int
 }
 
 func New(t testing.TB, script ...Step) *Server {
-	f := &Server{script: script, Default: Step{Content: "ok"}, EmbedDim: 3}
+	f := &Server{script: script, Default: Step{Content: "ok"}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
 	return f
@@ -67,8 +65,6 @@ func (f *Server) Reqs() []map[string]any {
 
 func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case strings.HasSuffix(r.URL.Path, "/embeddings"):
-		f.embeddings(w, r)
 	case strings.HasSuffix(r.URL.Path, "/chat/completions"):
 		f.chat(w, r)
 	default:
@@ -170,22 +166,4 @@ func split(s string, n int) []string {
 		r = r[size:]
 	}
 	return append(out, string(r))
-}
-
-// embeddings returns a deterministic bag-of-words vector per input, so similar
-// texts are close.
-func (f *Server) embeddings(w http.ResponseWriter, r *http.Request) {
-	var req struct{ Input []string }
-	json.NewDecoder(r.Body).Decode(&req)
-	data := make([]any, len(req.Input))
-	for i, in := range req.Input {
-		v := make([]float32, f.EmbedDim)
-		for word := range strings.FieldsSeq(strings.ToLower(in)) {
-			h := fnv.New32a()
-			h.Write([]byte(word))
-			v[int(h.Sum32())%f.EmbedDim]++
-		}
-		data[i] = map[string]any{"index": i, "embedding": v}
-	}
-	json.NewEncoder(w).Encode(map[string]any{"data": data})
 }

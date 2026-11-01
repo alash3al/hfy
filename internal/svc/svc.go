@@ -105,11 +105,6 @@ func (s *Service) Post(ctx context.Context, in PostInput) (uuid.UUID, error) {
 			Scope: in.Scope, Payload: types.TurnStateEvent{State: types.StateQueued}}); err != nil {
 			return err
 		}
-		if in.Text != "" && s.cfg.Embeddings != nil {
-			if err := s.EnqueueEmbed(ctx, tx, msg.ID); err != nil {
-				return err
-			}
-		}
 		if conv.ActiveTurnID != nil {
 			return nil // the running (or paused) turn chains to this one when it ends
 		}
@@ -126,28 +121,6 @@ func (s *Service) enqueueRun(ctx context.Context, q db.DBTX, conversation, turn 
 	_, err := s.store.Enqueue(ctx, q, db.NewJob{
 		Type: types.JobRunTurn, Queue: types.QueueTurns, Payload: RunTurnPayload{TurnEventID: turn},
 		MaxAttempts: s.cfg.Queue.MaxAttempts, Key: db.ConversationKey(conversation),
-	})
-	return err
-}
-
-// EmbedPayload names the message.text events to embed; empty means a backfill
-// of everything that has no vector for the configured model.
-type EmbedPayload struct {
-	EventIDs []int64 `json:"event_ids,omitempty"`
-}
-
-// EnqueueEmbed schedules embed_events for the given events (none = backfill),
-// in the caller's transaction, so it can never miss what that transaction wrote.
-// Targeted jobs run in parallel (the upsert is idempotent); backfills, which
-// every booting process enqueues, run one at a time.
-func (s *Service) EnqueueEmbed(ctx context.Context, q db.DBTX, eventIDs ...int64) error {
-	key := ""
-	if len(eventIDs) == 0 {
-		key = "embed_backfill"
-	}
-	_, err := s.store.Enqueue(ctx, q, db.NewJob{
-		Type: types.JobEmbedEvents, Queue: types.QueueEmbeddings, Payload: EmbedPayload{EventIDs: eventIDs},
-		MaxAttempts: s.cfg.Queue.MaxAttempts, Key: key,
 	})
 	return err
 }

@@ -53,7 +53,7 @@ func app() *cli.Command {
 			{
 				Name: "queue:work", Usage: "run the workers only",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "queues", Aliases: []string{"q"}, Usage: "priority-ordered queues, e.g. turns,embeddings (default: all)"},
+					&cli.StringFlag{Name: "queues", Aliases: []string{"q"}, Usage: "priority-ordered queues, e.g. turns,maintenance (default: all)"},
 					&cli.IntFlag{Name: "workers", Usage: "worker count (default: queue.workers)"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {

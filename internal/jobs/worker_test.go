@@ -14,7 +14,7 @@ import (
 )
 
 func TestWorkerRunsRetriesAndExhausts(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -49,7 +49,7 @@ func TestWorkerRunsRetriesAndExhausts(t *testing.T) {
 // A handler whose job was reaped and claimed again is cancelled at its next
 // heartbeat, and its late result does not touch the job.
 func TestWorkerStopsAHandlerThatLostItsLease(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -96,7 +96,7 @@ func TestWorkerStopsAHandlerThatLostItsLease(t *testing.T) {
 
 // Shutdown hands an interrupted job straight back to the queue.
 func TestWorkerReleasesJobsOnShutdown(t *testing.T) {
-	s := dbtest.New(t, nil)
+	s := dbtest.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	w := jobs.NewWorker(s, time.Minute, []string{"turns"})
 	started := make(chan struct{})
@@ -117,4 +117,4 @@ func TestWorkerReleasesJobsOnShutdown(t *testing.T) {
 	}
 }
 
-var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobEmbedEvents, types.JobRetentionClean}
+var allTypes = []types.JobType{types.JobRunTurn, types.JobApprovalTimeout, types.JobRetentionClean}

@@ -98,8 +98,8 @@ func TestLayering(t *testing.T) {
 func TestTransactionsUseOnlyTheirConnection(t *testing.T) {
 	files := sources(t)
 	// shortcut: a store is known by its name (Store, store) and a pool method by
-	// naming .Pool itself; one that reaches it through another (SearchEmbeddings
-	// via Tx) is missed. Follow calls between Store methods if that starts to matter.
+	// naming .Pool itself; one that reaches it through another (a method
+	// going through Tx) is missed. Follow calls between Store methods if that starts to matter.
 	poolMethods := map[string]bool{}
 	for _, f := range files {
 		for _, d := range f.ast.Decls {

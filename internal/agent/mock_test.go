@@ -19,7 +19,6 @@ providers:
 agent:
   model: mockprov/test
   settings: {context_window: 8192}
-embeddings: {model: mockprov/emb, dimensions: 8}
 `), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatal(err)
@@ -34,8 +33,5 @@ embeddings: {model: mockprov/emb, dimensions: 8}
 	}
 	if _, ok := main.Adapter.(*provider.Mock); !ok {
 		t.Fatalf("main adapter = %T, want *provider.Mock", main.Adapter)
-	}
-	if _, ok := rt.embedder.(*provider.Mock); !ok {
-		t.Fatalf("embedder = %T, want *provider.Mock", rt.embedder)
 	}
 }

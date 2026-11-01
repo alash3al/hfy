@@ -16,7 +16,7 @@ import (
 // out of order and stops, both queries must answer exactly as a full scan of
 // the conversation does, after every step.
 func TestSettledTurnsMatchAFullScan(t *testing.T) {
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	ctx := t.Context()
 	s := svc.New(store, &config.Config{Queue: config.Queue{MaxAttempts: 3}})
 	conv, _ := store.CreateConversation(ctx)

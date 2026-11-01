@@ -27,7 +27,7 @@ type persistFixture struct {
 func newPersistFixture(t *testing.T) persistFixture {
 	t.Helper()
 	ctx := context.Background()
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	cfg := &config.Config{}
 	rt := &Runtime{Cfg: cfg, Store: store, Svc: svc.New(store, cfg)}
 	conv, err := store.CreateConversation(ctx)

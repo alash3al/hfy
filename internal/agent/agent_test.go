@@ -62,11 +62,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	if tweak != nil {
 		tweak(cfg)
 	}
-	var emb *db.Embeddings
-	if cfg.Embeddings != nil {
-		emb = &db.Embeddings{Model: "e", Dims: cfg.Embeddings.Dimensions}
-	}
-	store := dbtest.New(t, emb)
+	store := dbtest.New(t)
 	t.Cleanup(cancel) // runs before the database is dropped
 	mgr := mcp.NewManager()
 	mcp.StartAll(ctx, mgr, cfg.MCP)
@@ -77,7 +73,7 @@ func setup(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *e
 	if err := rt.Boot(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance})
+	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueMaintenance})
 	rt.RegisterJobs(w)
 	if cfg.Queue.Workers > 0 { // tests that drive RunTurn by hand set Workers to 0
 		go w.Run(ctx, cfg.Queue.Workers)

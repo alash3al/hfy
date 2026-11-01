@@ -3,7 +3,6 @@ package provider_test
 import (
 	"context"
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 
@@ -85,23 +84,6 @@ func TestMockChatErrorStatus(t *testing.T) {
 	var apiErr *provider.APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != 429 {
 		t.Fatalf("err %v", err)
-	}
-}
-
-func TestMockEmbed(t *testing.T) {
-	m := provider.NewMock("mock", provider.MockOptions{EmbedDimensions: 16})
-	vecs, err := m.Embed(context.Background(), "e", []string{"hello world", "hello world", "goodbye world"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(vecs) != 3 || len(vecs[0]) != 16 {
-		t.Fatalf("vecs %v", vecs)
-	}
-	if !slices.Equal(vecs[0], vecs[1]) {
-		t.Fatalf("same input must give identical vector: %v vs %v", vecs[0], vecs[1])
-	}
-	if slices.Equal(vecs[0], vecs[2]) {
-		t.Fatalf("different inputs must differ: %v", vecs[0])
 	}
 }
 

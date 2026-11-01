@@ -66,7 +66,6 @@ type JobType string
 
 const (
 	JobRunTurn         JobType = "run_turn"
-	JobEmbedEvents     JobType = "embed_events"
 	JobRetentionClean  JobType = "retention_cleanup"
 	JobApprovalTimeout JobType = "approval_timeout"
 )
@@ -95,14 +94,12 @@ type OutboundKind string
 const (
 	OutboundModel      OutboundKind = "model"
 	OutboundSummarizer OutboundKind = "summarizer"
-	OutboundEmbedding  OutboundKind = "embedding"
 	OutboundMCPRemote  OutboundKind = "mcp_remote"
 )
 
 // Queue names.
 const (
 	QueueTurns       = "turns"
-	QueueEmbeddings  = "embeddings"
 	QueueMaintenance = "maintenance"
 )
 

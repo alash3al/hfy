@@ -3,7 +3,6 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"strings"
-	"text/template"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -27,9 +25,6 @@ var migrationsFS embed.FS
 //go:embed queries/*.sql
 var queriesFS embed.FS
 
-//go:embed templates/*.sql
-var templatesFS embed.FS
-
 // Postgres notification channels.
 const (
 	ChanEvents = "hfy_events" // payload "<conversation id>:<event id>"
@@ -44,17 +39,10 @@ type DBTX interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// Embeddings tells the store about the configured embeddings table.
-type Embeddings struct {
-	Model string
-	Dims  int
-}
-
 type Store struct {
 	Pool *pgxpool.Pool
 
 	sql map[string]string
-	emb *Embeddings
 }
 
 // queryNames lists every query file the code uses; a missing file is a startup error.
@@ -64,13 +52,13 @@ var queryNames = []string{
 	"EventIDByUUID", "EventsAfter", "LatestEventID", "HistoryTurns", "HistoryEvents", "TurnEvents",
 	"LoadContext", "LatestTurnState", "QueuedTurns", "TurnUsage", "SelectSummary", "TurnIDByUUID",
 	"EnqueueJob", "ClaimJob", "HeartbeatJob", "CompleteJob", "RetryJob", "ReleaseJob", "ReapJobs", "JobCounts",
-	"CancelQueuedTurnJobs", "PendingTurnJob", "UnembeddedByIDs", "SelectConversationByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
-	"DeleteExpiredOutbound", "DeleteExpiredGrants", "InsertOutbound", "MissingEmbeddings", "UpsertEmbedding", "SearchEmbeddings",
+	"CancelQueuedTurnJobs", "PendingTurnJob", "SelectConversationByID", "OpenTurns", "SettleTurns", "PruneJobs", "DeleteExpiredEvents",
+	"DeleteExpiredOutbound", "DeleteExpiredGrants", "InsertOutbound",
 	"InsertGrant", "SelectGrantByToken", "GrantLive", "RevokeGrant", "InsertConversationFile",
 }
 
 // Open connects, pings and loads the embedded queries.
-func Open(ctx context.Context, url string, maxConns int32, emb *Embeddings) (*Store, error) {
+func Open(ctx context.Context, url string, maxConns int32) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("storage.url: %w", err)
@@ -93,7 +81,7 @@ func Open(ctx context.Context, url string, maxConns int32, emb *Embeddings) (*St
 		pool.Close()
 		return nil, fmt.Errorf("postgres unreachable: %w", err)
 	}
-	s := &Store{Pool: pool, emb: emb}
+	s := &Store{Pool: pool}
 	if s.sql, err = loadQueries(); err != nil {
 		pool.Close()
 		return nil, err
@@ -126,36 +114,13 @@ func loadQueries() (map[string]string, error) {
 	return out, nil
 }
 
-// q returns a query by name, with the embeddings placeholders rendered.
+// q returns a query by name.
 func (s *Store) q(name string) string {
 	text, ok := s.sql[name]
 	if !ok {
 		panic("db: unknown query " + name)
 	}
-	if s.emb != nil && strings.Contains(text, "{{") {
-		text = s.renderEmb(text, "")
-	}
 	return text
-}
-
-// EmbTable is the configured embeddings table name, or "".
-func (s *Store) EmbTable() string {
-	if s.emb == nil {
-		return ""
-	}
-	return fmt.Sprintf("embeddings_%d", s.emb.Dims)
-}
-
-// halfvec indexes are used above pgvector's 2,000-dimension limit for vector.
-func (s *Store) half() bool { return s.emb != nil && s.emb.Dims > 2000 }
-
-func (s *Store) renderEmb(text, qvec string) string {
-	col := "embedding"
-	if s.half() {
-		col = fmt.Sprintf("(embedding::halfvec(%d))", s.emb.Dims)
-	}
-	r := strings.NewReplacer("{{table}}", s.EmbTable(), "{{embedding}}", col, "{{qvec}}", qvec)
-	return r.Replace(text)
 }
 
 // Tx runs fn in a transaction.
@@ -246,39 +211,4 @@ func (s *Store) warnIfSchemaIsNewer(ctx context.Context, p *goose.Provider) {
 		slog.Warn("database schema is newer than this hfy; running in compatibility mode",
 			"schema", dbv, "known", known)
 	}
-}
-
-// The boot lock uses the two-int advisory keyspace; per-conversation append locks use
-// the bigint one (conversation ids), so the two never collide.
-const bootLockClass, bootLockID = 7261, 1
-
-// Boot is the one step outside goose: it depends on config, not on a schema
-// version. It creates the embeddings table for the configured dimensions,
-// under a transaction-scoped advisory lock (released at commit or rollback,
-// never leaked), so concurrent boots do not race.
-func (s *Store) Boot(ctx context.Context) error {
-	if s.emb == nil {
-		return nil
-	}
-	raw, err := templatesFS.ReadFile("templates/embeddings.sql")
-	if err != nil {
-		return err
-	}
-	t, err := template.New("emb").Parse(string(raw))
-	if err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, map[string]any{"Table": s.EmbTable(), "Dims": s.emb.Dims, "Half": s.half()}); err != nil {
-		return err
-	}
-	return s.Tx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1, $2)", bootLockClass, bootLockID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, buf.String()); err != nil {
-			return fmt.Errorf("create %s: %w", s.EmbTable(), err)
-		}
-		return nil
-	})
 }

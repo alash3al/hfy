@@ -17,11 +17,10 @@ import (
 const Server = config.BuiltinServer
 
 const (
-	ToolSearch         = "tool_search"
-	ConversationSearch = "conversation_search"
-	Now                = "now"
-	MathCalc           = "math_calc"
-	AskUser            = "ask_user"
+	ToolSearch = "tool_search"
+	Now        = "now"
+	MathCalc   = "math_calc"
+	AskUser    = "ask_user"
 )
 
 // Core is a built-in every agent gets. A tool is core only if it is pure (no
@@ -53,8 +52,7 @@ var defs = func() map[string]def {
 	return m
 }()
 
-func ToolSearchTool() mcp.Tool         { return build(ToolSearch, "") }
-func ConversationSearchTool() mcp.Tool { return build(ConversationSearch, "") }
+func ToolSearchTool() mcp.Tool { return build(ToolSearch, "") }
 
 // AskUserTool is hfy.ask_user, the harness interaction primitive: calling it
 // pauses the turn for the viewer's answers instead of running anything.

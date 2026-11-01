@@ -92,11 +92,9 @@ type Runtime struct {
 	mcp    *mcp.Manager
 	bucket *blob.Bucket
 
-	agents   map[string]*Spec // the configured agents by name; "main" is the default
-	subs     map[string]*Spec
-	summ     *Spec // nil when no summarizer is configured
-	embedder provider.Adapter
-	embModel string
+	agents map[string]*Spec // the configured agents by name; "main" is the default
+	subs   map[string]*Spec
+	summ   *Spec // nil when no summarizer is configured
 
 	signedURLs sync.Map     // file key -> signedURL: one stable URL per file per TTL window
 	urlStores  atomic.Int64 // storeSignedURL calls since the last prune
@@ -113,7 +111,7 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	for name, p := range cfg.Providers {
 		if p.Type == "mock" {
 			o := provider.MockOptions{Reply: p.Mock.Reply, Reasoning: p.Mock.Reasoning, Delay: p.Mock.Delay.D(),
-				ErrorStatus: p.Mock.ErrorStatus, EmbedDimensions: p.Mock.EmbedDimensions}
+				ErrorStatus: p.Mock.ErrorStatus}
 			if p.Mock.ToolCall != nil {
 				o.ToolName, o.ToolArguments = p.Mock.ToolCall.Name, p.Mock.ToolCall.Arguments
 			}
@@ -131,16 +129,11 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 		return &Spec{Name: name, Client: controlled{providers[prov], ctl}, Model: m, Settings: st, System: system,
 			Limits: lim, MCP: servers, Builtins: map[string]bool{}}
 	}
-	if cfg.Embeddings != nil {
-		prov, m := config.SplitModel(cfg.Embeddings.Model)
-		rt.embedder, rt.embModel = providers[prov], m
-	}
 	for name, a := range cfg.AllAgents() {
 		s := spec(name, a.Model, a.Settings, a.System, a.Limits, a.MCP)
 		s.Top, s.Approval = true, a.Approval
 		s.core()
 		s.Builtins[builtins.ToolSearch] = a.MCP == nil
-		s.Builtins[builtins.ConversationSearch] = cfg.Embeddings != nil
 		s.Builtins[builtins.AskUser] = a.AskUser // opt-in, top agents only
 		for sub := range cfg.Subagents {
 			s.Builtins[sub] = true // every agent may delegate to every sub-agent
@@ -168,17 +161,8 @@ func NewRuntime(cfg *config.Config, store *db.Store, mgr *mcp.Manager) (*Runtime
 	return rt, nil
 }
 
-// Boot runs the config-dependent start-up work: embeddings backfill and the
-// recurring retention job.
+// Boot runs the start-up work: the recurring retention job.
 func (rt *Runtime) Boot(ctx context.Context) error {
-	if err := rt.Store.Boot(ctx); err != nil {
-		return err
-	}
-	if rt.Cfg.Embeddings != nil {
-		if err := rt.Svc.EnqueueEmbed(ctx, rt.Store.Pool); err != nil { // backfill
-			return err
-		}
-	}
 	_, err := rt.Store.Enqueue(ctx, rt.Store.Pool, db.NewJob{
 		Type: types.JobRetentionClean, Queue: types.QueueMaintenance, Payload: struct{}{},
 		MaxAttempts: rt.Cfg.Queue.MaxAttempts, Key: "retention_cleanup",

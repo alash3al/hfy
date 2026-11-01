@@ -1,6 +1,4 @@
 -- +goose Up
-CREATE EXTENSION IF NOT EXISTS vector;
-
 CREATE TABLE actors (
     id         bigserial PRIMARY KEY,
     uuid       uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -67,7 +65,7 @@ CREATE INDEX ON conversation_events (conversation_id, id) WHERE type = 'turn';  
 CREATE INDEX ON conversation_events (parent_id, id) WHERE parent_id IS NOT NULL; -- events of one turn
 CREATE INDEX ON conversation_events (created_at) WHERE ephemeral;                -- retention
 CREATE INDEX conversation_events_message_text_idx
-    ON conversation_events (id) WHERE type = 'message.text';                     -- embeddings backfill
+    ON conversation_events (id) WHERE type = 'message.text';                     -- no reader since the embeddings removal; kept, not dropped
 
 -- A grant is a client's access to one conversation as one actor, created by
 -- the app's backend with the server secret. Only the token's sha256 is kept.

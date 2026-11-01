@@ -1,5 +1,5 @@
 // Package provider is a minimal OpenAI-compatible client: streaming chat
-// completions with tool calls, and embeddings. Nothing here is specific to a
+// completions with tool calls. Nothing here is specific to a
 // model or vendor.
 package provider
 
@@ -43,7 +43,6 @@ func New(name, baseURL, apiKey string, timeout time.Duration) *Client {
 // in-process Mock. The agent picks one per configured provider.
 type Adapter interface {
 	Chat(ctx context.Context, req Request, o Opts) (*Response, error)
-	Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error)
 }
 
 var _ Adapter = (*Client)(nil)
@@ -660,40 +659,4 @@ func readJSON(r io.Reader, o Opts) (*Response, error) {
 	a := &assembler{calls: map[int]*ToolCall{}, o: o}
 	a.add(c)
 	return a.done(), nil
-}
-
-// Embed returns one vector per input. One attempt: its callers retry (the
-// embed job) or degrade (conversation_search).
-func (c *Client) Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error) {
-	body, err := json.Marshal(map[string]any{"model": model, "input": inputs})
-	if err != nil {
-		return nil, err
-	}
-	var out struct {
-		Data []struct {
-			Index     int       `json:"index"`
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
-	}
-	trace := Record{URL: c.BaseURL + "/embeddings", Request: body, Attempt: 1}
-	_, err = c.post(ctx, "embedding", trace, body, rec, func(_ http.Header, r io.Reader) (json.RawMessage, error) {
-		if err := json.NewDecoder(io.LimitReader(r, 64<<20)).Decode(&out); err != nil {
-			return nil, fmt.Errorf("bad response: %w", err)
-		}
-		return fmt.Appendf(nil, `{"count":%d}`, len(out.Data)), nil // vectors are not stored in the trace
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(out.Data) != len(inputs) {
-		return nil, fmt.Errorf("embeddings: got %d vectors for %d inputs", len(out.Data), len(inputs))
-	}
-	vecs := make([][]float32, len(inputs))
-	for _, d := range out.Data {
-		if d.Index < 0 || d.Index >= len(vecs) {
-			return nil, errors.New("embeddings: bad index")
-		}
-		vecs[d.Index] = d.Embedding
-	}
-	return vecs, nil
 }

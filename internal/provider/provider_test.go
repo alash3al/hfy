@@ -69,20 +69,6 @@ func TestChatClientErrorDoesNotRetry(t *testing.T) {
 	}
 }
 
-func TestEmbed(t *testing.T) {
-	f := fakeprov.New(t)
-	c := provider.New("p", f.URL1(), "", time.Second)
-	var recs []provider.Record
-	v, err := c.Embed(t.Context(), "e", []string{"a b", "c"}, func(r provider.Record) int64 { recs = append(recs, r); return 1 })
-	if err != nil || len(v) != 2 || len(v[0]) != 3 {
-		t.Fatalf("%v %v", v, err)
-	}
-	// Same trace as chat: one row per attempt, status, and no vectors stored.
-	if len(recs) != 1 || recs[0].Status != 200 || string(recs[0].Response) != `{"count":2}` || !strings.HasSuffix(recs[0].URL, "/embeddings") {
-		t.Fatalf("trace %+v", recs)
-	}
-}
-
 // The timeout bounds silence, not the whole answer: a long generation that
 // keeps streaming must not be cut off and retried.
 func TestChatTimeoutIsIdleNotTotal(t *testing.T) {

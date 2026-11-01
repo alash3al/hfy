@@ -10,6 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// removedKeys are keys an earlier release accepted: the message replaces the
+// generic unknown-key error, and the key is refused whatever its value.
+var removedKeys = map[string]string{
+	"config.embeddings": "embeddings was removed in v2; expose memory as an MCP tool",
+}
+
 // checkKeys rejects keys that match no config field, with the line they are
 // on. A typo must stop startup: "aproval:" silently meaning "no approvals"
 // is the worst way for a config to fail.
@@ -39,6 +45,9 @@ func checkKeys(n *yaml.Node, t reflect.Type, path string) error {
 		}
 		for kv := range slices.Chunk(n.Content, 2) {
 			k := kv[0]
+			if msg, gone := removedKeys[path+"."+k.Value]; gone {
+				return fmt.Errorf("line %d: %s", k.Line, msg)
+			}
 			ft, ok := fields[k.Value]
 			if !ok {
 				return fmt.Errorf("line %d: unknown key %q in %s (known: %s)", k.Line, k.Value,

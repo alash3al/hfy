@@ -15,7 +15,7 @@ import (
 // delivers what was queued, in the order it was notified.
 func TestHubDeliversQueuedEventsInOrder(t *testing.T) {
 	ctx := t.Context()
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	conv, err := store.CreateConversation(ctx)
 	if err != nil {
 		t.Fatal(err)

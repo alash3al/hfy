@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 // config reserves every built-in tool name, so no sub-agent (an hfy.* tool
 // too) can shadow one.
 func TestBuiltinNamesAreReserved(t *testing.T) {
-	names := []string{ToolSearch, ConversationSearch, AskUser}
+	names := []string{ToolSearch, AskUser}
 	for _, c := range CoreTools() {
 		names = append(names, c.Tool.Name)
 	}
@@ -72,5 +73,16 @@ func TestBuiltinNamesAreReserved(t *testing.T) {
 	reserved := slices.Sorted(slices.Values(config.BuiltinTools))
 	if !slices.Equal(names, reserved) {
 		t.Fatalf("config.BuiltinTools = %v, want %v", reserved, names)
+	}
+}
+
+// tools.json defines exactly the built-ins hfy offers (plus the shared
+// sub-agent shape): a definition nothing registers is dead text.
+func TestToolsJSONHasNoStrayDefinitions(t *testing.T) {
+	want := []string{ToolSearch, Now, MathCalc, AskUser, "subagent"}
+	slices.Sort(want)
+	got := slices.Sorted(maps.Keys(defs))
+	if !slices.Equal(got, want) {
+		t.Fatalf("tools.json defines %v, want %v", got, want)
 	}
 }

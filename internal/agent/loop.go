@@ -42,7 +42,7 @@ const approvalTimeout = 10 * time.Minute
 // them. Sub-agent tools (hfy.<name>) stay guardable.
 var coreNoApproval = map[string]bool{
 	builtins.Now: true, builtins.MathCalc: true,
-	builtins.ToolSearch: true, builtins.ConversationSearch: true,
+	builtins.ToolSearch: true,
 }
 
 const (

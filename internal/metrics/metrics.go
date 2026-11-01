@@ -32,7 +32,7 @@ var (
 		"Model tokens by agent (main, a sub-agent, summarizer) and kind (input, output, cached).", "agent", "kind")
 
 	ProviderRequests = counter("hfy_provider_requests_total",
-		"Provider HTTP attempts by provider, kind (chat, embedding) and outcome (ok, error).", "provider", "kind", "outcome")
+		"Provider HTTP attempts by provider, kind (chat) and outcome (ok, error).", "provider", "kind", "outcome")
 	ProviderDuration = histogram("hfy_provider_request_duration_seconds",
 		"Provider HTTP attempt latency by provider and kind.", "provider", "kind")
 

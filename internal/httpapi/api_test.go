@@ -61,7 +61,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 		tweak(cfg)
 	}
 	cfg.SetDefaults()
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	t.Cleanup(cancel)
 	rt, err := agent.NewRuntime(cfg, store, mcp.NewManager())
 	if err != nil {
@@ -70,7 +70,7 @@ func start(t *testing.T, tweak func(*config.Config), script ...fakeprov.Step) *a
 	if err := rt.Boot(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueEmbeddings, types.QueueMaintenance})
+	w := jobs.NewWorker(store, cfg.Queue.Lease.D(), []string{types.QueueTurns, types.QueueMaintenance})
 	rt.RegisterJobs(w)
 	go w.Run(ctx, 2)
 	hub := httpapi.NewHub(store)

@@ -16,7 +16,7 @@ import (
 // transaction as the message: the conversation, the message.text event, the
 // uploader, the key, and the type, size and name.
 func TestPostInsertsConversationFiles(t *testing.T) {
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	s := svc.New(store, &config.Config{Queue: config.Queue{MaxAttempts: 3}})
 	ctx := context.Background()
 	conv, _ := store.CreateConversation(ctx)
@@ -62,7 +62,7 @@ func TestPostInsertsConversationFiles(t *testing.T) {
 // The row insert lives inside Post's transaction: any failure rolls the
 // message events and the file rows back together.
 func TestPostFilesFailTogether(t *testing.T) {
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	s := svc.New(store, &config.Config{Queue: config.Queue{MaxAttempts: 3}})
 	ctx := context.Background()
 	conv, _ := store.CreateConversation(ctx)

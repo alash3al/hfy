@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"hash/fnv"
 	"slices"
 	"strings"
 	"time"
@@ -17,7 +16,6 @@ type MockOptions struct {
 	Reply, Reasoning string
 	Delay            time.Duration
 	ErrorStatus      int
-	EmbedDimensions  int
 	ToolName         string
 	ToolArguments    string
 }
@@ -143,39 +141,4 @@ func (m *Mock) Chat(ctx context.Context, req Request, o Opts) (*Response, error)
 		})
 	}
 	return resp, nil
-}
-
-func (m *Mock) Embed(ctx context.Context, model string, inputs []string, rec func(Record) int64) ([][]float32, error) {
-	start := time.Now()
-	reqJSON, _ := json.Marshal(map[string]any{"model": model, "inputs": len(inputs)})
-	if m.Opts.ErrorStatus != 0 {
-		err := &APIError{Status: m.Opts.ErrorStatus, Body: "mock error"}
-		metrics.ProviderRequests.WithLabelValues(m.Name, "embedding", metrics.Outcome(true)).Inc()
-		metrics.Since(metrics.ProviderDuration.WithLabelValues(m.Name, "embedding"), start)
-		if rec != nil {
-			rec(Record{URL: "mock://" + m.Name, Request: reqJSON, Attempt: 1, Status: m.Opts.ErrorStatus, Error: err.Error()})
-		}
-		return nil, err
-	}
-	dims := m.Opts.EmbedDimensions
-	if dims == 0 {
-		dims = 384
-	}
-	vecs := make([][]float32, len(inputs))
-	for i, input := range inputs {
-		vec := make([]float32, dims)
-		for word := range strings.FieldsSeq(strings.ToLower(input)) {
-			h := fnv.New32a()
-			_, _ = h.Write([]byte(word))
-			vec[int(h.Sum32()%uint32(dims))]++
-		}
-		vecs[i] = vec
-	}
-	metrics.ProviderRequests.WithLabelValues(m.Name, "embedding", metrics.Outcome(false)).Inc()
-	metrics.Since(metrics.ProviderDuration.WithLabelValues(m.Name, "embedding"), start)
-	if rec != nil {
-		respJSON, _ := json.Marshal(map[string]any{"count": len(inputs)})
-		rec(Record{URL: "mock://" + m.Name, Request: reqJSON, Response: respJSON, Attempt: 1})
-	}
-	return vecs, nil
 }

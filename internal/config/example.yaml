@@ -6,7 +6,7 @@ server:
   secret: ${HFY_SERVER_SECRET}       # required: your backend's key (conversations, grants)
   # cors_origins: ["https://shop.example.com"]  # web pages that may call the client routes; ["*"] = any
 
-database:                             # conversations, events, jobs, trace, vectors (pgvector 0.8.0+)
+database:                             # conversations, events, jobs, trace (plain Postgres 17)
   url: ${DATABASE_URL}
 
 # metrics:                           # optional; omit = off. Every process (serve and
@@ -30,7 +30,7 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
   #   api_key: ${OPENROUTER_API_KEY}
   # mock:                            # in-process fake for dev/testing: no server needed
   #   type: mock
-  #   mock: { reply: "Hello from mock", embed_dimensions: 768 }
+  #   mock: { reply: "Hello from mock" }
 
 # mcp:                               # ALL external tools come from here
 #   files:
@@ -52,10 +52,6 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 #     type: remote
 #     url: https://search.example.com/mcp
 #     headers: { Authorization: "Bearer ${SEARCH_TOKEN}" }
-
-# embeddings:                        # optional; omit = conversation_search is disabled
-#   model: local/nomic-embed-text
-#   dimensions: 768
 
 # attachments:                       # optional; omit = attachments are rejected
 #   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]

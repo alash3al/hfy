@@ -36,7 +36,7 @@ func startFiles(t *testing.T, fs config.Filesystem) *fsapi {
 		Filesystem: &fs,
 	}
 	cfg.SetDefaults()
-	store := dbtest.New(t, nil)
+	store := dbtest.New(t)
 	srv := httpapi.New(cfg, store, svc.New(store, cfg), nil)
 	bucket, err := files.Open(ctx, fs.DSN)
 	if err != nil {

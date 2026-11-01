@@ -17,10 +17,10 @@ import (
 // holds one deadlocks once the pool is exhausted; with a one-connection pool
 // it deadlocks every time.
 func TestMutationsNeedOneConnection(t *testing.T) {
-	big := dbtest.New(t, nil)
+	big := dbtest.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	store, err := db.Open(ctx, big.Pool.Config().ConnConfig.ConnString(), 1, nil)
+	store, err := db.Open(ctx, big.Pool.Config().ConnConfig.ConnString(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
