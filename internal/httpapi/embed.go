@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alash3al/hfy/internal/files"
 )
@@ -25,7 +27,12 @@ var embeddedAssets = sync.OnceValues(func() (*assets, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newAssets(sub, encoders)
+	start := time.Now()
+	a, err := newAssets(sub, encoders)
+	if err == nil {
+		slog.Info("embed assets ready", "files", len(a.byName), "compress_ms", time.Since(start).Milliseconds())
+	}
+	return a, err
 })
 
 type embedConfig struct {
@@ -124,13 +131,27 @@ func (s *Server) buildPage() (*content, string, error) {
 	return c, csp, err
 }
 
-// serveEmbedAsset serves every embedded file under its own name; an unknown
-// name is a plain 404.
+// serveEmbedAsset serves every embedded file at two URLs: under its own name,
+// where it revalidates (hosts pin these), and under its content hash, where it
+// is immutable. An unknown name, or a hash that is not the current one, is a
+// plain 404 and not a redirect: a redirect would answer a stale hashed URL
+// with different bytes, and a page must get exactly the files it names.
 func (s *Server) serveEmbedAsset(w http.ResponseWriter, r *http.Request) {
-	a := s.assets.byName[r.PathValue("name")]
+	name := r.PathValue("name")
+	hashed := strings.HasPrefix(name, assetsPrefix)
+	a := s.assets.byName[name]
+	if hashed {
+		a = s.assets.byHashed[strings.TrimPrefix(name, assetsPrefix)]
+	}
 	if a == nil {
+		w.Header().Add("Vary", "Accept-Encoding")
+		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	serveContent(w, r, a.content, "no-cache")
+	cacheControl := "no-cache"
+	if hashed {
+		cacheControl = immutable
+	}
+	serveContent(w, r, a.content, cacheControl)
 }

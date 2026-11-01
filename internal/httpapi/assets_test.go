@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -548,3 +550,279 @@ func TestShellSizeBudget(t *testing.T) {
 		t.Errorf("shell is %d bytes of brotli, over the %d budget (gzip %d, raw %d):%s", br, shellBudget, gz, raw, report.String())
 	}
 }
+
+func TestHashedNameFollowsContent(t *testing.T) {
+	hashed := func(name, data string) string {
+		fsys := testFS()
+		fsys[name] = &fstest.MapFile{Data: []byte(data)}
+		return mustAssets(t, fsys).byName[name].hashed
+	}
+	a, b := hashed("app.js", "one"), hashed("app.js", "two")
+	if a == b {
+		t.Errorf("different content, same hashed name %s", a)
+	}
+	if again := hashed("app.js", "one"); again != a {
+		t.Errorf("same content, different hashed name: %s vs %s", again, a)
+	}
+	if !regexp.MustCompile(`^app\.[0-9a-f]{12}\.js$`).MatchString(a) {
+		t.Errorf("shape: %s", a)
+	}
+	for name, want := range map[string]string{
+		"sub/deep.js":      `^sub/deep\.[0-9a-f]{12}\.js$`,
+		"alpine.min.js":    `^alpine\.min\.[0-9a-f]{12}\.js$`,
+		"README":           `^README\.[0-9a-f]{12}$`,
+		"layouts/w.css":    `^layouts/w\.[0-9a-f]{12}\.css$`,
+		"dir.v2/noext":     `^dir\.v2/noext\.[0-9a-f]{12}$`,
+		"x.tar.gz-ish.css": `^x\.tar\.gz-ish\.[0-9a-f]{12}\.css$`,
+	} {
+		if got := hashed(name, "z"); !regexp.MustCompile(want).MatchString(got) {
+			t.Errorf("%s -> %s, want %s", name, got, want)
+		}
+	}
+}
+
+func TestRegistryRewritesTheDocument(t *testing.T) {
+	fsys := testFS()
+	fsys["index.html"] = &fstest.MapFile{Data: []byte(`<link href="/embed/app.css"><script src="/embed/app.js"></script><script src='/embed/sub/deep.js'></script>` +
+		`<script src="/embed/app.js.map"></script><a href="/embed/missing.js"><img src="https://x/embed/app.js">`)}
+	a := mustAssets(t, fsys)
+	page := string(a.template)
+	for _, name := range []string{"app.css", "app.js", "sub/deep.js"} {
+		if !strings.Contains(page, "/embed/assets/"+a.byName[name].hashed) {
+			t.Errorf("%s not rewritten: %s", name, page)
+		}
+	}
+	for _, kept := range []string{`"/embed/app.js.map"`, `"/embed/missing.js"`, `https://x/embed/app.js`} {
+		if !strings.Contains(page, kept) {
+			t.Errorf("%s must be left alone: %s", kept, page)
+		}
+	}
+	if strings.Contains(page, `"/embed/app.js"`) || strings.Contains(page, `'/embed/sub/deep.js'`) {
+		t.Errorf("unhashed reference left: %s", page)
+	}
+	if _, err := newAssets(fstest.MapFS{"assets/x.js": {Data: []byte("x")}}, nil); err == nil {
+		t.Error("a file under assets/ would shadow the hashed namespace")
+	}
+}
+
+// Only hashed URLs are immutable; the unhashed names and the page revalidate.
+func TestImmutableOnlyOnHashedURLs(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	for name, as := range a.byName {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			hashed := get(h, method, "/embed/assets/"+as.hashed)
+			plain := get(h, method, "/embed/"+name)
+			if hashed.Code != 200 || plain.Code != 200 {
+				t.Fatalf("%s %s: %d / %d", method, name, hashed.Code, plain.Code)
+			}
+			if got := hashed.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+				t.Errorf("%s hashed Cache-Control: %q", name, got)
+			}
+			if got := plain.Header().Get("Cache-Control"); got != "no-cache" || strings.Contains(got, "immutable") {
+				t.Errorf("%s unhashed Cache-Control: %q", name, got)
+			}
+			// The same bytes under both names, so they validate alike.
+			if hashed.Header().Get("ETag") != plain.Header().Get("ETag") || !bytes.Equal(hashed.Body.Bytes(), plain.Body.Bytes()) {
+				t.Errorf("%s: the two URLs serve different things", name)
+			}
+			if got := hashed.Header().Get("Vary"); got != "Accept-Encoding" {
+				t.Errorf("%s: Vary %q", name, got)
+			}
+		}
+		// Conditional requests on the immutable URL keep its caching headers.
+		w := get(h, http.MethodGet, "/embed/assets/"+as.hashed, "If-None-Match", as.content.identity.etag)
+		if w.Code != 304 || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+			t.Errorf("%s: %d %v", name, w.Code, w.Header())
+		}
+	}
+	page := get(h, http.MethodGet, "/embed")
+	if page.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("page Cache-Control: %q", page.Header().Get("Cache-Control"))
+	}
+}
+
+func TestHashedURLHostileInput(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	ui := a.byName["ui.js"]
+	css := a.byName["ui.css"]
+	stem := strings.TrimSuffix(ui.hashed, ".js") // ui.<hash>
+	hash := strings.TrimPrefix(stem, "ui.")
+	for _, target := range []string{
+		"/embed/assets/ui.js",                                             // known name, no hash
+		"/embed/assets/ui.000000000000.js",                                // known name, unknown hash
+		"/embed/assets/" + strings.TrimSuffix(css.hashed, ".css") + ".js", // a hash of another file
+		"/embed/assets/ui." + strings.ToUpper(hash) + ".js",               // hashes are lowercase
+		"/embed/assets/UI." + hash + ".js",                                // names are case sensitive
+		"/embed/assets/ui." + hash[:11] + ".js",                           // truncated
+		"/embed/assets/ui." + hash + "0.js",                               // extended
+		"/embed/assets/" + ui.hashed + "/",                                // trailing slash
+		"/embed/assets/" + ui.hashed + "%00",                              // NUL
+		"/embed/assets/" + ui.hashed + ".gz",                              // suffix
+		"/embed/assets/",                                                  // the namespace itself
+		"/embed/assets",                                                   // without the slash
+		"/embed/assets//" + ui.hashed,                                     // empty segment
+		"/embed/assets/%2e%2e/" + ui.hashed,                               // encoded dot segments
+		"/embed/assets/..%2f" + ui.hashed,                                 // encoded slash
+		"/embed/assets/%252e%252e/" + ui.hashed,                           // double encoding
+		"/embed/assets/..%252fui.js",                                      // double-encoded slash
+		"/embed/assets/ui.%2e" + hash + ".js",                             // encoded dot inside
+		"/embed/assets/%75i." + hash + ".js/..",                           // escaped letter plus dot segment
+		"/embed/assets/assets/" + ui.hashed,                               // nested namespace
+		"/embed/assets/index.html",                                        // the template
+		"/embed/assets/../../../etc/passwd",                               // traversal
+		"/embed/assets/" + strings.Repeat("a", 1<<16) + ".js",             // long
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			w := get(h, method, target)
+			if w.Code == 200 {
+				t.Errorf("%s %.80s: served", method, target)
+			}
+			if w.Code == 404 && strings.Contains(w.Header().Get("Cache-Control"), "immutable") {
+				t.Errorf("%.80s: a 404 must never be cached as immutable", target)
+			}
+		}
+	}
+	// An unknown hash is a 404, never a redirect to the current file.
+	if w := get(h, http.MethodGet, "/embed/assets/ui.000000000000.js"); w.Code != 404 || w.Header().Get("Location") != "" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("stale hash: %d %v", w.Code, w.Header())
+	}
+	// A query string changes nothing; the right file is served.
+	if w := get(h, http.MethodGet, "/embed/assets/"+ui.hashed+"?v=1"); w.Code != 200 {
+		t.Errorf("query: %d", w.Code)
+	}
+	if w := get(h, http.MethodPost, "/embed/assets/"+ui.hashed); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST: %d", w.Code)
+	}
+}
+
+var embedRef = regexp.MustCompile(`(?:src|href)=["'](/embed/[^"']*)["']`)
+
+// Every asset the page references exists, and the served page names each at
+// its hashed URL, which answers 200 with the right type.
+func TestPageAssetsExist(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	raw, err := embedFS.ReadFile("embed/" + pageName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := embedRef.FindAllStringSubmatch(string(raw), -1)
+	if len(refs) < 4 {
+		t.Fatalf("expected the page to reference its scripts and stylesheet, found %v", refs)
+	}
+	page := get(h, http.MethodGet, "/embed").Body.String()
+	for _, m := range refs {
+		name := strings.TrimPrefix(m[1], "/embed/")
+		as := a.byName[name]
+		if as == nil {
+			t.Errorf("index.html references %s, which is not embedded", m[1])
+			continue
+		}
+		if !strings.Contains(page, `"/embed/assets/`+as.hashed+`"`) {
+			t.Errorf("%s is not served at its hashed URL", m[1])
+		}
+		if strings.Contains(page, `"`+m[1]+`"`) {
+			t.Errorf("%s is still referenced unhashed", m[1])
+		}
+		w := get(h, http.MethodGet, "/embed/assets/"+as.hashed)
+		if w.Code != 200 || w.Header().Get("Content-Type") != as.content.ctype {
+			t.Errorf("%s: %d %q", as.hashed, w.Code, w.Header().Get("Content-Type"))
+		}
+	}
+	// Every URL in the served page resolves.
+	for _, m := range embedRef.FindAllStringSubmatch(page, -1) {
+		if w := get(h, http.MethodGet, m[1]); w.Code != 200 {
+			t.Errorf("%s: %d", m[1], w.Code)
+		}
+	}
+}
+
+// The page's CSP does not change with hashed URLs: same-origin files, and
+// nothing inline but the one script allowed by its hash.
+func TestPageCSPUnchanged(t *testing.T) {
+	cfg := &config.Config{Server: config.Server{Secret: "s", CORSOrigins: []string{"https://shop.example.com"}}}
+	cfg.SetDefaults()
+	w := get(New(cfg, nil, nil, nil).Handler(), http.MethodGet, "/embed")
+	csp := w.Header().Get("Content-Security-Policy")
+	want := regexp.MustCompile(`^default-src 'self'; script-src 'self' 'sha256-[A-Za-z0-9+/]{43}='; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; frame-ancestors https://shop\.example\.com$`)
+	if !want.MatchString(csp) {
+		t.Errorf("CSP: %s", csp)
+	}
+	if n := strings.Count(w.Body.String(), "<script>"); n != 1 {
+		t.Errorf("%d inline scripts, want the one config script", n)
+	}
+	if strings.Contains(w.Body.String(), "<style") {
+		t.Error("inline style")
+	}
+}
+
+// HEAD answers with exactly the headers of GET, and no body.
+func TestHeadMatchesGet(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	ui := a.byName["ui.js"]
+	for _, target := range []string{"/embed", "/embed/ui.js", "/embed/assets/" + ui.hashed, "/embed/ui.css", "/embed/assets/nope.js", "/embed/nope"} {
+		for _, hdr := range [][]string{
+			nil,
+			{"Accept-Encoding", "br"},
+			{"Accept-Encoding", "gzip"},
+			{"Accept-Encoding", "identity;q=0"},
+			{"If-None-Match", "*"},
+			{"If-None-Match", ui.content.identity.etag},
+			{"Range", "bytes=0-9"},
+		} {
+			g, hd := get(h, http.MethodGet, target, hdr...), get(h, http.MethodHead, target, hdr...)
+			// (the recorder, unlike a server, does not drop the text of an error answered to HEAD)
+			if g.Code != hd.Code || (hd.Code < 400 && hd.Body.Len() != 0) || !maps.EqualFunc(g.Header(), hd.Header(), slices.Equal) {
+				t.Errorf("%s %v: GET %d %v, HEAD %d %v", target, hdr, g.Code, g.Header(), hd.Code, hd.Header())
+			}
+		}
+	}
+	// Thousands of header lines are bounded, not matched.
+	var many []string
+	for range 5000 {
+		many = append(many, "If-None-Match", `"x"`)
+	}
+	many = append(many, "If-None-Match", ui.content.identity.etag)
+	if w := get(h, http.MethodGet, "/embed/ui.js", many...); w.Code != 200 {
+		t.Errorf("many If-None-Match lines: %d", w.Code)
+	}
+}
+
+func BenchmarkServeAsset(b *testing.B) {
+	cfg := &config.Config{Server: config.Server{Secret: "s"}}
+	cfg.SetDefaults()
+	h := New(cfg, nil, nil, nil).Handler()
+	a, _ := embeddedAssets()
+	for _, c := range []struct{ name, target, ae, inm string }{
+		{"ui.js identity", "/embed/assets/" + a.byName["ui.js"].hashed, "", ""},
+		{"ui.js gzip", "/embed/assets/" + a.byName["ui.js"].hashed, "gzip", ""},
+		{"ui.js br", "/embed/assets/" + a.byName["ui.js"].hashed, "gzip, deflate, br", ""},
+		{"ui.js 304", "/embed/ui.js", "br", "*"},
+		{"page br", "/embed", "br", ""},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			r := httptest.NewRequest(http.MethodGet, c.target, nil)
+			if c.ae != "" {
+				r.Header.Set("Accept-Encoding", c.ae)
+			}
+			if c.inm != "" {
+				r.Header.Set("If-None-Match", c.inm)
+			}
+			h.ServeHTTP(httptest.NewRecorder(), r) // builds the page
+			b.ReportAllocs()
+			for b.Loop() {
+				h.ServeHTTP(&discard{header: http.Header{}}, r)
+			}
+		})
+	}
+}
+
+// discard is a ResponseWriter that keeps nothing, so a benchmark measures serving alone.
+type discard struct{ header http.Header }
+
+func (d *discard) Header() http.Header         { return d.header }
+func (d *discard) Write(p []byte) (int, error) { return len(p), nil }
+func (d *discard) WriteHeader(int)             {}

@@ -120,10 +120,25 @@ func newContent(ctype string, raw []byte, compressible bool, encs []encoding) (*
 	return c, nil
 }
 
-// asset is one embedded file.
+// assetsPrefix is the URL namespace of content-hashed assets (under /embed/).
+const assetsPrefix = "assets/"
+
+// immutable is for URLs that name their content: the bytes behind one never change.
+const immutable = "public, max-age=31536000, immutable"
+
+// asset is one embedded file, served at two URLs: /embed/<name>, which
+// revalidates, and the content-hashed /embed/assets/<stem>.<hash><ext>, which never changes.
 type asset struct {
 	name    string // path under embed/: "ui.js"
+	hashed  string // path under /embed/assets/: "ui.3fa9c1d2e4b5.js"
 	content *content
+}
+
+// hashedName puts the first 12 hex digits of the content's sha256 before the extension.
+func hashedName(name string, raw []byte) string {
+	sum := sha256.Sum256(raw)
+	ext := path.Ext(name)
+	return strings.TrimSuffix(name, ext) + "." + hex.EncodeToString(sum[:6]) + ext
 }
 
 // assets is the registry of every embedded file, built once from the
@@ -132,11 +147,12 @@ type asset struct {
 type assets struct {
 	encs     []encoding
 	byName   map[string]*asset
-	template []byte // pageName, nil when the tree has none
+	byHashed map[string]*asset
+	template []byte // pageName with every asset it references at its hashed URL; nil when the tree has none
 }
 
 func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
-	a := &assets{encs: encs, byName: map[string]*asset{}}
+	a := &assets{encs: encs, byName: map[string]*asset{}, byHashed: map[string]*asset{}}
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -149,6 +165,9 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 			a.template = raw
 			return nil
 		}
+		if strings.HasPrefix(name, assetsPrefix) {
+			return fmt.Errorf("embed %s: the %s directory is reserved for hashed URLs", name, assetsPrefix)
+		}
 		ft, ok := fileTypes[strings.ToLower(path.Ext(name))]
 		if !ok {
 			ft.ctype = "application/octet-stream"
@@ -157,10 +176,29 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 		if err != nil {
 			return fmt.Errorf("embed %s: %w", name, err)
 		}
-		a.byName[name] = &asset{name: name, content: c}
+		as := &asset{name: name, hashed: hashedName(name, raw), content: c}
+		a.byName[name] = as
+		a.byHashed[as.hashed] = as
 		return nil
 	})
-	return a, err
+	if err != nil {
+		return nil, err
+	}
+	if a.template != nil {
+		a.template = a.rewrite(a.template)
+	}
+	return a, nil
+}
+
+// rewrite points every quoted /embed/<name> reference in html at the asset's
+// hashed URL. Only whole quoted values match, so ui.js never touches ui.js.map.
+func (a *assets) rewrite(html []byte) []byte {
+	for _, as := range a.byName {
+		for _, q := range []string{`"`, `'`} {
+			html = bytes.ReplaceAll(html, []byte(q+"/embed/"+as.name+q), []byte(q+"/embed/"+assetsPrefix+as.hashed+q))
+		}
+	}
+	return html
 }
 
 // serveContent answers GET and HEAD for c, in the encoding the client accepts
