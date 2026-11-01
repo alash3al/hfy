@@ -76,8 +76,9 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 - `agents.main` is required: the default agent, which answers a grant that
   names no `agent`. More agents sit next to it under `agents.<name>`.
 - `agents.<name>.settings.context_window` is required (there is no auto-discovery):
-  the model's real window. History is compacted at 80% of it, leaving room
-  for the reply and the step's tool results.
+  the model's real window. History is compacted at 80% of what is left of it after
+  `max_output_tokens` (all of it when that is unset), which leaves room for the
+  reply and the step's tool results.
   Set it somewhat below the model's real limit.
 - `agents.<name>.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
   (small prompt). Set it to restrict, and the tools are listed directly.
@@ -103,7 +104,9 @@ four optional controls. Each is sent only when set, and none has a default:
 - `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
   sent as `reasoning_effort`. Providers and models accept different subsets; see
   "Provider notes" below.
-- `max_output_tokens`: caps each call's output, reasoning included. It is sent as
+- `max_output_tokens`: caps each call's output, reasoning included. It must be
+  smaller than the same block's `context_window`: startup refuses a value at or
+  above it (a sub-agent with no `context_window` is not compared). It is sent as
   `max_tokens`, or as `max_completion_tokens` when the provider sets
   `max_tokens_param: max_completion_tokens`.
 - `call_timeout`: the longest a whole chat call may take, retries included. Past it
@@ -728,7 +731,8 @@ event as stored.
   pure function of the events (no clock, no map order): the same events and config
   give the same bytes on every run.
 - **Memory.** The summarizer appends a `summary` event when the next prompt
-  would pass 80% of `context_window` (history is never deleted). It folds
+  would pass 80% of `context_window` minus `max_output_tokens` (the whole window
+  when that is unset; history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
   results can still outgrow the window. If summarizing fails, hfy logs it and
   the turn goes on uncompacted, without a second try in that turn. hfy has
@@ -881,6 +885,15 @@ event as stored.
   `queue:work`). Drop `embeddings` from `queue:work -q`: naming it is not an
   error, the worker just polls that queue and finds nothing it can run, since
   no `embed_events` handler exists.
+- `max_output_tokens` must be smaller than the same block's `context_window`. A
+  block (`agents.<name>`, `subagents.<name>` or `summarizer`) that sets both, with
+  the cap at or above the window, stops EVERY command that reads the config
+  (`serve`, `queue:work`, `validate`, `migrate`) with
+  `agents.main.settings: max_output_tokens (32000) must be smaller than context_window (32000)`,
+  naming the block and both values. Lower the cap or raise the window. A sub-agent with no `context_window` is not
+  compared. Compaction also leaves the cap its room: history is compacted at 80%
+  of `context_window` minus `max_output_tokens`, so a config that sets the cap
+  compacts earlier. Without the cap, nothing changes.
 
 ## Upgrading to renewable grants
 

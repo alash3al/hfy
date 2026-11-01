@@ -207,7 +207,7 @@ func TestValidateFence(t *testing.T) {
 		{name: "complete config", yaml: whole + "providers: { p: { url: http://x } }\nagents: { main: { model: p/m, settings: { context_window: 9 } } }"},
 		{name: "partial snippet gets the base", yaml: "embed: { layout: transcript }"},
 		{name: "partial agent merges into the base agent", yaml: "agents:\n  main:\n    system: hi\n    settings: { temperature: 0.2 }"},
-		{name: "partial agent with an unknown provider", yaml: "agents:\n  main:\n    model: openrouter/vendor/model\n    settings:\n      max_output_tokens: 8192"},
+		{name: "partial agent with an unknown provider", yaml: "agents:\n  main:\n    model: openrouter/vendor/model\n    settings:\n      max_output_tokens: 512"},
 		{name: "snippet adds a provider", yaml: "providers:\n  mock: { type: mock }\nagents: { main: { model: mock/demo } }"},
 		{name: "env placeholders expand", yaml: "providers:\n  openai: { url: https://x, api_key: \"${OPENAI_API_KEY}\" }"},
 
