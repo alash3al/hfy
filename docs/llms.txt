@@ -421,6 +421,47 @@ Your backend (`Authorization: Bearer <server.secret>`; the scheme name is case-i
 
   The token is returned once; hfy keeps only its SHA-256. A lost token cannot
   be recovered: create another grant.
+- `POST /v1/conversations/{id}/events` `{type, text, key, source?}` → `201` with
+  the event (the shared envelope under "Events"). Tell the model something about
+  a conversation without a client: your backend files a durable event as a
+  **host**, an actor of type `host` whose `ref` is `source` (a name for the
+  sender, such as `crm`; default `host`). It never starts a turn and nothing
+  waits on it: it is filed under the turn that is running (or paused), else the
+  oldest still open, else the newest (see "Prompt notes"), and the model reads
+  it at its next step or turn.
+  - `type`: `note` is a `context.note`, text for the model that a client may
+    show or hide; `message` is a `host.message`, shown to the user
+    and read by the model too. Both reach the model as data in a labelled block,
+    never as instructions or as a person's words (see "Prompt notes").
+  - `text`: 1 byte to 16 KiB of text after cleaning (NUL dropped, invalid UTF-8
+    replaced, a leading BOM removed); blank, a longer text, or a value that is
+    not a string is `400`.
+  - `key`: required, 1 to 128 bytes of ASCII letters, digits and `. _ : / @ + = -`
+    (an order id, a uuid, `order-17:paid`); anything else is `400`. Keys are
+    case-sensitive and belong to one (conversation, source): the same key from
+    two sources is two events. Send the same request again after a timeout and
+    nothing is added: a key already used answers `200` with the **first** event,
+    byte for byte (same `id`, same `created_at`), and the new `type` and `text`
+    are ignored, even when they differ. A request is still checked first, so an
+    invalid repeat is `400`. Hosts that retry should reuse one key per fact.
+  - `source`: 1 to 64 of ASCII letters, digits, `_` and `-` (the rule for names
+    in the config). It names the speaker in the prompt (`from="crm"`), so
+    anything else (spaces, quotes, newlines, bidi controls, non-ASCII, `.`) is
+    `400`. Absent, `null` and `""` mean `host`. Sources compare exactly:
+    `CRM` and `crm` are two hosts.
+  - The body is one JSON object of at most 128 KiB (`413` over it): no key twice
+    (in any letter case), no other key, nothing after it, or `400`. `Content-Type`
+    is not read. Other methods on the path are `405`.
+  - `401` without the server secret: a grant's token is not accepted here, and
+    the secret is not accepted on client routes. `404`: unknown conversation (or
+    an id that is not a uuid). `409`: the conversation has no turn yet, so
+    there is nothing to file the event under; static context belongs in grant
+    `vars`, and a host event waits for the first message. `429`: the turn
+    already holds 100 host events (a turn ends at 5000 events, and a runaway
+    host must not spend them); there is no `Retry-After`: the next turn takes
+    events again, and a repeat of an earlier key is still answered `200`.
+    Host events appear in `/history` and on the stream like any durable event,
+    with `actor: {uuid, type: "host", ref}`; the key is not shown.
 - `DELETE /v1/grants/{id}` → `204`. Ends the grant now (revoking twice is fine;
   an unknown id is `404`). Open streams end within 15 s. Pass the `id` the
   mint returned: for a renewable grant that ends every token it was exchanged
@@ -739,9 +780,10 @@ event as stored.
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
 - **Prompt notes.** A `context.note` or `host.message` is durable text put
-  in front of the model; neither starts a turn, and there is no API to write
-  them yet (the host events API will). Who wrote one is the event's actor, never
-  a field of its payload. The model reads each as a user message holding one
+  in front of the model; neither starts a turn. Your backend writes them with
+  `POST /v1/conversations/{id}/events` (see "API"), as an actor of type `host`
+  whose ref is the source name it chose. Who wrote one is the event's actor,
+  never a field of its payload. The model reads each as a user message holding one
   labelled data block, `<context from="crm" kind="host">…</context>` or
   `<host_message from="crm" kind="host">…</host_message>`, with the text
   escaped (`<`, `>`, `&`), so it cannot close its block, open a frame or pass
