@@ -32,6 +32,6 @@ test:
 
 db:
 	@if [ -n "$$(docker ps -q -f 'name=^$(DB_CONTAINER)$$')" ]; then echo "$(DB_CONTAINER) is already running"; exit 0; fi; \
-	docker start $(DB_CONTAINER) >/dev/null 2>&1 || docker run -d --name $(DB_CONTAINER) -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy pgvector/pgvector:pg17 || exit 1; \
+	docker start $(DB_CONTAINER) >/dev/null 2>&1 || docker run -d --name $(DB_CONTAINER) -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy postgres:17 || exit 1; \
 	for i in $$(seq 60); do docker exec $(DB_CONTAINER) pg_isready -q -h 127.0.0.1 -U postgres -d hfy && exit 0; sleep 1; done; \
 	echo "$(DB_CONTAINER) is not accepting connections" >&2; exit 1

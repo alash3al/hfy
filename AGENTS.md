@@ -1,16 +1,29 @@
 # AGENTS.md
 
-hfy is a self-hosted backend and embeddable chat UI for AI conversations: one Go binary plus Postgres with pgvector, configured by one YAML file.
+hfy is a self-hosted backend and embeddable chat UI for AI conversations: one Go binary plus Postgres, configured by one YAML file.
 The host app keeps its users and data; hfy runs the agent loop, calls MCP tools, stores every step as an event and streams replies over SSE.
 
 `docs/reference.md` is the behavior reference. Its "Conventions" table lists each rule and what enforces it: a test, or review.
+
+## Standing rules
+
+- Bad text never reaches Postgres: strings go through `types.Clean` (drops NUL, replaces invalid UTF-8); JSON with a NUL or a lone `\u` surrogate is refused by `storable`, not cleaned.
+- Errors a turn or a job records go through `types.ErrorText` (bounded, URL-scrubbed), never raw. Outbound trace rows do not: `internal/agent/loop.go` (MCP calls) stores raw text, and `internal/provider/provider.go` only redacts signed URLs. Do not copy either.
+- Stack traces go to the log only (`internal/jobs/worker.go`), never into a turn, job, event or error text.
+- Every new config section is strict-keyed (`checkKeys` in `internal/config/strict.go`), appears in `example.yaml` and in `docs/reference.md`. A removed key goes in `removedKeys` (`internal/config/strict.go`) with a tailored message.
+- Breaking config changes get an "Upgrading to vN" section in `docs/reference.md`, as "Upgrading to v2" does.
+- DB tests fail, not skip, under `HFY_TEST_REQUIRE_DB=1` (`dbtest.New`). Node tests should too; only `TestFixturesMatchJS` does yet, and four others in `internal/httpapi` still skip without node.
+- Golden fixtures change only through `-update-fixtures`, never by hand.
+- Every new endpoint documents its status codes and gets a hostile-input table test (header forms, huge, negative and float numbers; see `internal/httpapi/grant_exchange_test.go`).
+- Chain or row growth is bounded by a rate or size rule: the grant exchange allows one renewal per quarter of a token's lifetime (`TestExchangeIsRateLimited`).
+- Secrets and tokens never go to logs, events or error text. A URL carries one only on the event stream (`?token=`, since EventSource cannot send headers) or in a signed file link.
 
 ## Layout
 
 - `main.go`, `harness.go`: the CLI (`serve`, `queue:work`, `migrate`, `validate`, `config:example`) and process wiring.
 - `internal/config`: YAML, strict keys, `${VAR}` expansion. `example.yaml` is embedded here.
 - `internal/types`: shared vocabulary: events, payloads, the registry. Imports nothing internal.
-- `internal/db`: all Postgres access. Embedded `migrations/`, `queries/`, `templates/`. `dbtest` gives tests a database.
+- `internal/db`: all Postgres access. Embedded `migrations/` and `queries/`. `dbtest` gives tests a database.
 - `internal/jobs`: the queue worker (`SKIP LOCKED`).
 - `internal/svc`: conversation mutations shared by the API and the agent. Owns turn state.
 - `internal/agent`: the one agent loop: main agent, sub-agents, tools, prompts, bounds.
@@ -41,7 +54,7 @@ The Makefile pins `GOTOOLCHAIN=go1.27.3`, which matches `go.mod`.
 
 CI's lint step is named "lint (formatting, errcheck, staticcheck, modernize, ...)", but `golangci-lint run` does not report formatting (checked). `make fmt-check` (`golangci-lint fmt --diff`) does, and it is not in CI.
 
-You need Docker for `make db`, or any Postgres with pgvector at `HFY_TEST_DB` (default `postgres://postgres:hfy@127.0.0.1:54330/hfy`). You also need `node` on PATH: `TestFixturesMatchJS` folds the real `embed/ui.js` under node, and it fails without it when `HFY_TEST_REQUIRE_DB=1`. CI uses node 22.
+You need Docker for `make db`, or any Postgres at `HFY_TEST_DB` (default `postgres://postgres:hfy@127.0.0.1:54330/hfy`). You also need `node` on PATH: `TestFixturesMatchJS` folds the real `embed/ui.js` under node, and it fails without it when `HFY_TEST_REQUIRE_DB=1`. CI uses postgres:17 and node 22.
 
 If `make check` says "no test postgres", run `make db`. It starts the `hfy-testdb` container, or does nothing when it is already running.
 
@@ -55,9 +68,7 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && make -C "$d" check
 
 - DB tests call `dbtest.New(t, ...)`. Each gets its own migrated database, `hfy_t_<hex>`, dropped at cleanup. Without Postgres they skip locally, and with `HFY_TEST_REQUIRE_DB=1` (CI and `make test`) they fail.
 - Tests use `fakeprov` and `fakemcp` instead of real model servers or MCP servers.
-- Golden files:
-  - `internal/httpapi/testdata/bubbles_rules.golden` is hand-kept and pinned by `TestEmbedBubblesRulesUnchanged`. Change it only when the bubbles layout changes on purpose. The failure output shows the rules it generates.
-  - `clients/fixtures` (`expected/*.json`, `strings.json`, `markdown.json`) is generated from the real `embed/ui.js`. Regenerate with `go test ./internal/httpapi -run TestFixturesMatchJS -args -update-fixtures`. Markdown inputs stay hand-written; only their hashes and trees are regenerated. Hand edits fail the test.
+- Golden files: `clients/fixtures` (`expected/*.json`, `strings.json`, `markdown.json`) is generated from the real `embed/ui.js`. Regenerate with `go test ./internal/httpapi -run TestFixturesMatchJS -args -update-fixtures`. Markdown inputs stay hand-written; only their hashes and trees are regenerated. Hand edits fail the test.
 - JSON storage rules are judged by real Postgres: `TestStorableAgreesWithPostgres` in `internal/agent/persist_internal_test.go`. Add a row for each form you accept or refuse.
 - `internal/db/plans_test.go` (`TestHotQueriesUseIndexes`) fails when hot queries fall back to sequential scans.
 
@@ -80,10 +91,10 @@ No test reads the Markdown or `llms.txt`. Keeping them in sync is a review check
 
 ## Migrations
 
-- `internal/db/migrations/NNNNN_name.sql`, embedded and run by goose (`internal/db/store.go`; `hfy migrate up|down|status`). Each existing file has `-- +goose Up` and `-- +goose Down`. The highest now is `00002_conversation_files.sql`, so the next is `00003_`.
+- `internal/db/migrations/NNNNN_name.sql`, embedded and run by goose (`internal/db/store.go`; `hfy migrate up|down|status`). Each existing file has `-- +goose Up` and `-- +goose Down`. The highest is `00004_grant_exchange.sql`, so the next free number is `00005`.
 - One new file per schema change. Migrations stay compatible with the previous release: add first, remove in a later release (`docs/reference.md`, Conventions).
-- Do not edit a migration that a tagged release has run (`git tag`). The one history rewrite, `76753b0`, folded seven migrations into `00001_init.sql`; its message says nothing stored before needed keeping.
-- The embeddings table is not a migration. `Boot` in `internal/db/store.go` creates it from `templates/embeddings.sql`, using the configured dimensions.
+- Do not edit a migration that a tagged release has run (`git tag`). `76753b0` folded seven migrations into `00001_init.sql`; its message says nothing stored before needed keeping.
+- No code creates embeddings tables any more: `00003_drop_embeddings.sql` dropped the old `embeddings_<dims>` ones.
 - SQL lives in `internal/db/queries/*.sql`, embedded. For a change to a hot query, check `plans_test.go`.
 
 ## Hostile-input checklist
