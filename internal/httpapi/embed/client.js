@@ -1,6 +1,8 @@
 'use strict';
 
 // hfy client: history + SSE stream with token refresh. No DOM/storage.
+// A renewable grant swaps its token at the server (POST /v1/conversation/grant/exchange);
+// the host's onTokenNeeded is the fallback for everything else.
 
 var EVENT_TYPES = [
   'turn', 'turn.state', 'turn.cancel_requested', 'message.text', 'reasoning',
@@ -38,6 +40,9 @@ class HfyClient {
   #refreshSkewMs;
   #token = null;
   #expiresAtMs = null;
+  #renewable = null; // null: unknown until the first exchange; false: this grant is at its cap
+  #neverRenew = false; // the server said 409: the host's grants are not renewable
+  #acquiring = null;
   #eventListeners = new Set();
   #stateListeners = new Set();
   // shortcut: unbounded Set; a long-lived client grows ~1 entry per event id.
@@ -67,6 +72,8 @@ class HfyClient {
       (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
     this.#EventSourceFn = opts.EventSource || globalThis.EventSource || null;
     this.#refreshSkewMs = opts.refreshSkewMs != null ? opts.refreshSkewMs : 30000;
+    // onVisible(cb): the host page calls cb whenever it becomes visible again.
+    if (typeof opts.onVisible === 'function') opts.onVisible(() => this.#onVisible());
   }
 
   get state() { return this.#state; }
@@ -178,6 +185,50 @@ class HfyClient {
     if (!token) throw new Error('onTokenNeeded returned no token');
     this.#token = token;
     this.#expiresAtMs = parseExpiryMs(result);
+    this.#renewable = null; // a new grant from the host: learn again whether it renews
+  }
+
+  // One acquisition at a time: a timer, a 401 and a tab coming back must not
+  // each exchange the same token. Only the timer and visibility try the
+  // exchange first; a 401 means the token is dead, which no exchange revives.
+  #acquire(reason) {
+    if (!this.#acquiring) {
+      this.#acquiring = (async () => {
+        try {
+          if (reason !== 'unauthorized' && await this.#exchange()) return;
+          await this.#fetchToken(reason);
+        } finally { this.#acquiring = null; }
+      })();
+    }
+    return this.#acquiring;
+  }
+
+  // true: the token was swapped. Anything else (409, 401, network, odd body) is
+  // false and leaves the token alone, so the caller asks the host.
+  async #exchange() {
+    var sent = this.#token;
+    if (!sent || !this.#fetchFn || this.#neverRenew || this.#renewable === false) return false;
+    try {
+      var res = await this.#fetchFn(this.#api + '/v1/conversation/grant/exchange',
+        { method: 'POST', headers: { Authorization: 'Bearer ' + sent } });
+      var body = await readBody(res);
+      var status = res.status != null ? res.status : (res.ok ? 200 : 0);
+      if (status === 409) { this.#neverRenew = true; return false; }
+      if (status < 200 || status >= 300 || !body || !body.token) return false;
+      if (this.#token === sent) { // else the host answered meanwhile: keep that one
+        this.#token = body.token;
+        this.#expiresAtMs = parseExpiryMs(body);
+        this.#renewable = body.renewable !== false;
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // The page is visible again (timers stop while it is hidden): a token that
+  // is due or past due is renewed now, and the stream follows it.
+  #onVisible() {
+    if (this.#closed || this.#acquiring || !this.#token || this.#expiresAtMs == null) return;
+    if (this.#expiresAtMs - Date.now() <= this.#refreshSkewMs) this.#refreshStream();
   }
 
   async #loadHistory(before) {
@@ -203,8 +254,9 @@ class HfyClient {
   async #requestOnce(path, opts, retryOn401) {
     if (!this.#fetchFn) throw new Error('no fetch implementation available');
     if (!this.#token && !this.#closed) await this.#fetchToken('initial');
+    var sent = this.#token;
     var init = { method: opts.method || 'GET', headers: {} };
-    if (this.#token) init.headers.Authorization = 'Bearer ' + this.#token;
+    if (sent) init.headers.Authorization = 'Bearer ' + sent;
     if (opts.body !== undefined) {
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(opts.body);
@@ -213,8 +265,12 @@ class HfyClient {
     var parsed = await readBody(res);
     var status = res.status != null ? res.status : (res.ok ? 200 : 0);
     if (status === 401 && retryOn401 && !this.#closed) {
-      await this.#fetchToken('unauthorized'); // one refresh, one retry
-      this.#scheduleRefresh();
+      // One refresh, one retry. A token that changed since this request left
+      // (a timer swapped it) is already the answer: retry without the host.
+      if (this.#token === sent) {
+        await this.#acquire('unauthorized');
+        this.#scheduleRefresh();
+      }
       return this.#requestOnce(path, opts, false);
     }
     var ok = res.ok != null ? res.ok : status >= 200 && status < 300;
@@ -242,7 +298,7 @@ class HfyClient {
     if (this.#closed) return;
     this.#setState('refreshing');
     try {
-      await this.#fetchToken('expired');
+      await this.#acquire('expired');
       if (this.#closed) return;
       this.#openStream();
       this.#scheduleRefresh();
@@ -304,7 +360,7 @@ class HfyClient {
       this.#reconnectTimer = null;
       if (this.#closed) return;
       try {
-        await this.#fetchToken('unauthorized');
+        await this.#acquire('unauthorized');
         if (this.#closed) return;
         this.#openStream();
         this.#scheduleRefresh();

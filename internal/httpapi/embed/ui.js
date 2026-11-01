@@ -850,7 +850,8 @@ window.hfyEmbed = function () {
       // the sheet's height changes from step to step
       if (window.ResizeObserver && document.querySelector('.hfy-sheet')) new ResizeObserver(function () { if (self.sheetOpen) self.sheetPad(); }).observe(document.querySelector('.hfy-sheet'));
       hfySendToHost('ready', {});
-      hfyClient = new HfyClient({ api: location.origin, onTokenNeeded: function (r) { return self.requestGrant(r); } });
+      hfyClient = new HfyClient({ api: location.origin, onTokenNeeded: function (r) { return self.requestGrant(r); },
+        onVisible: function (cb) { document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') cb(); }); } });
       hfyClient.onEvent(function (env, isHistory) { self.fold(env, isHistory); });
       hfyClient.onState(function (s) { self.connState = s; self.syncDerived(); });
       try { await hfyClient.connect(); this._loaded = true; } catch (e) { this.connState = 'error'; }
