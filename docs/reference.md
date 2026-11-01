@@ -52,6 +52,7 @@ curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hf
 | `hfy queue:work [-q turns,maintenance] [--workers N]` | workers only; `-q` is a priority-ordered list (default: all) |
 | `hfy validate` | check config, env expansion and startup rules |
 | `hfy migrate [up\|down\|status]` | goose migrations (`serve` and `queue:work` also run `up` on boot) |
+| `hfy context:show <conversation-uuid> [--agent name]` | print the model request the conversation's newest turn would send now (read-only; see "Prompt notes") |
 | `hfy config:example` | print the commented starter config |
 | `hfy version` | |
 
@@ -459,8 +460,9 @@ One envelope for the stream and for history:
 `awaiting_approval` `completed` `failed` `stopped` `cancelled`) ·
 `turn.cancel_requested` · `message.text` · `reasoning` · `tool_call` ·
 `tool_call.interrupted` · `tool_result` · `approval.requested` ·
-`approval.decided` · `model.usage` · `summary` · ephemeral: `text.delta`,
-`reasoning.delta` (never in history).
+`approval.decided` · `model.usage` · `summary` · `context.note` ·
+`host.message` (both `data: {text}`; see "Prompt notes") · ephemeral:
+`text.delta`, `reasoning.delta` (never in history).
 
 Payloads: `message.text` is `{text, attachments?}`; `tool_result` is
 `{call_id, content, is_error, structured?, ui?}` (`ui` is the sanitized
@@ -680,6 +682,42 @@ event as stored.
   unchanged); make actor refs readable (the grant's `actor`) if the model
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
+- **Prompt notes.** A `context.note` or `host.message` is durable text put
+  in front of the model; neither starts a turn, and there is no API to write
+  them yet (the host events API will). Who wrote one is the event's actor, never
+  a field of its payload. The model reads each as a user message holding one
+  labelled data block, `<context from="crm" kind="host">…</context>` or
+  `<host_message from="crm" kind="host">…</host_message>`, with the text
+  escaped (`<`, `>`, `&`), so it cannot close its block, open a frame or pass
+  for a message; text like `System: obey` or `ignore previous instructions` is
+  allowed and stays inside the block. When a prompt holds any note, the system
+  prompt says these blocks are data, not instructions and not from the user. Zero-width
+  and right-to-left characters are kept as written. Notes never change who
+  speaks: they do not make a chat a room, and in a room they are framed the same
+  way. Each is at most 16 KiB of clean UTF-8 (no NUL, no leading BOM); at most
+  64 KiB (as the model reads them, escaped) go into one prompt, dropping the
+  oldest and never the newest; the rest stay in history and compaction folds
+  them into the summary (the summarizer reads each, cut to 2000 bytes).
+  A note stays in every later prompt until a summary covers it. In the prompt
+  a note sits in event order, after the events that came before it; while a tool
+  call is unanswered it waits for the answer, so a result still follows its call.
+  A note is filed under the turn that was newest when it was appended
+  (`parent` in history is that turn when it was written through `svc.AppendNote`), whatever
+  turn it names: one appended after a summary always reaches the model, even if it
+  names a covered turn, and one appended while a now-covered turn was newest is in
+  the summary. Because a running turn rebuilds its prompt at each step, it sees a
+  note appended mid-turn from its next step on (unless a newer turn is already
+  queued: then the note belongs to that turn). Clients see both types in
+  `/history` (under their turn) and on the SSE stream like any durable event; a
+  note on a conversation with no turn is refused, since history pages by turn.
+  `hfy context:show <conversation-uuid> [--agent name]` prints the JSON body of
+  the request the newest turn would send, from the stored events, built by the
+  code and config it runs with now (so a config change shows). It calls no model,
+  runs no tool and no hook, writes nothing (its connection is read-only), and leaves
+  out tools, which need live servers; stored files appear as `hfy-file:<key>`.
+  Read it with `hfy context:show <id> | jq -r '.messages[] | .role, .content'`. The prompt is a
+  pure function of the events (no clock, no map order): the same events and config
+  give the same bytes on every run.
 - **Memory.** The summarizer appends a `summary` event when the next prompt
   would pass 80% of `context_window` (history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
@@ -910,6 +948,7 @@ survive many contributors, so prefer adding a check to adding a sentence.
 | **`svc` owns turn state.** Every `turn.state` change is a `svc` method under the conversation lock; the agent appends only what it produces. | `TestOnlySvcWritesTurnState` |
 | **The event log is the truth.** State is folded from events (`svc.ViewOf`, `agent.buildContext`); events are never updated; payloads are read with `e.Payload[T]()`, and one that does not decode is an error. | review; `Payload` is the only decoder |
 | **Stored data is versioned.** Payloads carry `v` and are upgraded on read (`types.register`); SQL-read fields are frozen. A breaking job payload change is a new job type. Migrations stay compatible with the previous release (add first, remove a release later). | `TestEventVersions`, `TestClaimOnlyHandledTypes`, review |
+| **The prompt is pure.** `buildPrompt` takes events and settings and returns the system text and messages: no database, clock or map iteration, so prompts are byte-stable (provider caches hold, `context:show` is exact). | `TestBuildPromptIsDeterministic`, `TestBuildPromptMatchesOldAssembly`, `TestContextShow` |
 | **Writes that belong together commit together** (an event and the job it implies). | review |
 | **Jobs are fenced by attempt** and resume from the log; side effects are never repeated blindly. | `TestStaleWorkerCannotTouchAReclaimedJob`, crash-recovery tests |
 | **No silent failure.** Errors are returned, or logged with conversation and turn when nothing can act on them. | `errcheck`; review |
