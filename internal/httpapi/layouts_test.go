@@ -47,6 +47,9 @@ func TestLayoutsMatchConfig(t *testing.T) {
 		if !layoutNameRe.MatchString(name) {
 			t.Errorf("layout name %q: lowercase letters, digits and dashes only", name)
 		}
+		if css := cssComment.ReplaceAllString(string(a.byName["layouts/"+name+".css"].content.identity.body), ""); !cssRule.MatchString(css) {
+			t.Errorf("embed/layouts/%s.css has no rule", name)
+		}
 	}
 	if len(config.Layouts) != len(files)+1 {
 		t.Errorf("%d layouts, %d sheets, want one default and one sheet per other layout", len(config.Layouts), len(files))
@@ -143,6 +146,22 @@ func TestLayoutSheetsOwnTheirSelectors(t *testing.T) {
 	for _, layout := range config.Layouts[1:] {
 		if strings.Contains(own, `data-layout="`+layout+`"`) {
 			t.Errorf("ui.css styles %s outside a shared :is() group: that rule belongs in layouts/%s.css", layout, layout)
+		}
+	}
+}
+
+// A layout sheet asked for under a hash this server does not have (a page open
+// across a restart) gets the current bytes and is never cached.
+func TestLayoutStaleHashServesCurrentBytes(t *testing.T) {
+	h := testServer(t)
+	for _, layout := range config.Layouts[1:] {
+		raw, err := os.ReadFile("embed/layouts/" + layout + ".css")
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := get(h, http.MethodGet, "/embed/"+assetsPrefix+"layouts/"+layout+".000000000000.css")
+		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != string(raw) || w.Header().Get("Content-Type") != stylesheet {
+			t.Errorf("%s: %d %q %q", layout, w.Code, w.Header().Get("Cache-Control"), w.Header().Get("Content-Type"))
 		}
 	}
 }

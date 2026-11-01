@@ -36,6 +36,10 @@ func TestReadCustomCSS(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
+	fifoLink := filepath.Join(dir, "pipe.css")
+	if err := os.Symlink(fifo, fifoLink); err != nil {
+		t.Fatal(err)
+	}
 	dangling := filepath.Join(dir, "dangling.css")
 	if err := os.Symlink(filepath.Join(dir, "nope.css"), dangling); err != nil {
 		t.Fatal(err)
@@ -68,6 +72,7 @@ func TestReadCustomCSS(t *testing.T) {
 		{"/dev/zero", "/dev/zero", "", "not a regular file"},
 		{"/dev/null", "/dev/null", "", "not a regular file"},
 		{"FIFO", fifo, "", "not a regular file"},
+		{"symlink to a FIFO", fifoLink, "", "not a regular file"},
 		{"invalid UTF-8", writeCSS(t, []byte(".a{content:\"\xff\xfe\"}")), "", "not valid UTF-8"},
 		{"NUL", writeCSS(t, []byte(".a{color:red}\x00")), "", "NUL"},
 		{"@import", writeCSS(t, []byte("@import url(https://fonts.example.com/x.css);")), "", "@import"},
@@ -278,5 +283,16 @@ func TestCustomCSSLeavesTheCSPAlone(t *testing.T) {
 	w := get(h, http.MethodGet, "/embed")
 	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "style-src 'self';") || strings.Contains(csp, "unsafe-inline") {
 		t.Errorf("CSP %s", csp)
+	}
+}
+
+// An old page open across a restart asks for a hash this server does not have:
+// it gets the current bytes, never cached (the stale-hash rule of every asset).
+func TestCustomCSSStaleHashServesCurrentBytes(t *testing.T) {
+	css := []byte(".a{color:red}")
+	_, h := customServer(t, css, config.Embed{})
+	w := get(h, http.MethodGet, "/embed/"+assetsPrefix+"custom.000000000000.css")
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != string(css) {
+		t.Errorf("%d %q %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
 	}
 }
