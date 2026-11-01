@@ -114,7 +114,7 @@ Keys at a glance (`hfy config:example` prints every key with comments; unknown k
 - `agents.<name>`: `model` (`<provider>/<model>`), `settings` (`context_window` required, `temperature`, `vision`: accept image attachments, default false, and the model request controls below), `system` (supports `{{vars}}`), `vars` (`{default: …}` or `{required: true}`), `limits` (`steps`, `total_tokens`, `timeout` per turn), `approval` (`tools`, `timeout`), `ask_user` (bool), `mcp` (server names).
 - `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`.
 - `summarizer`: `model`, `settings`, `keep_recent` (default 3), `system`.
-- `attachments`: `allowed_hosts`, `types`, `max_count` for attachments your app hosts (by URL). `max_bytes` is accepted but never enforced (hfy does not fetch URLs); it only seeds the default of `filesystem.max_bytes`.
+- `files` (omit = no attachments at all): `types` (required; lowercase MIME, for URLs and uploads), `max_count` (10, per message), `max_bytes` (10MB, the largest uploaded file; hfy never fetches URLs), `allowed_hosts` (set = URL attachments allowed), `dsn` (set = uploads on: `s3://bucket?region=…` or `file:///path`), `public_url` (`file://` only), `upload_ttl` (5m, at most 1h), `download_ttl` (15m, at most 24h).
 - `queue`: `workers` (4), `lease` (30s), `max_attempts` (3). `retention`: `trace` (30d). `metrics`: `listen`.
 
 Vendor quirks of the model request controls (Anthropic and DeepSeek thinking, reasoning-model output caps, Gemini) are in "Provider notes" of the full reference: https://github.com/alash3al/hfy/blob/main/docs/reference.md.
@@ -242,7 +242,9 @@ embed:
   tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers); approval requests always show
 ```
 
-Per-viewer overrides come only from a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls` and `strings` (an object overriding UI strings). An `accent` there must be a six-digit hex such as `#e11d48`; anything else is ignored. Built-in strings are English and Arabic; time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable. The `/embed` page and its files are cached and compressed by hfy itself; there is nothing to configure. What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
+Per-viewer overrides come only from a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls` and `strings` (an object overriding UI strings). An `accent` there must be a six-digit hex such as `#e11d48`; anything else is ignored. Built-in strings are English and Arabic; time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable. The `/embed` page and its files are cached and compressed by hfy itself; there is nothing to configure.
+
+What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `files.dsn` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see "Cards and questions from tools") with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
 
 ### 8. Give the agent tools (MCP)
 
@@ -297,7 +299,7 @@ Don't:
 - **400 on grant**: a required var is missing, or an undeclared var was sent.
 - **The model never uses tools or asks in plain text**: the model is too small or lacks tool calling. Try a larger model, or name the tool in the system prompt.
 - **400 "the agent cannot see images"**: set `settings.vision: true` on that agent (only for models that accept images).
-- **Model ignores an image**: the provider cannot fetch its URL. Local model servers need a URL reachable from their host, so set `filesystem.public_url` accordingly.
+- **Model ignores an image**: the provider cannot fetch its URL. Local model servers need a URL reachable from their host, so set `files.public_url` accordingly.
 - **Uploads fail with S3**: the bucket CORS must allow PUT from the embed origins; `region=` is required in the dsn.
 - **Startup error naming a line**: an unknown or misspelled config key.
 
@@ -465,7 +467,7 @@ there is no credentials mode.
 
 - `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one. An attachment is
-  `{url, mime, name?}` (hosted by your app, checked against `attachments:`) or
+  `{url, mime, name?}` (hosted by your app, checked against `files.allowed_hosts` and `files.types`) or
   `{file, mime, name?}` (an upload slot key, below).
 - `POST /v1/conversation/uploads` `{mime, size}` → `{"file": key,
   "upload_url": url, "expires_at": time, "direct": bool}`. Creates an

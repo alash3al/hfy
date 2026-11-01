@@ -253,7 +253,7 @@ there is no credentials mode.
 
 - `POST /v1/conversation/messages` `{text, attachments?}` → `202 {"turn": uuid}`.
   Starts the turn, or queues it behind the active one. An attachment is
-  `{url, mime, name?}` (hosted by your app, checked against `attachments:`) or
+  `{url, mime, name?}` (hosted by your app, checked against `files.allowed_hosts` and `files.types`) or
   `{file, mime, name?}` (an upload slot key, below).
 - `POST /v1/conversation/uploads` `{mime, size}` → `{"file": key,
   "upload_url": url, "expires_at": time, "direct": bool}`. Creates an
