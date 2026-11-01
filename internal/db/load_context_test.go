@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/alash3al/hfy/internal/db"
@@ -9,11 +10,11 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// LoadContext files a note under the turn that was newest when it was
-// appended, whatever turn it names. So a note appended late but naming an old
-// turn is loaded with the turns after a summary (it is not "covered"), and a
-// note appended while an old turn was the newest is covered with it.
-func TestLoadContextFilesNotesByEventOrder(t *testing.T) {
+// LoadContext returns notes and host messages with the turn they are filed
+// under, in event order, like every other event: a summary that covers a turn
+// leaves out its notes (the summarizer folded them) and a turn's context
+// stops at that turn.
+func TestLoadContextLoadsNotesWithTheirTurn(t *testing.T) {
 	s := dbtest.New(t)
 	ctx := context.Background()
 	conv, err := s.CreateConversation(ctx)
@@ -30,58 +31,37 @@ func TestLoadContextFilesNotesByEventOrder(t *testing.T) {
 		return e
 	}
 	t1 := add(nil, types.Turn{})
-	early := add(&t1.ID, types.ContextNote{Text: "early"}) // t1 is the newest turn
+	n1 := add(&t1.ID, types.ContextNote{Text: "one"})
 	t2 := add(nil, types.Turn{})
-	add(&t2.ID, types.MessageText{Text: "hi"})
-	late := add(&t1.ID, types.HostMessage{Text: "late"}) // names turn 1, appended after turn 2 began
+	m2 := add(&t2.ID, types.MessageText{Text: "hi"})
+	n2 := add(&t2.ID, types.HostMessage{Text: "two"})
 	t3 := add(nil, types.Turn{})
-	later := add(&t1.ID, types.ContextNote{Text: "later"}) // names turn 1, appended after turn 3 began
+	n3 := add(&t3.ID, types.ContextNote{Text: "three"})
+	// a note for turn 2 appended after turn 3 was queued still belongs to turn 2
+	late := add(&t2.ID, types.ContextNote{Text: "late for two"})
 
-	// A summary covering turn 1 leaves turns 2 and 3 and everything appended during them.
-	rows, err := s.LoadContext(ctx, conv.ID, t1.ID, t3.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []int64
-	for _, r := range rows {
-		got = append(got, r.ID)
-		if r.Type == types.EventContextNote || r.Type == types.EventHostMessage {
-			if r.ParentID == nil || *r.ParentID == t1.ID {
-				t.Errorf("note %d is still filed under turn 1", r.ID)
-			}
+	ids := func(after, upto int64) []int64 {
+		rows, err := s.LoadContext(ctx, conv.ID, after, upto)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	msg := rows[1].ID // the "hi" message
-	want := []int64{t2.ID, msg, late.ID, t3.ID, later.ID}
-	if len(got) != len(want) {
-		t.Fatalf("loaded %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("loaded %v, want %v", got, want)
+		var out []int64
+		for _, r := range rows {
+			out = append(out, r.ID)
 		}
+		return out
 	}
-	if *rows[2].ParentID != t2.ID || *rows[4].ParentID != t3.ID {
-		t.Fatalf("filed under %d and %d, want turns %d and %d", *rows[2].ParentID, *rows[4].ParentID, t2.ID, t3.ID)
-	}
-
-	// Without a summary, everything is there, the note named for an old turn in its event place.
-	rows, err = s.LoadContext(ctx, conv.ID, 0, t3.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var all []int64
-	for _, r := range rows {
-		all = append(all, r.ID)
-	}
-	if len(all) != 7 || all[1] != early.ID {
-		t.Fatalf("without a summary: %v", all)
-	}
-	// Turn 2 running: it does not see what was appended after it (turn 3's notes).
-	rows, _ = s.LoadContext(ctx, conv.ID, t1.ID, t2.ID)
-	for _, r := range rows {
-		if r.ID == later.ID {
-			t.Fatal("a note appended after turn 3 began is not part of turn 2's context")
+	for _, c := range []struct {
+		name        string
+		after, upto int64
+		want        []int64
+	}{
+		{"everything", 0, t3.ID, []int64{t1.ID, n1.ID, t2.ID, m2.ID, n2.ID, late.ID, t3.ID, n3.ID}},
+		{"after a summary covering turn 1", t1.ID, t3.ID, []int64{t2.ID, m2.ID, n2.ID, late.ID, t3.ID, n3.ID}},
+		{"turn 2 running", t1.ID, t2.ID, []int64{t2.ID, m2.ID, n2.ID, late.ID}},
+	} {
+		if got := ids(c.after, c.upto); !slices.Equal(got, c.want) {
+			t.Errorf("%s: loaded %v, want %v", c.name, got, c.want)
 		}
 	}
 }

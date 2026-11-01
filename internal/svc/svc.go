@@ -528,13 +528,15 @@ type NoteInput struct {
 	Text           string
 }
 
-// AppendNote adds a note or host message under the conversation's newest turn,
-// whatever its state, through the one event choke point (AppendEvent). It never
-// starts or queues a turn: a running turn sees the note when it next builds its
-// prompt, a later turn sees it as part of the history. The text is cleaned;
-// empty, blank or over types.MaxNoteBytes is a BadRequestError, and a
-// conversation with no turn is ErrNoTurn (history pages by turn, so a note
-// with no turn would be invisible).
+// AppendNote adds a note or host message through the one event choke point
+// (AppendEvent), under the turn that is running (or paused), else under the
+// newest turn: a turn queued behind the running one must not take the note
+// from it. It never starts or queues a turn. The running turn sees the note
+// when it next builds its prompt (at its next step); later turns see it as
+// part of the history, until a summary covers it. The text is cleaned; empty,
+// blank or over types.MaxNoteBytes is a BadRequestError, and a conversation
+// with no turn is ErrNoTurn (history pages by turn, so a note with no turn
+// would be invisible).
 func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, error) {
 	text := types.CleanNote(in.Text)
 	var p types.Payload
@@ -551,17 +553,22 @@ func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, er
 	}
 	var row db.EventRow
 	err := s.store.Tx(ctx, func(tx pgx.Tx) error {
-		if _, err := s.store.LockConversation(ctx, tx, in.ConversationID); err != nil {
-			return err
-		}
-		id, err := s.store.LatestTurnID(ctx, tx, in.ConversationID)
-		if db.IsNotFound(err) {
-			return ErrNoTurn
-		}
+		conv, err := s.store.LockConversation(ctx, tx, in.ConversationID)
 		if err != nil {
 			return err
 		}
-		turn, err := s.store.EventByID(ctx, tx, id)
+		id := conv.ActiveTurnID
+		if id == nil {
+			latest, err := s.store.LatestTurnID(ctx, tx, in.ConversationID)
+			if db.IsNotFound(err) {
+				return ErrNoTurn
+			}
+			if err != nil {
+				return err
+			}
+			id = &latest
+		}
+		turn, err := s.store.EventByID(ctx, tx, *id)
 		if err != nil {
 			return err
 		}

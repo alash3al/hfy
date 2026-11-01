@@ -701,15 +701,15 @@ event as stored.
   A note stays in every later prompt until a summary covers it. In the prompt
   a note sits in event order, after the events that came before it; while a tool
   call is unanswered it waits for the answer, so a result still follows its call.
-  A note is filed under the turn that was newest when it was appended
-  (`parent` in history is that turn when it was written through `svc.AppendNote`), whatever
-  turn it names: one appended after a summary always reaches the model, even if it
-  names a covered turn, and one appended while a now-covered turn was newest is in
-  the summary. Because a running turn rebuilds its prompt at each step, it sees a
-  note appended mid-turn from its next step on (unless a newer turn is already
-  queued: then the note belongs to that turn). Clients see both types in
-  `/history` (under their turn) and on the SSE stream like any durable event; a
-  note on a conversation with no turn is refused, since history pages by turn.
+  A note is filed under the turn that is running (or paused) when it is appended,
+  else under the newest turn, so a turn queued behind the running one never takes
+  it. A running turn rebuilds its prompt at each step, so it sees a note from its
+  next step on. A summary covers neither the running turn nor the newest one, so a
+  note appended after a summary still reaches the model; one appended while a
+  now-covered turn was the newest is in the summary (the summarizer reads it).
+  Clients see both types in `/history` (under that turn) and on the SSE stream
+  like any durable event; a note on a conversation with no turn is refused, since
+  history pages by turn.
   `hfy context:show <conversation-uuid> [--agent name]` prints the JSON body of
   the request the newest turn would send, from the stored events, built by the
   code and config it runs with now (so a config change shows). It calls no model,

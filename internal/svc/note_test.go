@@ -38,8 +38,9 @@ func countJobs(t *testing.T, store *db.Store) (n int) {
 	return n
 }
 
-// A note goes through the one event choke point, under the newest turn and
-// with its scope, in any turn state, and never starts or queues a turn.
+// A note goes through the one event choke point, under the newest turn when
+// none is running, with its scope, in any turn state, and never starts or
+// queues a turn.
 func TestAppendNoteUnderTheNewestTurn(t *testing.T) {
 	ctx, store, s, conv, actor := noteFixture(t)
 	in := svc.NoteInput{ConversationID: conv.ID, Actor: actor, Type: types.EventContextNote, Text: "plan: pro"}
@@ -98,6 +99,47 @@ func TestAppendNoteUnderTheNewestTurn(t *testing.T) {
 	after, err := store.EventsAfter(ctx, conv.ID, n1.ID-1, 1)
 	if err != nil || len(after) != 1 || after[0].ID != n1.ID {
 		t.Fatalf("stream: %v %v", after, err)
+	}
+}
+
+// A note is for the turn that is running: a turn queued behind it must not
+// take the note from it, and once the running turn ends the note goes to the
+// newest one.
+func TestAppendNoteGoesToTheRunningTurn(t *testing.T) {
+	ctx, store, s, conv, actor := noteFixture(t)
+	post := func(text string) int64 {
+		t.Helper()
+		u, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: actor, Scope: "u1", Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := store.TurnIDByUUID(ctx, conv.ID, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	a := post("A")
+	if ok, err := s.StartTurn(ctx, conv.ID, a); err != nil || !ok {
+		t.Fatalf("start: %v %v", ok, err)
+	}
+	b := post("B") // queued behind the running A
+	note := func(text string) db.EventRow {
+		t.Helper()
+		n, err := s.AppendNote(ctx, svc.NoteInput{ConversationID: conv.ID, Actor: actor, Type: types.EventContextNote, Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := note("for A"); *n.ParentID != a {
+		t.Fatalf("a note appended while A runs is filed under turn %d, want A (%d), not the queued B (%d)", *n.ParentID, a, b)
+	}
+	if err := s.EndTurn(ctx, conv.ID, a, types.TurnStateEvent{State: types.StateCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if n := note("for B"); *n.ParentID != b {
+		t.Fatalf("with nothing running the note goes to the newest turn %d, got %d", b, *n.ParentID)
 	}
 }
 

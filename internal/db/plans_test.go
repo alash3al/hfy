@@ -51,7 +51,7 @@ func TestHotQueriesUseIndexes(t *testing.T) {
 		args pgx.NamedArgs
 		bad  []string
 	}{
-		{"LoadContext", pgx.NamedArgs{"conversation": 1, "after_turn": mid, "upto_turn": last}, []string{"Seq Scan on conversation_events"}},
+		{"LoadContext", pgx.NamedArgs{"conversation": 1, "after_turn": mid, "upto_turn": last}, []string{"Seq Scan on conversation_events", "SubPlan"}}, // a plain range scan: no per-row subquery
 		{"EventsAfter", pgx.NamedArgs{"conversation": 1, "after": mid, "limit": 500}, []string{"Seq Scan on conversation_events"}},
 		{"HistoryTurns", pgx.NamedArgs{"conversation": 1, "before": last, "limit": 20}, []string{"Seq Scan on conversation_events"}},
 		{"HistoryEvents", pgx.NamedArgs{"conversation": 1, "turns": []int64{mid, mid + 1, mid + 2}}, []string{"Seq Scan on conversation_events"}},

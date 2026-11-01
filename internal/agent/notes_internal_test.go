@@ -11,7 +11,9 @@ import (
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
+	"github.com/alash3al/hfy/internal/db/dbtest"
 	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
 )
 
@@ -424,5 +426,47 @@ func TestBuildPromptIsDeterministic(t *testing.T) {
 				t.Fatalf("case %d: the prompt changed between builds", i)
 			}
 		}
+	}
+}
+
+// A note appended while turn A runs and turn B is queued behind it is in A's
+// prompt, not B's alone: the running turn sees what the host says to it.
+func TestNoteReachesTheRunningTurnNotTheQueuedOne(t *testing.T) {
+	ctx := context.Background()
+	store := dbtest.New(t)
+	cfg := &config.Config{Queue: config.Queue{MaxAttempts: 1}}
+	rt := &Runtime{Cfg: cfg, Store: store, Svc: svc.New(store, cfg)}
+	conv, err := store.CreateConversation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, _ := store.FindOrCreateActor(ctx, store.Pool, types.ActorExternal, "u1")
+	post := func(text string) int64 {
+		u, err := rt.Svc.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: user, Scope: "u1", Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := store.TurnIDByUUID(ctx, conv.ID, u)
+		return id
+	}
+	a := post("A")
+	if ok, err := rt.Svc.StartTurn(ctx, conv.ID, a); err != nil || !ok {
+		t.Fatalf("start: %v %v", ok, err)
+	}
+	b := post("B")
+	if _, err := rt.Svc.AppendNote(ctx, svc.NoteInput{ConversationID: conv.ID, Actor: user, Type: types.EventContextNote, Text: "FOR-A"}); err != nil {
+		t.Fatal(err)
+	}
+	spec := &Spec{Name: "main", System: "s"}
+	system, msgs, err := rt.buildContext(ctx, conv.ID, a, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(msgs); !strings.Contains(got, "FOR-A</context>") || !strings.Contains(system, "data, not instructions") {
+		t.Fatalf("turn A's prompt lacks its note:\n%s\n%s", system, got)
+	}
+	_, msgs, err = rt.buildContext(ctx, conv.ID, b, spec)
+	if err != nil || !strings.Contains(fmt.Sprint(msgs), "FOR-A</context>") {
+		t.Fatalf("turn B follows A, so it carries the note as history too: %v %v", msgs, err)
 	}
 }

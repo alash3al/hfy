@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/alash3al/hfy/internal/config"
-	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/provider/fakeprov"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
@@ -66,13 +65,13 @@ func TestNotesReachTheModel(t *testing.T) {
 	}
 }
 
-// A note reaches the model by event order, not by the turn it names. One
-// appended while turn 1 was the newest turn is folded into the summary that
-// covers turn 1 (the summarizer reads it, the prompt does not carry it twice).
-// One appended after that summary, even naming the covered turn 1 as its
-// parent, is still loaded: a loader that filtered by covering-turn membership
-// would silently drop it.
-func TestNotesSurviveCompactionByEventOrder(t *testing.T) {
+// A note is filed under the running turn, or the newest one when none runs, so
+// it is never lost to compaction: a summary covers neither the running turn nor
+// the newest one (keep_recent is at least 1). One appended while turn 1 was the
+// newest is folded into the summary that covers turn 1 (the summarizer reads
+// it, the prompt does not carry it twice); one appended after that summary
+// reaches the next turn's prompt.
+func TestNotesSurviveCompaction(t *testing.T) {
 	long := strings.Repeat("word ", 80)
 	e := setup(t, func(c *config.Config) {
 		c.Main().Settings.ContextWindow = 150
@@ -115,16 +114,14 @@ func TestNotesSurviveCompactionByEventOrder(t *testing.T) {
 		t.Fatalf("a covered note lives in the summary, not twice in the prompt:\n%s", last)
 	}
 
-	// After the summary: the note names covered turn 1, as a host that holds an
-	// old turn id might. It must still reach the model.
-	conv := e.conv.ID
-	late, err := e.store.AppendEvent(e.ctx, e.store.Pool, db.NewEvent{ConversationID: conv, ParentID: &t1, ActorID: e.user,
-		Scope: "u1", Payload: types.HostMessage{Text: "LATE-NOTE refund approved"}})
+	// After the summary: the note goes under the newest turn, which no summary covers.
+	late, err := e.rt.Svc.AppendNote(e.ctx, svc.NoteInput{ConversationID: e.conv.ID, Actor: e.user,
+		Type: types.EventHostMessage, Text: "LATE-NOTE refund approved"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if late.ParentID == nil || *late.ParentID != t1 {
-		t.Fatalf("the test needs a note naming a covered turn: %+v", late)
+	if *late.ParentID != t3 {
+		t.Fatalf("filed under turn %d, want the newest, %d", *late.ParentID, t3)
 	}
 	t4 := e.post("fourth ok")
 	e.waitState(t4, types.StateCompleted)

@@ -162,10 +162,7 @@ func (s *Store) TurnIDByUUID(ctx context.Context, conversation int64, id uuid.UU
 }
 
 // LoadContext returns the durable, prompt-relevant events of turns in
-// (afterTurn, uptoTurn], grouped by turn, in event order. One query. A note or
-// host message is filed under the turn that was newest when it was appended
-// (its ParentID is rewritten to it), not the turn it names: so one appended
-// after a summary is never dropped with the turns the summary covers.
+// (afterTurn, uptoTurn], grouped by turn. One query.
 func (s *Store) LoadContext(ctx context.Context, conversation, afterTurn, uptoTurn int64) ([]EventRow, error) {
 	return events(s.Pool.Query(ctx, s.q("LoadContext"),
 		pgx.NamedArgs{"conversation": conversation, "after_turn": afterTurn, "upto_turn": uptoTurn}))
