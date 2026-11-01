@@ -87,7 +87,7 @@ No test reads the Markdown or `llms.txt`. Keeping them in sync is a review check
 - Unknown keys stop startup and name their line and the known keys (`internal/config/strict.go`). A typo must never silently disable a setting. `hfy validate` checks a file without starting.
 - A setting is a yaml-tagged field in `internal/config`; the tags are the known keys. Validate it in `config.go` and test it in `config_test.go`. Then update the docs above.
 - `${VAR}` expands in string values, never in keys (`docs/reference.md`, Config; `TestEnvOnlyInValuesAndNumbers`).
-- In `agent.settings.extra`, keys hfy owns are reserved in any letter case, and two keys that differ only by case are refused (`types.ExtraKeyReserved`, `config.go`).
+- In `agents.<name>.settings.extra`, keys hfy owns are reserved in any letter case, and two keys that differ only by case are refused (`types.ExtraKeyReserved`, `config.go`).
 
 ## Migrations
 
