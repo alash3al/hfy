@@ -309,6 +309,37 @@ both embedded in the binary (no npm, no build step, no extra hosting):
 - `GET /embed/ui.js`, `GET /embed/ui.css`, `GET /embed/alpine.min.js` — the
   UI itself (Alpine.js, vendored into the binary, provides reactivity).
 
+Caching and compression (nothing to configure). Every file of the embedded UI
+is served under two URLs:
+
+- `/embed/<name>` (`/embed/ui.js`, `/embed/client.js`, ...) keeps working
+  forever, so hosts and WebViews that pinned it do not break. It is sent with
+  `Cache-Control: no-cache` and an `ETag`: the client revalidates and gets
+  `304` while nothing changed.
+- `/embed/assets/<name>.<hash><ext>` (`/embed/assets/ui.3fa9c1d2e4b5.js`) is
+  named by the first 12 hex digits of the file's sha256, so its bytes never
+  change: `Cache-Control: public, max-age=31536000, immutable`. `GET /embed`
+  (the page, always at that one URL, `no-cache` + `ETag`) points at these URLs,
+  so an upgrade reaches clients with the next page load and nothing is
+  re-downloaded otherwise. A hash that is not the current one answers `404`
+  (a redirect would hand a stale page different bytes); during a rolling
+  deploy, a page from the new instance may ask an old one for a file it does
+  not have, so roll instances one at a time. The page's CSP and the bridge are
+  unchanged, and a bare `/embed` URL still works in a WebView.
+
+Text files are compressed once when the server starts (the page, on its first
+request; brotli and gzip, about 0.3 s for the whole UI) and the bytes are reused: `Accept-Encoding` picks `br`, `gzip` or
+the plain file by q-value (`br;q=0` and `identity;q=0` are honoured; an
+unparseable or oversized header means plain; a client that refuses every
+encoding we have gets `406`), and `Vary: Accept-Encoding` is always sent. Each
+encoding has its own strong `ETag`, the hash of the bytes sent; `If-None-Match`
+takes lists, weak tags (`W/"..."`) and `*`. `HEAD` answers like `GET` without a
+body. `Range` is not supported: the header is ignored and the whole file is
+sent with `200`. A reverse proxy in front may compress too: we set
+`Content-Encoding`, so a proxy that honours it will not compress twice. The
+first-load weight of the UI (page, Alpine, client.js, ui.js, ui.css) is held
+under 60 KB of brotli by a test.
+
 The grant flow is the integration. Your backend (server secret) creates
 the conversation once and mints a short-lived grant per viewer; your page
 or app hands `{token, expires_at}` to the widget, which keeps it in JS
