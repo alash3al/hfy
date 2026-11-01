@@ -61,7 +61,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 `hfy config:example` is the reference. In short: `server`, `database`, `providers`,
 `mcp`, `agents` (with the required `main` agent), plus optional `queue`, `retention`,
-`attachments`, `filesystem`, `subagents`, `summarizer`, `metrics`, `embed`.
+`files`, `subagents`, `summarizer`, `metrics`, `embed`.
 
 - Unknown keys stop startup with their line (`line 12: unknown key "aproval"
   in config.agents.main`): a typo never silently disables a setting.
@@ -249,10 +249,10 @@ there is no credentials mode.
   Starts the turn, or queues it behind the active one.
 - `POST /v1/conversation/uploads` `{mime, size}` → `{"file": key,
   "upload_url": url, "expires_at": time, "direct": bool}`. Creates an
-  upload slot (needs `filesystem:`); `size` in bytes is required, positive
-  and bounded by `filesystem.max_bytes`. A slot lives at
+  upload slot (needs `files.dsn`); `size` in bytes is required, positive
+  and bounded by `files.max_bytes`. A slot lives at
   `uploads/<conversation>/…` and is temporary: retention deletes slots
-  after `filesystem.upload_ttl` + 1h. PUT the file bytes to `upload_url`
+  after `files.upload_ttl` + 1h. PUT the file bytes to `upload_url`
   as the slot response directs (`direct` = a presigned S3 URL; otherwise
   an hfy path, with the grant), then post the message with `{file, mime}`
   attachments naming the slot. Posting verifies the stored slot (size,
@@ -266,7 +266,7 @@ there is no credentials mode.
   "max_bytes": N}}`. What the embed page config injects there: whether to
   offer attachments at all, and which types and size to check before calling
   `POST /v1/conversation/uploads` (the server checks again). `null` when no
-  `filesystem:` is configured.
+  `files.dsn` is configured.
 - `GET /v1/files/{key}` serves a stored file. It is the target of signed
   URLs hfy hands out, not a client API to construct.
 - `GET /v1/conversation/events` SSE. `id` = event uuid, `event` = type, `data` = envelope.
@@ -295,7 +295,7 @@ Bodies are JSON (whatever the `Content-Type` says). Errors are
 `401` no valid secret or token, `403` not your turn, `404` unknown
 conversation or grant, `409` no pending approval, or an exchange of a grant that cannot renew, `413` a body over 2 MiB,
 `429` an exchange before its time
-(an upload PUT is instead bounded by `filesystem.max_bytes`).
+(an upload PUT is instead bounded by `files.max_bytes`).
 
 ### Embedded UI and JS client
 
@@ -636,20 +636,29 @@ event as stored.
 - **MCP servers.** A local server inherits only `PATH`, `HOME`, `USER`, locale,
   `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
   `environment`. Each tool call has `timeout` (default 2m) to answer.
-- **Attachments** are references your app hosts. Hosts, types and size are
-  checked when the message is posted (`attachments.max_count` caps them per
-  message, default 10). Images go to the model only in the turn
+- **Files.** The optional `files:` block lets files reach a conversation, from
+  two sources that share one `types` list (lowercase MIME types, no wildcards;
+  required) and one `max_count` (per message, both kinds together, default 10):
+  - *URL attachments* are references your app hosts. They are on when
+    `allowed_hosts` is set (exact names or `*.suffix`; lowercase, no scheme,
+    port or path; IDN as punycode). Host and type are checked when the message is
+    posted; hfy never fetches the URL, so `max_bytes` does not apply to them.
+  - *Uploads* are files hfy stores. They are on when `dsn` is set
+    (`s3://…` with `region=` required in the query, or `file://…`;
+    `file://` needs `public_url` so providers can reach hfy-served files).
+    `max_bytes` (default 10MB) bounds each file; `upload_ttl` default 5m (at
+    most 1h), `download_ttl` default 15m (at most 24h). `files:` needs at least
+    one of `allowed_hosts` and `dsn`, and an empty `dsn` is an error, not "off":
+    remove the key instead.
+
+  Images go to the model only in the turn
   they arrive in, always as their URL: fetching it is the provider's job, so
   the URL must be reachable from the provider (a presigned URL works well).
   A local model server (Ollama, llama.cpp) only sees images it can fetch
   itself: with `file://` storage, set `public_url` to an address it can
   reach from its host. Non-image files reach the model only as their key,
-  never as data. The optional `filesystem:` section (`dsn: s3://…` with
-  `region=` required in the query, or `file://…`; `types`; `max_bytes`
-  default 10MB; `upload_ttl` default 5m, `download_ttl` default 15m;
-  `types` defaults to `attachments.types` if set; `file://` needs
-  `public_url` so providers can reach hfy-served files) lets clients
-  upload instead: `POST /v1/conversation/uploads` takes `{mime, size}` and
+  never as data. Uploads work like this:
+  `POST /v1/conversation/uploads` takes `{mime, size}` and
   returns a slot under `uploads/<conversation>/…` (retention deletes slots
   after `upload_ttl` + 1h; an S3 lifecycle rule on `uploads/` is a useful
   backstop), the message carries `{file, mime, name?}` naming the slot,
@@ -669,6 +678,63 @@ event as stored.
 
 ## Upgrading to v2
 
+- `attachments:` and `filesystem:` are now one flat `files:` block. A config that
+  still sets either key stops EVERY command that reads the config (`serve`,
+  `queue:work`, `validate`, `migrate`) with
+  `attachments was removed in v2; merge it into files: …` or
+  `filesystem was removed in v2; merge it into files: …` (an old key is reported
+  even when `files:` also has a mistake). Move the fields as below; nothing else
+  changes (the `{file}` / `{url}` attachment payloads, the upload protocol and
+  `GET /v1/conversation/config` are the same).
+
+  ```yaml nocheck
+  # before (v1: refused by v2)
+  attachments:
+    allowed_hosts: [cdn.example.com]
+    types: [image/png, image/jpeg]
+    max_bytes: 5MB
+    max_count: 10
+  filesystem:
+    dsn: s3://hfy-uploads?region=eu-central-1
+    types: [image/png, image/jpeg, application/pdf]
+    max_bytes: 10MB
+    upload_ttl: 5m
+    download_ttl: 15m
+  ```
+
+  ```yaml
+  # after
+  files:
+    types: [image/png, image/jpeg, application/pdf]  # the union of both lists
+    max_count: 10
+    max_bytes: 10MB
+    allowed_hosts: [cdn.example.com]
+    dsn: s3://hfy-uploads?region=eu-central-1
+    upload_ttl: 5m
+    download_ttl: 15m
+  ```
+
+  | v1 | v2 |
+  |---|---|
+  | `attachments.allowed_hosts` | `files.allowed_hosts` (setting it turns URL attachments on) |
+  | `attachments.types` and `filesystem.types` | `files.types`, ONE list for URLs and uploads: use the union |
+  | `attachments.max_count` | `files.max_count` (default 10; it also caps uploads when no URL attachments are set: that was a fixed 10 before) |
+  | `attachments.max_bytes` | dropped: it never limited anything (hfy does not fetch URLs) |
+  | `filesystem.dsn` | `files.dsn` (setting it turns uploads on) |
+  | `filesystem.public_url`, `max_bytes`, `upload_ttl`, `download_ttl` | the same names under `files` |
+
+- If your two lists differed, `files.types` is their union: a type that was
+  upload-only (a PDF) is now also accepted as a URL attachment, and the other
+  way round. Non-image files reach the model only as their key, never as data.
+- `files.max_bytes` defaults to 10MB, as documented. In v1 it was 5MB when
+  `attachments:` was also set (it inherited `attachments.max_bytes`' default).
+  Set it explicitly to keep a smaller limit.
+- Stricter checks, reported at startup: `types` entries must be lowercase
+  `type/subtype` (no `*`, parameters or duplicates), `allowed_hosts` entries
+  lowercase hosts (`localhost`, IPs and `*.example.com` are fine; no scheme,
+  port, path, trailing dot or duplicates; `*.com` is refused), and an empty
+  `dsn` (an unset `${VAR}`) is an error instead of quietly switching uploads off.
+  Sizes that overflow (`9999999999GB`) are now invalid.
 - The top-level `agent:` config key is gone; `agents:` is the only home for
   agents. Move the contents of `agent:` under `agents.main:` (same fields,
   indented one level). A config that still sets `agent:` stops EVERY command that
