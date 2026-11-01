@@ -41,10 +41,11 @@ class HfyClient {
   #token = null;
   #expiresAtMs = null;
   #renewable = null; // null: unknown until the first exchange; false: this grant is at its cap
-  // The server said 409: the host's grants are not renewable. Deliberately not
-  // reset when the host hands over a new grant: a host mints one kind, and
-  // guessing again would cost a request per refresh. A page reload tries afresh.
-  #neverRenew = false;
+  // The one token the server said 409 to before this grant was ever exchanged:
+  // not renewable, so it is not tried again. A grant the host hands over later has
+  // another token and is learned afresh (a capped grant says nothing about the
+  // next one); a host that keeps minting plain grants costs one 409 per refresh.
+  #noRenewToken = null;
   #notBefore = 0; // ms since epoch: the server said "too early" until then
   #acquiring = null;
   #eventListeners = new Set();
@@ -218,13 +219,16 @@ class HfyClient {
   // network, odd body) is false and leaves the token alone: ask the host.
   async #exchange() {
     var sent = this.#token;
-    if (!sent || !this.#fetchFn || this.#neverRenew || this.#renewable === false) return false;
+    if (!sent || !this.#fetchFn || sent === this.#noRenewToken || this.#renewable === false) return false;
     try {
       var res = await this.#fetchFn(this.#api + '/v1/conversation/grant/exchange',
         { method: 'POST', headers: { Authorization: 'Bearer ' + sent } });
       var body = await readBody(res);
       var status = res.status != null ? res.status : (res.ok ? 200 : 0);
-      if (status === 409) { this.#neverRenew = true; return false; }
+      if (status === 409) { // never learned it renews: it does not; else it is capped now
+        if (this.#renewable === null) this.#noRenewToken = sent; else this.#renewable = false;
+        return false;
+      }
       if (status === 429) {
         var secs = body && Number(body.retry_after);
         this.#notBefore = Date.now() + Math.min(Math.max(secs >= 1 ? secs : 5, 1), 86400) * 1000;

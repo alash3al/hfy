@@ -94,16 +94,56 @@ func TestEmbedClientExchangeChain(t *testing.T) {
 			assert.deepEqual(w.hostCalls, ['initial']);
 		}
 
-		async function conflictStopsTrying() {
-			const w = rig({ exchangeReply: () => ({ status: 409, body: { error: 'grant is not renewable' } }), hostTokens: ['T1', 'H2', 'H3'] });
+		async function conflictStopsTryingThatToken() {
+			const conflict = () => ({ status: 409, body: { error: 'grant is not renewable' } });
+			// the host keeps handing over the same token: after the first 409 it is not tried again
+			const w = rig({ exchangeReply: conflict, hostTokens: ['T1', 'T1', 'T1'] });
 			await w.c.connect();
 			await fire();
 			assert.equal(w.exchanges, 1);
 			assert.deepEqual(w.hostCalls, ['initial', 'expired'], 'falls back to the host');
-			assert.match(w.live()[0].url, /token=H2/);
 			await fire();
-			assert.equal(w.exchanges, 1, 'a 409 is remembered: no more exchanges');
+			assert.equal(w.exchanges, 1, 'a 409 is remembered for that token: no exchange on every refresh');
 			assert.deepEqual(w.hostCalls, ['initial', 'expired', 'expired']);
+			// new tokens from the host are learned afresh: one wasted request per refresh, no more
+			const v = rig({ exchangeReply: conflict, hostTokens: ['T1', 'H2', 'H3', 'H4'] });
+			await v.c.connect();
+			await fire();
+			assert.match(v.live()[0].url, /token=H2/);
+			await fire();
+			assert.equal(v.exchanges, 2);
+			assert.deepEqual(v.exchangeCalls().map((f) => f.bearer), ['T1', 'H2']);
+			assert.match(v.live()[0].url, /token=H3/);
+		}
+
+		async function aCappedGrantDoesNotDisableTheNextOne() {
+			// renewable once (T2), then 409 at its cap, then the host hands over a new renewable grant
+			let n = 0;
+			const w = rig({ hostTokens: ['T1', 'H2', 'H3'], exchangeReply: () => {
+				n++;
+				if (n === 2) return { status: 409, body: { error: 'grant is not renewable' } };
+				return { status: 200, body: { token: 'X' + n, expires_at: inSecs(60), renewable: true } };
+			} });
+			await w.c.connect();
+			await fire(); // T1 -> X1, learned renewable
+			assert.match(w.live()[0].url, /token=X1/);
+			await fire(); // 409: capped, so the host
+			assert.deepEqual(w.hostCalls, ['initial', 'expired']);
+			assert.match(w.live()[0].url, /token=H2/);
+			await fire(); // the host's new grant IS exchanged
+			assert.equal(w.exchanges, 3);
+			assert.deepEqual(w.exchangeCalls().map((f) => f.bearer), ['T1', 'X1', 'H2']);
+			assert.match(w.live()[0].url, /token=X3/);
+			assert.deepEqual(w.hostCalls, ['initial', 'expired']);
+			// and the one after a grant that never renewed
+			let m = 0;
+			const v = rig({ hostTokens: ['T1', 'H2', 'H3'], exchangeReply: () => (++m === 1
+				? { status: 409, body: { error: 'x' } } : { status: 200, body: { token: 'Y' + m, expires_at: inSecs(60), renewable: true } }) });
+			await v.c.connect();
+			await fire(); // T1: 409 -> host H2
+			await fire(); // H2: exchanged
+			assert.match(v.live()[0].url, /token=Y2/);
+			assert.deepEqual(v.hostCalls, ['initial', 'expired']);
 		}
 
 		async function failureFallsBackToTheHost() {
@@ -284,7 +324,7 @@ func TestEmbedClientExchangeChain(t *testing.T) {
 		}
 
 		(async () => {
-			for (const t of [exchangeBeforeHost, conflictStopsTrying, failureFallsBackToTheHost, atTheCap, staleTokenRetriesWithoutTheHost,
+			for (const t of [exchangeBeforeHost, conflictStopsTryingThatToken, aCappedGrantDoesNotDisableTheNextOne, failureFallsBackToTheHost, atTheCap, staleTokenRetriesWithoutTheHost,
 				deadTokenAsksTheHost, oneExchangeAtATime, visibility, tooEarlyKeepsTheTokenAndWaits, aSkewedClockDoesNotHammer,
 				legitTimingStaysAboveAQuarter, reconnectExchangesAGoodTokenBeforeAskingTheHost, noHook]) {
 				try { await t(); } catch (e) { console.log('FAIL ' + t.name + ': ' + e.stack); process.exitCode = 1; }
