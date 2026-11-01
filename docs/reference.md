@@ -359,7 +359,8 @@ accent fill is picked for 4.5:1). `density` (`comfortable`, `compact` or `spacio
 `lang`, `dir` and `tool_calls` apply as in the other layouts. Per-viewer overrides
 arrive only via the `configure` bridge message from your glue (which can read
 your page's own `lang`/`dir`, or your app's selected locale; `layout` can be
-set there too). Timezone, language and
+set there too; an `accent` there must be a six-digit hex such as `#e11d48`, and any
+other value is ignored). Timezone, language and
 direction otherwise auto-detect from the viewer (`Intl`), with built-in
 English and Arabic strings. Arbitrary CSS/HTML and trust fields (token,
 API base, actor, agent, vars) are never configurable from the client.

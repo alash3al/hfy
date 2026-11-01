@@ -833,10 +833,11 @@ window.hfyEmbed = function () {
     },
     applyConfigure: function (cfg) {
       var self = this;
-      ['lang', 'dir', 'theme', 'accent', 'density'].forEach(function (k) {
+      ['lang', 'dir', 'theme', 'density'].forEach(function (k) {
         if (cfg[k] != null) self.config[k] = cfg[k];
       });
-      if (cfg.accent != null) this.config.accent_set = true;
+      // an accent is taken only as a six-digit hex, the rule the server applies to YAML; anything else is ignored
+      if (typeof cfg.accent === 'string' && /^#[0-9a-f]{6}$/i.test(cfg.accent)) { this.config.accent = cfg.accent; this.config.accent_set = true; }
       if (HFY_LAYOUTS.indexOf(cfg.layout) !== -1) this.config.layout = cfg.layout;
       if (HFY_TOOL_MODES.indexOf(cfg.tool_calls) !== -1) this.config.tool_calls = cfg.tool_calls;
       if (cfg.strings && typeof cfg.strings === 'object') this.customStrings = Object.assign({}, this.customStrings, cfg.strings);

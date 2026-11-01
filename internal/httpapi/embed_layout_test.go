@@ -235,6 +235,31 @@ func TestEmbedWhatsappToolCalls(t *testing.T) {
 	`)
 }
 
+// Configure accent row: the bridge takes an accent only as a six-digit hex, the
+// rule the server applies to YAML. Anything else leaves the accent as it was.
+func TestEmbedConfigureAccent(t *testing.T) {
+	runLayoutNode(t, `
+		var bad = ['', null, 'red', '#fff', '#12345678', ' #e11d48 '];
+		bad.forEach(function (v) {
+			boot({layout: 'whatsapp'});
+			api.inbound({v: 1, type: 'configure', accent: v});
+			eq(el.style.props['--hfy-accent'], undefined, 'whatsapp stays green for ' + JSON.stringify(v));
+			eq(el.dataset.accentSet, undefined, 'no accent-set for ' + JSON.stringify(v));
+			boot({layout: 'bubbles'});
+			api.inbound({v: 1, type: 'configure', accent: v});
+			eq(el.style.props['--hfy-accent'], '#6366f1', 'bubbles keeps indigo for ' + JSON.stringify(v));
+		});
+		boot({layout: 'whatsapp', accent: '#e11d48', accent_set: true});
+		api.inbound({v: 1, type: 'configure', accent: ''});
+		eq(el.style.props['--hfy-accent'], '#e11d48', 'an empty accent does not reset a set one');
+		eq(el.dataset.accentSet, '', 'still set after an empty accent');
+		boot({layout: 'whatsapp'});
+		api.inbound({v: 1, type: 'configure', accent: '#E11D48'});
+		eq(el.style.props['--hfy-accent'], '#E11D48', 'uppercase hex is taken');
+		eq(el.dataset.accentSet, '', 'uppercase hex sets the flag');
+	`)
+}
+
 // Accent row (explicit): the set accent drives send, links, focus, approvals and
 // the pill, and its tint reaches the own bubbles only (contrast in its own test).
 func TestEmbedWhatsappAccentExplicit(t *testing.T) {

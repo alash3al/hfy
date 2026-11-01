@@ -229,7 +229,7 @@ embed:
   tool_calls: summary   # hidden | summary (friendly one-line rows) | details (args and results, for developers)
 ```
 
-For per-viewer overrides, send a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls`, and `strings` (an object overriding UI strings). Built-in strings are English and Arabic. Time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable.
+For per-viewer overrides, send a bridge message `{"v":1,"type":"configure", …}` with any of `lang`, `dir`, `theme`, `accent`, `density`, `layout`, `tool_calls`, and `strings` (an object overriding UI strings). An `accent` in `configure` must be a six-digit hex such as `#e11d48`; any other value is ignored. Built-in strings are English and Arabic. Time zone, language and direction auto-detect from the viewer. Arbitrary CSS/HTML and trust fields (token, API base, actor, agent, vars) are never client-configurable.
 
 What the UI does by itself: message bubbles with delivery ticks, streamed markdown, copy, photo/document attachments (when `filesystem:` is configured), approvals and `hfy.ask_user` questions as bottom sheets, tool cards (`_meta["hfy/ui"]`, see MCP section) with send/link/host buttons, Send turns into Stop while the viewer's own turn runs, history paging, reconnects, multi-viewer rooms, dark mode, RTL.
 
