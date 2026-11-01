@@ -1,4 +1,9 @@
 -- +goose Up
+-- goose runs this file in one transaction, so SET LOCAL covers the ALTER. ALTER
+-- TABLE waits for an ACCESS EXCLUSIVE lock, and while it waits behind a long
+-- transaction every token lookup queues behind it: give up after 5 s instead
+-- (the migration fails cleanly and can be run again).
+SET LOCAL lock_timeout = '5s';
 -- A renewable grant (minted with max_lifetime) swaps its token for a fresh one
 -- until renew_until; every swap is a new row of one chain, named by root_id (the
 -- first row's uuid, which the backend stored). renew_secs is the lifetime each

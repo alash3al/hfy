@@ -188,8 +188,9 @@ Your backend (`Authorization: Bearer <server.secret>`; the scheme name is case-i
     a missing required var is a `400` here.
   - `expires_in`: seconds, default 3600, at most 86400. Whole numbers only.
   - `max_lifetime`: seconds; makes the grant renewable (see "Renewing a grant").
-    Absent, the grant is not renewable, as before. At most 604800 (7 days) and at
-    least `expires_in`; a renewable grant needs `expires_in` of at least 60.
+    Absent, the grant is not renewable, as before. At most 604800 (7 days) and
+    greater than `expires_in` (equal would end at its cap when minted); a renewable
+    grant needs `expires_in` of at least 60.
     A float, exponent form, string, negative or zero is `400`.
 
   The token is returned once; hfy keeps only its SHA-256. A lost token cannot
@@ -212,8 +213,8 @@ a new lifetime of `expires_in`, never past `max_lifetime` after the mint.
     `max_lifetime`, or its token already ends at that cap (the same answer, so a
     client never loops).
   - `429` `{"error": "too early to renew", "retry_after": N}` with a
-    `Retry-After: N` header (the body too, since a page on another origin cannot
-    read the header): a token is exchanged only once a quarter of its
+    `Retry-After: N` header, N at least 1 (the body too, since a page on another origin
+    cannot read the header): a token is exchanged only once a quarter of its
     `expires_in` has passed, so a chain grows by one row per quarter lifetime at
     most, whoever asks. The embedded client asks at half or later, and on a `429`
     keeps its token and waits `retry_after` seconds.
@@ -637,7 +638,9 @@ event as stored.
 ## Upgrading to renewable grants
 
 - Migration `00004` adds three nullable columns to `grants` (no table rewrite, no
-  lock beyond the catalog) and an index on `root_id`. Grants that exist, or that
+  lock beyond the catalog) and an index on `root_id`. It gives up after 5 s if a
+  long transaction holds `grants` (then run it again), rather than block token
+  lookups behind its `ALTER`. Grants that exist, or that
   an older instance mints during a rolling deploy, are chains of one and are never
   renewable.
 - Do not mint grants with `max_lifetime` until every instance runs this version.

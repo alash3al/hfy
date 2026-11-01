@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -224,5 +225,46 @@ func TestGrantExchangeMigration(t *testing.T) {
 	}
 	if _, err := s.Migrate(ctx, "up"); err != nil { // and up works over rows that exist
 		t.Fatal(err)
+	}
+}
+
+// 00004 gives up when a long transaction holds the grants table, instead of
+// queueing its ALTER behind it and blocking every token lookup that follows.
+func TestGrantExchangeMigrationDoesNotWaitForeverForTheTable(t *testing.T) {
+	s := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := s.Migrate(ctx, "down"); err != nil { // back to before 00004
+		t.Fatal(err)
+	}
+	long, err := s.Pool.Begin(ctx) // a long transaction that has read grants
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			long.Rollback(ctx)
+		}
+	}
+	defer release()
+	if _, err := long.Exec(ctx, `SELECT count(*) FROM grants`); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := s.Migrate(ctx, "up"); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "lock timeout") {
+			t.Fatalf("want a lock timeout, got %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		release() // let the stuck migration finish before the database goes
+		<-done
+		t.Fatal("the migration waited for the table without a timeout")
+	}
+	release()
+	if _, err := s.Migrate(ctx, "up"); err != nil { // nothing is left half done
+		t.Fatalf("running it again: %v", err)
 	}
 }

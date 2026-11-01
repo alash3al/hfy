@@ -71,8 +71,9 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) error {
 			return &httpError{http.StatusBadRequest, "max_lifetime must be 1..604800 seconds"}
 		}
 		life = time.Duration(*req.MaxLifetime) * time.Second
-		if life < ttl || ttl < minRenewableTTL {
-			return &httpError{http.StatusBadRequest, "a renewable grant needs expires_in of at least 60 seconds and max_lifetime of at least expires_in"}
+		// strictly more: with life == ttl the first token already ends at the cap and could never be exchanged
+		if life <= ttl || ttl < minRenewableTTL {
+			return &httpError{http.StatusBadRequest, "a renewable grant needs expires_in of at least 60 seconds and max_lifetime greater than expires_in"}
 		}
 	}
 	agent, ok := s.cfg.AgentNamed(req.Agent)
@@ -130,17 +131,16 @@ func (s *Server) exchangeGrant(w http.ResponseWriter, r *http.Request, g *db.Gra
 	case db.IsNotFound(err) && !g.Renewable:
 		return errNotRenewable
 	case db.IsNotFound(err):
-		miss, err := s.store.ExchangeMiss(ctx, old, exchangeGap)
-		switch {
-		case db.IsNotFound(err), err == nil && miss.Retired: // dead, retired or lost a race
-			return &httpError{http.StatusUnauthorized, "invalid or expired token"}
-		case err != nil:
-			return err
-		case miss.Capped:
+		miss, merr := s.store.ExchangeMiss(ctx, old, exchangeGap)
+		if merr != nil && !db.IsNotFound(merr) {
+			return merr
+		}
+		switch code, wait := exchangeRefusal(miss, db.IsNotFound(merr)); code {
+		case http.StatusConflict:
 			return errNotRenewable
-		case miss.Wait > 0:
-			w.Header().Set("Retry-After", strconv.Itoa(miss.Wait))
-			return writeJSON(w, http.StatusTooManyRequests, tooEarlyBody{Error: "too early to renew", RetryAfter: miss.Wait}) // the body too: a page cannot read the header cross-origin
+		case http.StatusTooManyRequests:
+			w.Header().Set("Retry-After", strconv.Itoa(wait))
+			return writeJSON(w, code, tooEarlyBody{Error: "too early to renew", RetryAfter: wait}) // the body too: a page cannot read the header cross-origin
 		}
 		return &httpError{http.StatusUnauthorized, "invalid or expired token"}
 	case err != nil:
@@ -148,6 +148,21 @@ func (s *Server) exchangeGrant(w http.ResponseWriter, r *http.Request, g *db.Gra
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	return writeJSON(w, http.StatusOK, exchangeGrantResponse{ID: got.ChainID, Token: token, ExpiresAt: got.ExpiresAt, Renewable: got.Renewable})
+}
+
+// exchangeRefusal answers a live renewable token that was not exchanged. Dead
+// and retired tokens are the usual 401 and a capped one is a 409. Anything else
+// is too early, and always says to wait at least a second: the exchange can
+// miss by a few milliseconds and the lookup after it then finds nothing left
+// to wait, which must not read as a dead token (the client would ask the host).
+func exchangeRefusal(m db.ExchangeMissed, notLive bool) (code, wait int) {
+	switch {
+	case notLive || m.Retired:
+		return http.StatusUnauthorized, 0
+	case m.Capped:
+		return http.StatusConflict, 0
+	}
+	return http.StatusTooManyRequests, max(m.Wait, 1)
 }
 
 var errNotRenewable = &httpError{http.StatusConflict, "grant is not renewable"}

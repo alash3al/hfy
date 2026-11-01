@@ -63,27 +63,29 @@ func TestRenewableGrantValidation(t *testing.T) {
 		extra string
 		want  int
 	}{
-		"renewable":                      {`,"expires_in":60,"max_lifetime":3600`, 201},
-		"max_lifetime equals expires_in": {`,"expires_in":60,"max_lifetime":60`, 201},
-		"seven days":                     {`,"expires_in":3600,"max_lifetime":604800`, 201},
-		"default ttl is an hour":         {`,"max_lifetime":3600`, 201},
-		"null is absent":                 {`,"expires_in":60,"max_lifetime":null`, 201},
-		"over seven days":                {`,"expires_in":60,"max_lifetime":604801`, 400},
-		"below expires_in":               {`,"expires_in":120,"max_lifetime":119`, 400},
-		"below the default ttl":          {`,"max_lifetime":3599`, 400},
-		"ttl under a minute":             {`,"expires_in":59,"max_lifetime":3600`, 400},
-		"zero":                           {`,"expires_in":60,"max_lifetime":0`, 400},
-		"negative":                       {`,"expires_in":60,"max_lifetime":-1`, 400},
-		"float":                          {`,"expires_in":60,"max_lifetime":3600.5`, 400},
-		"float zero fraction":            {`,"expires_in":60,"max_lifetime":3600.0`, 400},
-		"exponent":                       {`,"expires_in":60,"max_lifetime":1e3`, 400},
-		"string":                         {`,"expires_in":60,"max_lifetime":"3600"`, 400},
-		"bool":                           {`,"expires_in":60,"max_lifetime":true`, 400},
-		"array":                          {`,"expires_in":60,"max_lifetime":[3600]`, 400},
-		"int64 max":                      {`,"expires_in":60,"max_lifetime":9223372036854775807`, 400},
-		"past int64":                     {`,"expires_in":60,"max_lifetime":9223372036854775808`, 400},
-		"huge":                           {`,"expires_in":60,"max_lifetime":1e999`, 400},
-		"huge digits":                    {`,"expires_in":60,"max_lifetime":` + strings.Repeat("9", 400), 400},
+		"renewable":                       {`,"expires_in":60,"max_lifetime":3600`, 201},
+		"one second more than expires_in": {`,"expires_in":60,"max_lifetime":61`, 201},
+		"max_lifetime equals expires_in":  {`,"expires_in":60,"max_lifetime":60`, 400}, // would end at its cap the moment it is minted
+		"equals the default ttl":          {`,"max_lifetime":3600`, 400},
+		"seven days":                      {`,"expires_in":3600,"max_lifetime":604800`, 201},
+		"default ttl is an hour":          {`,"max_lifetime":3601`, 201},
+		"null is absent":                  {`,"expires_in":60,"max_lifetime":null`, 201},
+		"over seven days":                 {`,"expires_in":60,"max_lifetime":604801`, 400},
+		"below expires_in":                {`,"expires_in":120,"max_lifetime":119`, 400},
+		"below the default ttl":           {`,"max_lifetime":3599`, 400},
+		"ttl under a minute":              {`,"expires_in":59,"max_lifetime":3600`, 400},
+		"zero":                            {`,"expires_in":60,"max_lifetime":0`, 400},
+		"negative":                        {`,"expires_in":60,"max_lifetime":-1`, 400},
+		"float":                           {`,"expires_in":60,"max_lifetime":3600.5`, 400},
+		"float zero fraction":             {`,"expires_in":60,"max_lifetime":3600.0`, 400},
+		"exponent":                        {`,"expires_in":60,"max_lifetime":1e3`, 400},
+		"string":                          {`,"expires_in":60,"max_lifetime":"3600"`, 400},
+		"bool":                            {`,"expires_in":60,"max_lifetime":true`, 400},
+		"array":                           {`,"expires_in":60,"max_lifetime":[3600]`, 400},
+		"int64 max":                       {`,"expires_in":60,"max_lifetime":9223372036854775807`, 400},
+		"past int64":                      {`,"expires_in":60,"max_lifetime":9223372036854775808`, 400},
+		"huge":                            {`,"expires_in":60,"max_lifetime":1e999`, 400},
+		"huge digits":                     {`,"expires_in":60,"max_lifetime":` + strings.Repeat("9", 400), 400},
 		// n seconds as a time.Duration wraps around int64 for n over ~9.2e9: these once passed
 		"expires_in float":     {`,"expires_in":60.5`, 400},
 		"expires_in exponent":  {`,"expires_in":1e3`, 400},
@@ -736,4 +738,27 @@ func TestStreamSurvivesAnExchange(t *testing.T) {
 		t.Fatalf("the second reply did not arrive on the new stream: %d events", len(more))
 	}
 	waitClosed(t, oldStream, 3*time.Second) // grace over: the old stream ends
+}
+
+// The smallest renewable grant, max_lifetime one second over expires_in, can be
+// exchanged once: the new token is cut to the cap and says so, then it is a 409.
+func TestSmallestRenewableGrantExchangesOnce(t *testing.T) {
+	a := start(t, nil)
+	tok, id := a.renewable(a.newConversation(), 60, 61)
+	// 20 s later, where the client would ask: the new token has only the cap left
+	if _, err := a.rt.Store.Pool.Exec(context.Background(), `UPDATE grants SET created_at = created_at - interval '20 seconds',
+		expires_at = expires_at - interval '20 seconds', renew_until = renew_until - interval '20 seconds' WHERE root_id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	code, out := a.swap(tok)
+	if code != 200 || out["renewable"] != false {
+		t.Fatalf("first exchange: %d %v", code, out)
+	}
+	exp, _ := time.Parse(time.RFC3339Nano, out["expires_at"].(string))
+	if d := time.Until(exp); d < 39*time.Second || d > 41*time.Second {
+		t.Fatalf("expires in %s, want the cap (about 41s)", d)
+	}
+	if code, _ := a.swap(out["token"].(string)); code != 409 {
+		t.Fatalf("second exchange: %d", code)
+	}
 }
