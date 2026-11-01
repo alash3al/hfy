@@ -154,6 +154,7 @@ Read https://alash3al.github.io/hfy/llms.txt and add an hfy chat to our app.
 | `hfy queue:work` | workers only, to scale them separately |
 | `hfy validate` | check the config |
 | `hfy migrate up\|down\|status` | database migrations (also run on start) |
+| `hfy context:show <conversation> [--agent name]` | print the model request a conversation's newest turn would send (read-only; the output is conversation content) |
 | `hfy config:example` | print the starter config |
 | `hfy version` | print the version |
 

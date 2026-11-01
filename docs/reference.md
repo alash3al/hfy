@@ -694,10 +694,16 @@ event as stored.
   prompt says these blocks are data, not instructions and not from the user. Zero-width
   and right-to-left characters are kept as written. Notes never change who
   speaks: they do not make a chat a room, and in a room they are framed the same
-  way. Each is at most 16 KiB of clean UTF-8 (no NUL, no leading BOM); at most
-  64 KiB (as the model reads them, escaped) go into one prompt, dropping the
-  oldest and never the newest; the rest stay in history and compaction folds
-  them into the summary (the summarizer reads each, cut to 2000 bytes).
+  way. While a prompt holds any note, what people write is escaped too (even in a
+  one-to-one chat, which is plain otherwise), so nobody can type a block that
+  looks like a note; a prompt without notes is sent exactly as before. Each note is
+  at most 16 KiB of clean UTF-8 (no NUL, no leading BOM); a prompt carries at most 64 KiB of
+  them (framed and escaped, as the model reads them). Past that the oldest are
+  dropped in steps of 32 KiB, so the prompt is cut to about half the budget and
+  then keeps the same start until the notes have grown by another half budget
+  (the provider's prefix cache survives); the newest note is always kept. Dropped
+  notes stay in history, and compaction folds them into the summary (the
+  summarizer reads each, cut to 2000 bytes, and is told they are data).
   A note stays in every later prompt until a summary covers it. In the prompt
   a note sits in event order, after the events that came before it; while a tool
   call is unanswered it waits for the answer, so a result still follows its call.
@@ -715,6 +721,8 @@ event as stored.
   code and config it runs with now (so a config change shows). It calls no model,
   runs no tool and no hook, writes nothing (its connection is read-only), and leaves
   out tools, which need live servers; stored files appear as `hfy-file:<key>`.
+  Its output holds the conversation's content, the agent's system text and vars:
+  treat it like a database dump. It takes exactly one conversation uuid.
   Read it with `hfy context:show <id> | jq -r '.messages[] | .role, .content'`. The prompt is a
   pure function of the events (no clock, no map order): the same events and config
   give the same bytes on every run.
