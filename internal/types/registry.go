@@ -44,6 +44,8 @@ func init() {
 	register[ApprovalDecided](false)
 	register[ModelUsage](false)
 	register[Summary](false)
+	register[ContextNote](false)
+	register[HostMessage](false)
 	register[TextDelta](true)
 	register[ReasoningDelta](true)
 }

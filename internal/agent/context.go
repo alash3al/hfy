@@ -62,6 +62,9 @@ func buildPrompt(in promptInput) (system string, msgs []provider.Message, err er
 	if room {
 		system += "\n\n" + strings.TrimSpace(promptRoom)
 	}
+	if hasNotes(in.Events) {
+		system += "\n\n" + strings.TrimSpace(promptNotes)
+	}
 	if in.Summary != nil {
 		text := in.Summary.Text
 		if room { // tag-like text in it must not read as a message
@@ -92,10 +95,13 @@ func (rt *Runtime) summaryStart(ctx context.Context, conversationID int64) (*typ
 }
 
 // messagesFrom turns events into the messages spec's agent sees. Only
-// message.text, tool_call, tool_call.interrupted and tool_result reach the
-// model. The agent's own words and calls are its assistant turns; everyone
-// else's words are user turns, framed with who said them when room is set
-// (see inRoom). Other agents' tool calls are theirs and stay out.
+// message.text, tool_call, tool_call.interrupted, tool_result, context.note and
+// host.message reach the model. The agent's own words and calls are its
+// assistant turns; everyone else's words are user turns, framed with who said
+// them when room is set (see inRoom). Other agents' tool calls are theirs and
+// stay out. Notes and host messages are always framed (see noteMessage), in
+// event order, and wait while a tool call is unanswered: a tool result must
+// follow its call directly.
 func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool, sign func(string) string) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
@@ -112,7 +118,16 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 		}
 	}
 	interrupted := strings.TrimSpace(promptInterrupted)
-	for _, e := range events {
+	var held []provider.Message // notes waiting for the open assistant message or its calls
+	block := map[string]bool{}  // unanswered call ids of the open assistant message (lookups only)
+	release := func() {
+		for _, m := range held {
+			out = appendUser(out, m)
+		}
+		held = nil
+	}
+	notesFrom := firstKeptNote(events)
+	for i, e := range events {
 		own := e.ActorType == string(types.ActorAgent) && e.ActorRef == spec.Name
 		switch e.Type {
 		case types.EventMessageText:
@@ -121,6 +136,8 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 				return nil, err
 			}
 			flush()
+			release()
+			clear(block)
 			if own {
 				asst = &provider.Message{Role: "assistant", Content: m.Text}
 				continue
@@ -140,7 +157,9 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 			}
 			if asst == nil {
 				asst = &provider.Message{Role: "assistant"}
+				clear(block)
 			}
+			block[c.CallID] = true
 			asst.ToolCalls = append(asst.ToolCalls, provider.ToolCall{
 				ID: c.CallID, Name: mcp.WireNameOf(c.Name), Arguments: argsText(c.Arguments)})
 			calls = append(calls, c.CallID)
@@ -155,8 +174,12 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 			}
 			flush()
 			delete(pending, r.CallID)
+			delete(block, r.CallID)
 			out = append(out, provider.Message{Role: "tool", ToolCallID: r.CallID,
 				Content: toolText(mcp.Result{Content: r.Content, IsError: r.IsError})})
+			if len(block) == 0 {
+				release()
+			}
 		case types.EventToolCallInterrupted:
 			c, err := e.Payload[types.ToolCallInterrupted]()
 			if err != nil {
@@ -167,10 +190,27 @@ func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool
 			}
 			flush()
 			delete(pending, c.CallID)
+			delete(block, c.CallID)
 			out = append(out, provider.Message{Role: "tool", ToolCallID: c.CallID, Content: interrupted})
+			if len(block) == 0 {
+				release()
+			}
+		case types.EventContextNote, types.EventHostMessage:
+			if i < notesFrom {
+				continue // over the notes budget: the oldest go first
+			}
+			msg, err := noteMessage(e)
+			if err != nil {
+				return nil, err
+			}
+			held = append(held, msg)
+			if asst == nil && len(block) == 0 {
+				release()
+			}
 		}
 	}
 	flush()
+	release()
 	// A call with no result at all (stopped mid-flight) must not break the API
 	// contract: it is answered right after the tool answers that follow its
 	// assistant message, at its last use if the id was reused.
@@ -230,11 +270,76 @@ var (
 // only frames say who wrote what.
 func frame(e db.EventRow, tag, text string) string {
 	kind := "person"
-	if e.ActorType == string(types.ActorAgent) {
+	switch e.ActorType {
+	case string(types.ActorAgent):
 		kind = "agent"
+	case actorHost: // types.ActorHost, once the host events API defines it
+		kind = "host"
 	}
 	return "<" + tag + ` from="` + escAttr.Replace(e.ActorRef) + `" kind="` + kind + `">` +
 		escText.Replace(text) + "</" + tag + ">"
+}
+
+const actorHost = "host"
+
+// maxPromptNotes bounds the notes and host messages one prompt carries, as the
+// model reads them (escaped). Past it the oldest are left out, never the
+// newest: they stay in history, and compaction folds them into the summary.
+const maxPromptNotes = 4 * types.MaxNoteBytes
+
+func isNote(t types.EventType) bool {
+	return t == types.EventContextNote || t == types.EventHostMessage
+}
+
+func hasNotes(events []db.EventRow) bool {
+	return slices.ContainsFunc(events, func(e db.EventRow) bool { return isNote(e.Type) })
+}
+
+func noteText(e db.EventRow) (string, error) {
+	if e.Type == types.EventHostMessage {
+		m, err := e.Payload[types.HostMessage]()
+		return m.Text, err
+	}
+	n, err := e.Payload[types.ContextNote]()
+	return n.Text, err
+}
+
+// firstKeptNote is the index of the first event whose note is kept: notes
+// count from the newest until maxPromptNotes is reached.
+func firstKeptNote(events []db.EventRow) int {
+	total, kept := 0, 0
+	for i, e := range slices.Backward(events) {
+		if !isNote(e.Type) {
+			continue
+		}
+		text, _ := noteText(e) // a bad row fails when it is rendered
+		total += len(escText.Replace(text))
+		if total > maxPromptNotes && kept > 0 {
+			return i + 1
+		}
+		kept++
+	}
+	return 0
+}
+
+// noteMessage renders a note or host message as a user message holding one
+// labelled data block: <context from="…" kind="…">text</context> (or
+// <host_message …>). The text is escaped, so it cannot close its block, open
+// another or pass for a message; the system prompt (promptNotes) says the
+// block is data. Whoever wrote it is named by the actor, never by the text.
+func noteMessage(e db.EventRow) (provider.Message, error) {
+	text, err := noteText(e)
+	if err != nil {
+		return provider.Message{}, err
+	}
+	return provider.Message{Role: "user", Content: frame(e, noteTag(e), text)}, nil
+}
+
+func noteTag(e db.EventRow) string {
+	if e.Type == types.EventHostMessage {
+		return "host_message"
+	}
+	return "context"
 }
 
 // framed frames a user message's text (its first part when it has parts;

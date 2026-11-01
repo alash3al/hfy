@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 )
 
 // Turn is the root event of a turn.
@@ -187,3 +189,41 @@ func (s Summary) Validate() error {
 	}
 	return nil
 }
+
+// MaxNoteBytes bounds the text of one context.note or host.message.
+const MaxNoteBytes = 16 << 10
+
+// CleanNote makes text fit for a note: Clean, and no leading byte order mark.
+func CleanNote(s string) string { return strings.TrimPrefix(Clean(s), "\uFEFF") }
+
+func validNote(kind, text string) error {
+	switch {
+	case strings.TrimSpace(text) == "":
+		return fmt.Errorf("%s: text required", kind)
+	case len(text) > MaxNoteBytes:
+		return fmt.Errorf("%s: text is %d bytes, the limit is %d", kind, len(text), MaxNoteBytes)
+	case CleanNote(text) != text:
+		return fmt.Errorf("%s: text must be clean UTF-8 without NUL or a leading BOM (see CleanNote)", kind)
+	}
+	return nil
+}
+
+// ContextNote is a fact put in front of the model: data, never an instruction.
+// Who wrote it is the event's actor. The model sees it framed and escaped
+// (agent.buildPrompt); clients may show it.
+type ContextNote struct {
+	Text string `json:"text"`
+}
+
+func (ContextNote) EventType() EventType { return EventContextNote }
+func (n ContextNote) Validate() error    { return validNote("context.note", n.Text) }
+
+// HostMessage is a message from the host app to the conversation. It never
+// starts a turn; the model sees it framed as data, like a note. Who sent it is
+// the event's actor.
+type HostMessage struct {
+	Text string `json:"text"`
+}
+
+func (HostMessage) EventType() EventType { return EventHostMessage }
+func (m HostMessage) Validate() error    { return validNote("host.message", m.Text) }

@@ -275,6 +275,9 @@ func estimateTokens(system string, msgs []provider.Message) int64 {
 	n := len(system)
 	for _, m := range msgs {
 		n += len(m.Content)
+		for _, p := range m.Parts { // text only: images have no byte size here
+			n += len(p.Text)
+		}
 		for _, tc := range m.ToolCalls {
 			n += len(tc.Name) + len(tc.Arguments)
 		}

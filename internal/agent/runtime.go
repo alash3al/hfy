@@ -49,6 +49,9 @@ var promptSummarizer string
 //go:embed prompts/room.txt
 var promptRoom string
 
+//go:embed prompts/notes.txt
+var promptNotes string
+
 // core gives the spec hfy's core tools (builtins.CoreTools).
 func (s *Spec) core() {
 	for _, c := range builtins.CoreTools() {

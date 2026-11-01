@@ -20,6 +20,7 @@ import (
 
 var (
 	ErrNoActiveTurn      = errors.New("no active turn")
+	ErrNoTurn            = errors.New("the conversation has no turn yet")
 	ErrNoPendingApproval = errors.New("no pending approval for that call")
 	// ErrStopRequested: a stop arrived before the turn could pause.
 	ErrStopRequested = errors.New("stop requested")
@@ -517,4 +518,56 @@ func (s *Service) RequestApproval(ctx context.Context, conversationID, turnID in
 		})
 		return err
 	})
+}
+
+// NoteInput is a context.note or host.message to add to a conversation.
+type NoteInput struct {
+	ConversationID int64
+	Actor          int64           // who wrote it: the one name the model sees
+	Type           types.EventType // EventContextNote or EventHostMessage
+	Text           string
+}
+
+// AppendNote adds a note or host message under the conversation's newest turn,
+// whatever its state, through the one event choke point (AppendEvent). It never
+// starts or queues a turn: a running turn sees the note when it next builds its
+// prompt, a later turn sees it as part of the history. The text is cleaned;
+// empty, blank or over types.MaxNoteBytes is a BadRequestError, and a
+// conversation with no turn is ErrNoTurn (history pages by turn, so a note
+// with no turn would be invisible).
+func (s *Service) AppendNote(ctx context.Context, in NoteInput) (db.EventRow, error) {
+	text := types.CleanNote(in.Text)
+	var p types.Payload
+	switch in.Type {
+	case types.EventContextNote:
+		p = types.ContextNote{Text: text}
+	case types.EventHostMessage:
+		p = types.HostMessage{Text: text}
+	default:
+		return db.EventRow{}, badf("%q is not a note type", in.Type)
+	}
+	if err := p.Validate(); err != nil {
+		return db.EventRow{}, badf("%s", err)
+	}
+	var row db.EventRow
+	err := s.store.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := s.store.LockConversation(ctx, tx, in.ConversationID); err != nil {
+			return err
+		}
+		id, err := s.store.LatestTurnID(ctx, tx, in.ConversationID)
+		if db.IsNotFound(err) {
+			return ErrNoTurn
+		}
+		if err != nil {
+			return err
+		}
+		turn, err := s.store.EventByID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		row, err = s.store.AppendEvent(ctx, tx, db.NewEvent{ConversationID: in.ConversationID, ParentID: &turn.ID,
+			ActorID: in.Actor, Scope: turn.Scope, Payload: p})
+		return err
+	})
+	return row, err
 }

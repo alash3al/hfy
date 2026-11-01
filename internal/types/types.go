@@ -25,6 +25,8 @@ const (
 	EventApprovalDecided     EventType = "approval.decided"
 	EventModelUsage          EventType = "model.usage"
 	EventSummary             EventType = "summary"
+	EventContextNote         EventType = "context.note"
+	EventHostMessage         EventType = "host.message"
 	EventTextDelta           EventType = "text.delta"
 	EventReasoningDelta      EventType = "reasoning.delta"
 )

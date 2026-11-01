@@ -168,6 +168,14 @@ func (s *Store) LoadContext(ctx context.Context, conversation, afterTurn, uptoTu
 		pgx.NamedArgs{"conversation": conversation, "after_turn": afterTurn, "upto_turn": uptoTurn}))
 }
 
+// LatestTurnID returns the id of the conversation's newest turn (pgx.ErrNoRows
+// if it has none).
+func (s *Store) LatestTurnID(ctx context.Context, q DBTX, conversation int64) (int64, error) {
+	var id int64
+	err := q.QueryRow(ctx, s.q("LatestTurn"), pgx.NamedArgs{"conversation": conversation}).Scan(&id)
+	return id, err
+}
+
 // TurnStateOf returns the latest turn.state payload of a turn (nil if none).
 func (s *Store) TurnStateOf(ctx context.Context, q DBTX, turn int64) (*types.TurnStateEvent, error) {
 	var raw []byte

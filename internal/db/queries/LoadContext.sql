@@ -8,5 +8,5 @@ WHERE e.conversation_id = @conversation AND NOT e.ephemeral
   AND e.id > @after_turn
   AND coalesce(e.parent_id, e.id) > @after_turn
   AND coalesce(e.parent_id, e.id) <= @upto_turn
-  AND e.type IN ('turn', 'message.text', 'tool_call', 'tool_call.interrupted', 'tool_result')
+  AND e.type IN ('turn', 'message.text', 'tool_call', 'tool_call.interrupted', 'tool_result', 'context.note', 'host.message')
 ORDER BY coalesce(e.parent_id, e.id), e.id

@@ -177,6 +177,15 @@ func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (stri
 				c = truncate(c, 2000) + "..."
 			}
 			b.WriteString("<tool_result>" + escText.Replace(c) + "</tool_result>\n")
+		case types.EventContextNote, types.EventHostMessage:
+			text, err := noteText(e)
+			if err != nil {
+				return "", err
+			}
+			if len(text) > 2000 {
+				text = truncate(text, 2000) + "..."
+			}
+			b.WriteString(frame(e, noteTag(e), text) + "\n")
 		}
 	}
 	return b.String(), nil
