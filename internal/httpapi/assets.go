@@ -200,6 +200,20 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 	return a, nil
 }
 
+// layoutsDir holds one stylesheet per non-default layout: layouts/<name>.css.
+const layoutsDir = "layouts/"
+
+// layouts maps each layout name to the hashed URL of its stylesheet.
+func (a *assets) layouts() map[string]string {
+	out := map[string]string{}
+	for name, as := range a.byName {
+		if rest, ok := strings.CutPrefix(name, layoutsDir); ok && path.Ext(rest) == ".css" && !strings.Contains(rest, "/") {
+			out[strings.TrimSuffix(rest, ".css")] = "/embed/" + assetsPrefix + as.hashed
+		}
+	}
+	return out
+}
+
 // staleHash splits a hashed name into its stem and extension: ui.<12 hex>.js.
 var staleHash = regexp.MustCompile(`^(.*)\.[0-9a-f]{12}(\.[^./]*)?$`)
 

@@ -42,6 +42,14 @@ type Config struct {
 	Embed      Embed                `yaml:"embed"`
 }
 
+// Densities and Layouts are every value embed.density and embed.layout take.
+// The first Layouts entry is the default; the others are stylesheets under
+// internal/httpapi/embed/layouts (a test keeps the two in step).
+var (
+	Densities = []string{"comfortable", "compact", "spacious"}
+	Layouts   = []string{"bubbles", "transcript", "whatsapp"}
+)
+
 type Embed struct {
 	Lang   string `yaml:"lang"`
 	Dir    string `yaml:"dir"`
@@ -527,10 +535,10 @@ func (c *Config) SetDefaults() {
 	}
 	c.Embed.AccentSet = !c.Embed.accentDefaulted
 	if c.Embed.Density == "" {
-		c.Embed.Density = "comfortable"
+		c.Embed.Density = Densities[0]
 	}
 	if c.Embed.Layout == "" {
-		c.Embed.Layout = "bubbles"
+		c.Embed.Layout = Layouts[0]
 	}
 	if c.Embed.ToolCalls == "" {
 		c.Embed.ToolCalls = "summary"
@@ -568,11 +576,11 @@ func (c *Config) Validate() error {
 	if !accentRe.MatchString(c.Embed.Accent) {
 		bad("embed.accent must be a hex color like #6366f1")
 	}
-	if !slices.Contains([]string{"comfortable", "compact", "spacious"}, c.Embed.Density) {
-		bad("embed.density must be one of comfortable, compact, spacious")
+	if !slices.Contains(Densities, c.Embed.Density) {
+		bad("embed.density must be one of %s", strings.Join(Densities, ", "))
 	}
-	if !slices.Contains([]string{"bubbles", "transcript", "whatsapp"}, c.Embed.Layout) {
-		bad("embed.layout must be one of bubbles, transcript, whatsapp")
+	if !slices.Contains(Layouts, c.Embed.Layout) {
+		bad("embed.layout must be one of %s", strings.Join(Layouts, ", "))
 	}
 	if !slices.Contains([]string{"hidden", "summary", "details"}, c.Embed.ToolCalls) {
 		bad("embed.tool_calls must be one of hidden, summary, details")

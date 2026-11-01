@@ -1,0 +1,16 @@
+/* ---- transcript layout: plain rows, avatars, no tails or wallpaper ---- */
+[data-layout="transcript"] .hfy-msg{max-width:100%;width:100%}
+[data-layout="transcript"] .hfy-bubble{--bub:transparent;flex:1;padding:0;border-radius:0;box-shadow:none;color:var(--hfy-text)}
+[data-layout="transcript"] .hfy-bname{display:none}
+[data-layout="transcript"] .hfy-col{align-items:stretch}
+[data-layout="transcript"] .hfy-block.is-tool .hfy-col,[data-layout="transcript"] .hfy-block.is-reasoning .hfy-col{align-items:flex-start}
+[data-layout="transcript"] .hfy-foot{position:static;margin-top:2px}
+[data-layout="transcript"] .hfy-bubble.is-padfoot{padding-bottom:0}
+[data-layout="transcript"] .hfy-imgs{margin:0 0 6px}
+[data-layout="transcript"] .hfy-name{color:var(--hfy-text)}
+[data-layout="transcript"] .hfy-block.is-head:not(:first-child){padding-top:var(--s1)}
+[data-layout="transcript"] .hfy-day{gap:var(--s3);align-items:center}
+[data-layout="transcript"] .hfy-day::before,[data-layout="transcript"] .hfy-day::after{content:"";flex:1;height:1px;background:var(--hfy-border)}
+[data-layout="transcript"] .hfy-day span{padding:0;background:none;box-shadow:none}
+[data-layout="transcript"] .hfy-typing{box-shadow:none;background:none;padding:0}
+[data-layout="transcript"] .hfy-tool-sum,[data-layout="transcript"] .hfy-reasoning{box-shadow:none;border:1px solid var(--hfy-border)}

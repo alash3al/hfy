@@ -48,6 +48,9 @@ type embedConfig struct {
 	// Uploads tells the composer whether to offer attachments at all, and
 	// which types and size to check before uploading (the server checks again).
 	Uploads *embedUploads `json:"uploads"`
+	// Layouts is every non-default layout and where its stylesheet is: the
+	// only URLs the widget will load for a layout, however it is asked.
+	Layouts map[string]string `json:"layouts"`
 }
 
 type embedUploads struct {
@@ -83,6 +86,7 @@ func (s *Server) buildPage() (*content, string, error) {
 	if parents == nil {
 		parents = []string{}
 	}
+	layouts := s.assets.layouts()
 	payload, err := json.Marshal(embedConfig{
 		Lang:      s.cfg.Embed.Lang,
 		Dir:       s.cfg.Embed.Dir,
@@ -94,11 +98,18 @@ func (s *Server) buildPage() (*content, string, error) {
 		ToolCalls: s.cfg.Embed.ToolCalls,
 		Parents:   parents,
 		Uploads:   s.embedUploads(),
+		Layouts:   layouts,
 	})
 	if err != nil {
 		return nil, "", err
 	}
 	body := bytes.Replace(raw, []byte("__HFY_CONFIG_JSON__"), payload, 1)
+	// The configured layout's sheet is in the document, so the first paint already has it.
+	var sheets string
+	if href, ok := layouts[s.cfg.Embed.Layout]; ok {
+		sheets = `<link rel="stylesheet" href="` + href + `" data-hfy-layout="` + s.cfg.Embed.Layout + `">`
+	}
+	body = bytes.Replace(body, []byte("<!--hfy:sheets-->"), []byte(sheets), 1)
 
 	frameAncestors := "'none'"
 	if len(parents) > 0 {

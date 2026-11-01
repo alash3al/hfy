@@ -30,11 +30,24 @@ var HFY_STRINGS = {
     confirmYes: 'نعم', confirmNo: 'لا', edit: 'تعديل', skipQuestions: 'تخطي الأسئلة', skipConfirm: 'تخطي هذه الأسئلة؟ سيتابع المساعد دون إجاباتك.', skip: 'تخطي', cancel: 'إلغاء' }
 };
 var HFY_RTL = ['ar', 'he', 'fa', 'ur', 'dv', 'ps', 'sd', 'yi'];
-var HFY_DEFAULTS = { lang: '', dir: 'auto', theme: 'auto', accent: '#6366f1', density: 'comfortable', layout: 'bubbles', tool_calls: 'summary', uploads: null, parents: [] };
+var HFY_DEFAULTS = { lang: '', dir: 'auto', theme: 'auto', accent: '#6366f1', density: 'comfortable', layout: 'bubbles', layouts: {}, tool_calls: 'summary', uploads: null, parents: [] };
 var HFY_TERMINAL = ['completed', 'failed', 'stopped', 'cancelled'];
 var HFY_TOOL_MODES = ['hidden', 'summary', 'details'];
-var HFY_LAYOUTS = ['bubbles', 'transcript', 'whatsapp'];
 var HFY_ACTIVE = ['queued', 'running', 'awaiting_approval'];
+
+// every layout but the default is a stylesheet the page's layouts map names; configure only picks from it
+function hfyLayoutKnown(c, name) { return typeof name === 'string' && (name === HFY_DEFAULTS.layout || Object.prototype.hasOwnProperty.call(c.layouts, name)); }
+var hfyLayoutLoads = Object.create(null);
+function hfyLoadLayout(name, url) {
+  if (hfyLayoutLoads[name]) return hfyLayoutLoads[name];
+  return (hfyLayoutLoads[name] = new Promise(function (resolve) {
+    var link = document.createElement('link');
+    function done(ok) { if (!ok) { delete hfyLayoutLoads[name]; link.remove(); } resolve(ok); }
+    link.rel = 'stylesheet'; link.href = url; link.setAttribute('data-hfy-layout', name);
+    link.onload = function () { done(true); }; link.onerror = function () { done(false); };
+    document.head.insertBefore(link, document.querySelector('link[data-hfy-custom]'));
+  }));
+}
 
 function hfyResolveConfig() {
   var raw = (typeof window !== 'undefined') ? window.__HFY_EMBED__ : null;
@@ -43,7 +56,8 @@ function hfyResolveConfig() {
   if (!Array.isArray(c.parents)) c.parents = [];
   c.accent_set = !!c.accent_set;
   if (HFY_TOOL_MODES.indexOf(c.tool_calls) === -1) c.tool_calls = HFY_DEFAULTS.tool_calls;
-  if (HFY_LAYOUTS.indexOf(c.layout) === -1) c.layout = HFY_DEFAULTS.layout;
+  c.layouts = Object.assign(Object.create(null), raw.layouts);
+  if (!hfyLayoutKnown(c, c.layout)) c.layout = HFY_DEFAULTS.layout;
   // uploads: null when the server can't take files, else {types: [mime], max_bytes}
   var u = c.uploads;
   c.uploads = (u && Array.isArray(u.types) && u.types.length && u.max_bytes > 0)
@@ -838,7 +852,13 @@ window.hfyEmbed = function () {
       });
       // an accent is taken only as a six-digit hex, the rule the server applies to YAML; anything else is ignored
       if (typeof cfg.accent === 'string' && /^#[0-9a-f]{6}$/i.test(cfg.accent)) { this.config.accent = cfg.accent; this.config.accent_set = true; }
-      if (HFY_LAYOUTS.indexOf(cfg.layout) !== -1) this.config.layout = cfg.layout;
+      // the new layout applies once its sheet is in; if it never loads, the current one stays
+      var want = cfg.layout;
+      if (hfyLayoutKnown(this.config, want)) {
+        this._layout = want;
+        if (want === HFY_DEFAULTS.layout || want === this.config.layout) this.config.layout = want;
+        else hfyLoadLayout(want, this.config.layouts[want]).then(function (ok) { if (ok && self._layout === want) { self.config.layout = want; self.applyDom(); } });
+      }
       if (HFY_TOOL_MODES.indexOf(cfg.tool_calls) !== -1) this.config.tool_calls = cfg.tool_calls;
       if (cfg.strings && typeof cfg.strings === 'object') this.customStrings = Object.assign({}, this.customStrings, cfg.strings);
       this.applyDom();
@@ -847,6 +867,11 @@ window.hfyEmbed = function () {
 
     init: async function () {
       this.config = hfyResolveConfig(); hfyConfig = this.config;
+      // head stylesheets have settled by now: a layout sheet that failed (no sheet, no rules, or an opaque one) leaves the default layout
+      var link = document.querySelector('link[data-hfy-layout]'), ok = false;
+      try { ok = link.sheet.cssRules.length > 0; } catch (e) { /* not loaded */ }
+      if (link && !ok && link.getAttribute('data-hfy-layout') === this.config.layout) this.config.layout = HFY_DEFAULTS.layout;
+      this._layout = this.config.layout;
       try { this.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { this.tz = ''; }
       this.applyDom();
       hfyBridge.component = this;

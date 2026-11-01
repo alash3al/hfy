@@ -66,31 +66,6 @@
 [data-density="compact"]{ --hfy-fs:14px; --hfy-lh:1.42; --hfy-gap:8px; --hfy-gap-tight:2px; --hfy-pad-y:5px; --hfy-pad-x:9px; --hfy-avatar:26px; }
 [data-density="spacious"]{ --hfy-fs:16px; --hfy-lh:1.6; --hfy-gap:16px; --hfy-gap-tight:2px; --hfy-pad-y:9px; --hfy-pad-x:12px; --hfy-avatar:34px; }
 :lang(ar),:lang(fa),:lang(ur){ --hfy-lh:1.7; }
-/* WhatsApp-style palette: neutral constants that follow light/dark, never the accent; only layout=whatsapp uses them, retune here */
-[data-layout="whatsapp"]{
-  --hfy-wa-wall:#efeae2; --hfy-wa-dot:rgb(11 20 26/.06); --hfy-wa-out:#d9fdd3; --hfy-wa-in:#fff;
-  --hfy-wa-text:#111b21; --hfy-wa-muted:#667781; --hfy-wa-read:#027eb5; --hfy-wa-bar:#f0f2f5;
-  --hfy-wa-pill:#fff; --hfy-wa-line:#e9edef; --hfy-wa-inset:#f0f2f5; --hfy-wa-send:#00a884;
-  --hfy-accent:var(--hfy-wa-send); --hfy-on-accent:#111b21;
-  --hfy-bg:var(--hfy-wa-bar); --hfy-wall:var(--hfy-wa-wall); --hfy-wall-dot:var(--hfy-wa-dot); --hfy-own:var(--hfy-wa-out);
-  --hfy-surface:var(--hfy-wa-in); --hfy-surface-2:var(--hfy-wa-inset); --hfy-surface-3:var(--hfy-wa-line);
-  --hfy-text:var(--hfy-wa-text); --hfy-muted:var(--hfy-wa-muted); --hfy-tick-read:var(--hfy-wa-read); --hfy-border:var(--hfy-wa-line);
-}
-[data-layout="whatsapp"][data-theme="dark"]{
-  --hfy-wa-wall:#0b141a; --hfy-wa-dot:rgb(134 150 160/.07); --hfy-wa-out:#005c4b; --hfy-wa-in:#202c33;
-  --hfy-wa-text:#e9edef; --hfy-wa-muted:#8696a0; --hfy-wa-read:#53bdeb; --hfy-wa-bar:#202c33;
-  --hfy-wa-pill:#2a3942; --hfy-wa-line:#2a3942; --hfy-wa-inset:#111b21;
-}
-/* an accent set explicitly tints the own bubbles (15% light, 25% dark) and darkens or lightens links (40% black light, 30% white dark) so they keep >= 4.5:1 on incoming bubbles; message text stays >= 4.5:1 on the tint */
-@supports (color:color-mix(in srgb,red 50%,blue)){
-  [data-layout="whatsapp"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 15%,#fff);--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 40%,#000)}
-  [data-layout="whatsapp"][data-theme="dark"][data-accent-set]{--hfy-wa-out:color-mix(in srgb,var(--hfy-accent) 25%,#202c33);--hfy-accent-text:color-mix(in srgb,var(--hfy-accent) 30%,#fff)}
-}
-/* own bubbles: timestamps keep 4.5:1 on any tint; the read tick and failed icon are graphics (3:1); a set accent rings its own bubble so it stays apart from incoming */
-[data-layout="whatsapp"] .is-own .hfy-bubble{--hfy-muted:#4f5e67}
-[data-layout="whatsapp"][data-theme="dark"] .is-own .hfy-bubble{--hfy-muted:#dfe5e8;--hfy-err:#fca5a5}
-[data-layout="whatsapp"][data-theme="dark"][data-accent-set] .is-own .hfy-bubble{--hfy-tick-read:#8ad8f5}
-[data-layout="whatsapp"][data-accent-set] .is-own .hfy-bubble{box-shadow:var(--hfy-shadow-1),inset 0 0 0 1px var(--hfy-wa-muted)}
 
 /* ---- base ---- */
 *,*::before,*::after{box-sizing:border-box}
@@ -604,32 +579,6 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 .hfy-pv-confirm-card p{margin:0 0 var(--s4);font-size:15px;font-weight:600}
 .hfy-pv-confirm-actions{display:flex;justify-content:flex-end;gap:var(--s2)}
 @media (pointer:coarse){ .hfy-pv-thumb .hfy-pv-x{width:28px;height:28px} }
-
-/* ---- transcript layout: plain rows, avatars, no tails or wallpaper ---- */
-[data-layout="transcript"] .hfy-msg{max-width:100%;width:100%}
-[data-layout="transcript"] .hfy-bubble{--bub:transparent;flex:1;padding:0;border-radius:0;box-shadow:none;color:var(--hfy-text)}
-[data-layout="transcript"] .hfy-bname{display:none}
-[data-layout="transcript"] .hfy-col{align-items:stretch}
-[data-layout="transcript"] .hfy-block.is-tool .hfy-col,[data-layout="transcript"] .hfy-block.is-reasoning .hfy-col{align-items:flex-start}
-[data-layout="transcript"] .hfy-foot{position:static;margin-top:2px}
-[data-layout="transcript"] .hfy-bubble.is-padfoot{padding-bottom:0}
-[data-layout="transcript"] .hfy-imgs{margin:0 0 6px}
-[data-layout="transcript"] .hfy-name{color:var(--hfy-text)}
-[data-layout="transcript"] .hfy-block.is-head:not(:first-child){padding-top:var(--s1)}
-[data-layout="transcript"] .hfy-day{gap:var(--s3);align-items:center}
-[data-layout="transcript"] .hfy-day::before,[data-layout="transcript"] .hfy-day::after{content:"";flex:1;height:1px;background:var(--hfy-border)}
-[data-layout="transcript"] .hfy-day span{padding:0;background:none;box-shadow:none}
-[data-layout="transcript"] .hfy-typing{box-shadow:none;background:none;padding:0}
-[data-layout="transcript"] .hfy-tool-sum,[data-layout="transcript"] .hfy-reasoning{box-shadow:none;border:1px solid var(--hfy-border)}
-
-/* ---- whatsapp layout: the bubbles rules above, its palette, and its own bubble radius and width (spacing follows density) ---- */
-[data-layout="whatsapp"] .hfy-messages{padding-top:max(var(--s2),env(safe-area-inset-top))}
-[data-layout="whatsapp"] .hfy-msg{max-width:65%}
-[data-layout="whatsapp"] .hfy-bubble{border-radius:8px}
-[data-layout="whatsapp"] .hfy-day span{border-radius:7.5px;font-size:12.5px}
-[data-layout="whatsapp"] .hfy-composer-wrap{background:var(--hfy-wa-bar)}
-[data-layout="whatsapp"] .hfy-pill{background:var(--hfy-wa-pill)}
-@media (max-width:520px){ [data-layout="whatsapp"] .hfy-msg{max-width:80%} }
 
 /* ---- tool cards: a tool's hfy/ui block, rendered under its own row ---- */
 .hfy-card-host:empty{display:none}

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -93,7 +94,7 @@ func runNode(t *testing.T, body string) string {
 	driver := layoutStub + `
 		var api = new Function('window', 'document', 'navigator', 'requestAnimationFrame', 'matchMedia', ` + quoted + `)(win, doc, nav, function () {}, matchMediaStub);
 		function boot(raw) {
-			win.__HFY_EMBED__ = raw;
+			win.__HFY_EMBED__ = Object.assign({layouts: {transcript: '/embed/assets/layouts/transcript.aaaaaaaaaaaa.css', whatsapp: '/embed/assets/layouts/whatsapp.bbbbbbbbbbbb.css'}}, raw);
 			var c = api.hfyEmbed();
 			c.config = api.resolve();
 			c.applyDom();
@@ -128,13 +129,25 @@ func cssDecls(t *testing.T, css, sel string) map[string]string {
 	return decls
 }
 
+// readUICSS is the whole stylesheet set: ui.css (the default layout and
+// everything shared) followed by every layouts/*.css. The layout rules the
+// tests read live in either, and the cascade order is the browser's.
 func readUICSS(t *testing.T) string {
 	t.Helper()
-	src, err := os.ReadFile("embed/ui.css")
+	files, err := filepath.Glob("embed/layouts/*.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(src)
+	var css strings.Builder
+	for _, f := range append([]string{"embed/ui.css"}, files...) {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		css.Write(src)
+		css.WriteByte('\n')
+	}
+	return css.String()
 }
 
 // Theme row: light and dark are fixed, auto follows the system.
