@@ -237,15 +237,17 @@ Your backend (`Authorization: Bearer <server.secret>`; the scheme name is case-i
     `400`. Absent, `null` and `""` mean `host`. Sources compare exactly:
     `CRM` and `crm` are two hosts.
   - The body is one JSON object of at most 128 KiB (`413` over it): no key twice
-    (in any letter case), no other key, nothing after it, or `400`. `Content-Type`
+    (in any letter case), no other key, nothing after it, or `400`. Keys are
+    ASCII: a key like `ſource`, which a JSON decoder would fold into `source`,
+    is `400`. `Content-Type`
     is not read. Other methods on the path are `405`.
   - `401` without the server secret: a grant's token is not accepted here, and
     the secret is not accepted on client routes. `404`: unknown conversation (or
     an id that is not a uuid). `409`: the conversation has no turn yet, so
     there is nothing to file the event under; static context belongs in grant
     `vars`, and a host event waits for the first message. `429`: the turn
-    already holds 100 host events (a turn ends at 5000 events, and a runaway
-    host must not spend them); there is no `Retry-After`: the next turn takes
+    already holds 100 host events, counted across all sources together (a turn ends
+    at 5000 events, and a runaway host must not spend them); there is no `Retry-After`: the next turn takes
     events again, and a repeat of an earlier key is still answered `200`.
     Host events appear in `/history` and on the stream like any durable event,
     with `actor: {uuid, type: "host", ref}`; the key is not shown.
@@ -957,6 +959,9 @@ event as stored.
   started before it, so one left idle holds it up. If it is cancelled or fails
   it can leave an invalid index of the same name; run `hfy migrate up` again,
   which drops it first.
+- During a rolling deploy, an old instance that holds a long transaction on
+  `conversation_events` makes the `ALTER`'s 5 s `lock_timeout` fail the migration, and
+  the new instance does not start: restart it once that transaction has ended.
 - `hfy migrate down` past `00005` drops the index and the column; the events stay,
   without their keys.
 - The route works only on instances that ran `00005`: run `hfy migrate up` (any
