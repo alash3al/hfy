@@ -68,7 +68,11 @@ func argsMarker(raw string) string {
 // must fit limit. This is deliberately conservative: it overcounts spaces raw
 // already has and repeated keys Postgres drops, and refuses valid numbers that
 // are too long written out (a 1001-digit integer, 0e1000, -0.0e-999).
-func storable(raw string, limit int) error {
+func storable(raw string, limit int) error { return storableDeep(raw, limit, maxDepth) }
+
+// storableDeep is storable with its own nesting bound, for rows that are not
+// event payloads.
+func storableDeep(raw string, limit, deepest int) error {
 	if len(raw) > limit {
 		return errTooLarge
 	}
@@ -93,7 +97,7 @@ func storable(raw string, limit int) error {
 		switch t := tok.(type) {
 		case json.Delim:
 			if t == '[' || t == '{' {
-				if depth++; depth > maxDepth {
+				if depth++; depth > deepest {
 					return errDepth
 				}
 			} else {

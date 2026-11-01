@@ -45,14 +45,23 @@ type Sink interface {
 // the whole prompt, so this is far above any real one.
 const maxTraceJSON = 32 << 20
 
+// maxTraceDepth bounds how deep a stored request or response nests. The
+// event-payload bound (maxDepth) is too tight here: a request carries the
+// agent's tool schemas, which nest as deep as their author wrote them. Go's
+// decoder, which redactBody and our own readers use, stops at 10,000; Postgres
+// jsonb has no practical limit; 1,000 keeps clear of both.
+const maxTraceDepth = 1000
+
 // traceJSON is raw as outbound_requests may store it: a row's JSON that
 // Postgres would refuse (NUL, a lone surrogate, too deep or large) is replaced
-// by a note, so the trace row still lands.
+// by a note, so the trace row still lands. It runs synchronously in the
+// provider's post defer and can allocate several times a 32 MiB body (measured
+// 100-650 ms, up to 300 MiB for pathological input).
 func traceJSON(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}
-	if err := storable(string(raw), maxTraceJSON); err != nil {
+	if err := storableDeep(string(raw), maxTraceJSON, maxTraceDepth); err != nil {
 		slog.Warn("outbound trace json dropped", "reason", err.Error())
 		return json.RawMessage(`{"dropped":"not storable"}`)
 	}

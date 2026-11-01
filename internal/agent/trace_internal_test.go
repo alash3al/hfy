@@ -56,3 +56,27 @@ func TestRecorderStoresHostileRows(t *testing.T) {
 		})
 	}
 }
+
+// A request's tool schemas may nest far past the event-payload bound (maxDepth):
+// the trace keeps them down to maxTraceDepth and drops anything deeper.
+func TestTraceKeepsDeeperJSON(t *testing.T) {
+	ctx := context.Background()
+	f := newPersistFixture(t)
+	for _, c := range []struct {
+		depth   int
+		dropped bool
+	}{{maxDepth + 1, false}, {100, false}, {maxTraceDepth, false}, {maxTraceDepth + 1, true}} {
+		id := f.rt.recorder(&f.env.TurnID, types.OutboundModel)(provider.Record{URL: "u",
+			Request: json.RawMessage(nested(c.depth, true))})
+		if id == 0 {
+			t.Fatalf("depth %d: trace row not written", c.depth)
+		}
+		var req string
+		if err := f.rt.Store.Pool.QueryRow(ctx, "SELECT request::text FROM outbound_requests WHERE id = $1", id).Scan(&req); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(req, "dropped"); got != c.dropped {
+			t.Errorf("depth %d: dropped=%v, want %v", c.depth, got, c.dropped)
+		}
+	}
+}
