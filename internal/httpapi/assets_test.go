@@ -2,8 +2,14 @@ package httpapi
 
 import (
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -24,7 +30,7 @@ func testFS() fstest.MapFS {
 
 func mustAssets(t *testing.T, fsys fstest.MapFS) *assets {
 	t.Helper()
-	a, err := newAssets(fsys)
+	a, err := newAssets(fsys, encoders)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,5 +237,264 @@ func TestEmbedRoutes(t *testing.T) {
 	}
 	if w := get(h, http.MethodPost, "/embed/ui.js"); w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST: %d", w.Code)
+	}
+}
+
+// fakeEncoders shrink anything to the encoding's name: negotiation is tested
+// without depending on a real compressor. calls counts compressions.
+func fakeEncoders(calls *int) []encoding {
+	fake := func(name string) encoding {
+		return encoding{name, func([]byte) ([]byte, error) { *calls++; return []byte(name), nil }}
+	}
+	return []encoding{fake("br"), fake("gzip")}
+}
+
+func negotiated(t *testing.T) *content {
+	t.Helper()
+	var calls int
+	c, err := newContent("text/plain", []byte("a body long enough to shrink"), true, fakeEncoders(&calls))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestAcceptEncoding(t *testing.T) {
+	const none = "406"
+	for _, tc := range []struct {
+		header []string // one header line each; nil = no header
+		want   string   // "" is identity
+	}{
+		{nil, ""},
+		{[]string{""}, ""},
+		{[]string{"identity"}, ""},
+		{[]string{"gzip"}, "gzip"},
+		{[]string{"br"}, "br"},
+		{[]string{"GZIP"}, "gzip"},
+		{[]string{"br, gzip"}, "br"},
+		{[]string{"gzip, br"}, "br"},
+		{[]string{"deflate, gzip;q=0.8"}, "gzip"},
+		{[]string{"gzip;q=1, br;q=0.5"}, "gzip"},
+		{[]string{"br;q=0.9, gzip;q=0.9"}, "br"},
+		{[]string{"gzip;q=0.5, identity"}, ""},
+		{[]string{"br;q=0"}, ""},
+		{[]string{"br;q=0, gzip"}, "gzip"},
+		{[]string{"br;q=0.0, gzip;q=0.000"}, ""},
+		{[]string{"gzip;Q=0"}, ""},
+		{[]string{"gzip ; q = 0"}, ""},
+		{[]string{"gzip;q=0, br;q=0, *;q=0.1"}, ""},
+		{[]string{"*"}, "br"},
+		{[]string{"*;q=0"}, none},
+		{[]string{"*;q=0, gzip"}, "gzip"},
+		{[]string{"*;q=0, identity"}, ""},
+		{[]string{"br;q=0, *"}, "gzip"},
+		{[]string{"identity;q=0"}, none},
+		{[]string{"identity;q=0, gzip"}, "gzip"},
+		{[]string{"identity;q=0, gzip;q=0.001"}, "gzip"},
+		{[]string{"identity;q=0, br;q=0, gzip;q=0"}, none},
+		{[]string{"compress"}, ""},
+		{[]string{"br;q=0, br"}, ""},
+		{[]string{"br, br;q=0"}, "br"},
+		{[]string{"br", "gzip"}, "br"},
+		{[]string{"gzip", "br;q=0"}, "gzip"},
+		{[]string{"zzz!!;;;,,,"}, ""},
+		{[]string{",,,"}, ""},
+		{[]string{";q=1"}, ""},
+		{[]string{"gzip;q=abc"}, ""},
+		{[]string{"gzip;q="}, ""},
+		{[]string{"gzip;q=2"}, ""},
+		{[]string{"gzip;q=-1"}, ""},
+		{[]string{"gzip;q=1.0001"}, ""},
+		{[]string{"gzip;q=1.5"}, ""},
+		{[]string{"gzip;q=0x1"}, ""},
+		{[]string{"gzip\x00"}, ""},
+		{[]string{"gzip;q=1;extension=1"}, "gzip"},
+		{[]string{strings.Repeat("a,", 1<<19) + "br"}, ""},
+		{[]string{strings.Repeat("gzip,", 2000)}, ""},
+		{append(slices.Repeat([]string{"x"}, 5000), "br"), ""},
+	} {
+		name := strings.Join(tc.header, "|")
+		if len(name) > 40 {
+			name = name[:40] + "..."
+		}
+		t.Run(name, func(t *testing.T) {
+			var hdr []string
+			for _, v := range tc.header {
+				hdr = append(hdr, "Accept-Encoding", v)
+			}
+			c := negotiated(t)
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				w := do(c, method, hdr...)
+				if got := w.Header().Get("Vary"); got != "Accept-Encoding" {
+					t.Errorf("%s: Vary %q", method, got)
+				}
+				if tc.want == none {
+					if w.Code != http.StatusNotAcceptable {
+						t.Errorf("%s: %d, want 406", method, w.Code)
+					}
+					continue
+				}
+				if w.Code != 200 || w.Header().Get("Content-Encoding") != tc.want {
+					t.Errorf("%s: %d Content-Encoding %q, want %q", method, w.Code, w.Header().Get("Content-Encoding"), tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestVaryOnEveryAnswer(t *testing.T) {
+	c := negotiated(t)
+	tag := c.encoded[0].etag
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"200":      do(c, http.MethodGet),
+		"HEAD":     do(c, http.MethodHead),
+		"304":      do(c, http.MethodGet, "Accept-Encoding", "br", "If-None-Match", tag),
+		"406":      do(c, http.MethodGet, "Accept-Encoding", "identity;q=0"),
+		"encoded":  do(c, http.MethodGet, "Accept-Encoding", "gzip"),
+		"identity": do(c, http.MethodGet, "Accept-Encoding", "identity"),
+	} {
+		if got := w.Header().Values("Vary"); !slices.Contains(got, "Accept-Encoding") {
+			t.Errorf("%s: Vary %v", name, got)
+		}
+	}
+	// 304s of the encoded representation still say which it is.
+	if w := do(c, http.MethodGet, "Accept-Encoding", "br", "If-None-Match", tag); w.Code != 304 || w.Header().Get("ETag") != tag {
+		t.Errorf("304: %d %v", w.Code, w.Header())
+	}
+}
+
+// Each representation has its own validator, the hash of the bytes sent.
+func TestETagPerRepresentation(t *testing.T) {
+	c := negotiated(t)
+	br, gz, id := c.encoded[0], c.encoded[1], c.identity
+	if br.etag == gz.etag || br.etag == id.etag || gz.etag == id.etag {
+		t.Fatalf("etags must differ: %s %s %s", br.etag, gz.etag, id.etag)
+	}
+	for _, rep := range []representation{br, gz, id} {
+		sum := sha256.Sum256(rep.body)
+		if want := `"` + hex.EncodeToString(sum[:16]) + `"`; rep.etag != want {
+			t.Errorf("%q: etag %s is not the hash of the bytes sent (%s)", rep.coding, rep.etag, want)
+		}
+	}
+	// An etag learned for one encoding does not revalidate another.
+	if w := do(c, http.MethodGet, "Accept-Encoding", "gzip", "If-None-Match", br.etag); w.Code != 200 || w.Header().Get("Content-Encoding") != "gzip" {
+		t.Errorf("br etag against a gzip response: %d", w.Code)
+	}
+	if w := do(c, http.MethodGet, "Accept-Encoding", "gzip", "If-None-Match", gz.etag); w.Code != 304 {
+		t.Errorf("gzip etag: %d", w.Code)
+	}
+	if w := do(c, http.MethodGet, "If-None-Match", br.etag); w.Code != 200 {
+		t.Errorf("br etag against identity: %d", w.Code)
+	}
+}
+
+func TestCompressedLengthAndBody(t *testing.T) {
+	c := negotiated(t)
+	w := do(c, http.MethodGet, "Accept-Encoding", "gzip")
+	if w.Body.String() != "gzip" || w.Header().Get("Content-Length") != "4" {
+		t.Errorf("%q %v", w.Body, w.Header())
+	}
+	hw := do(c, http.MethodHead, "Accept-Encoding", "gzip")
+	if hw.Body.Len() != 0 || hw.Header().Get("Content-Length") != "4" || hw.Header().Get("Content-Encoding") != "gzip" || hw.Header().Get("ETag") != w.Header().Get("ETag") {
+		t.Errorf("HEAD %v", hw.Header())
+	}
+}
+
+func TestGzipIsRealAndSkippedWhenItDoesNotShrink(t *testing.T) {
+	big := strings.Repeat("function hello(){return 1}\n", 200)
+	fsys := fstest.MapFS{
+		"big.js":   {Data: []byte(big)},
+		"tiny.js":  {Data: []byte("x")},
+		"pic.png":  {Data: []byte(big)}, // compressible bytes, but an image type: never compressed
+		"noise.js": {Data: noise(4096)},
+	}
+	a := mustAssets(t, fsys)
+	c := a.byName["big.js"].content
+	i := slices.IndexFunc(c.encoded, func(r representation) bool { return r.coding == "gzip" })
+	if i < 0 || len(c.encoded[i].body) >= len(big)/4 {
+		t.Fatalf("big.js: encodings %+v", c.encoded)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(c.encoded[i].body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(zr)
+	if string(got) != big {
+		t.Error("gzip does not round-trip")
+	}
+	for _, name := range []string{"tiny.js", "pic.png", "noise.js"} {
+		if n := len(a.byName[name].content.encoded); n != 0 {
+			t.Errorf("%s: %d encodings, want none", name, n)
+		}
+		if w := do(a.byName[name].content, http.MethodGet, "Accept-Encoding", "gzip, br"); w.Header().Get("Content-Encoding") != "" || w.Header().Get("Vary") != "Accept-Encoding" {
+			t.Errorf("%s: %v", name, w.Header())
+		}
+	}
+	if w := do(a.byName["tiny.js"].content, http.MethodGet, "Accept-Encoding", "identity;q=0, gzip"); w.Code != http.StatusNotAcceptable {
+		t.Errorf("only gzip acceptable but none made: %d", w.Code)
+	}
+}
+
+// noise is deterministic bytes that do not compress.
+func noise(n int) []byte {
+	out := make([]byte, 0, n)
+	sum := sha256.Sum256(nil)
+	for len(out) < n {
+		out = append(out, sum[:]...)
+		sum = sha256.Sum256(sum[:])
+	}
+	return out[:n]
+}
+
+// Compression happens when the registry is built; serving never compresses.
+func TestNoCompressionPerRequest(t *testing.T) {
+	var calls int
+	fsys := testFS()
+	fsys["index.html"] = &fstest.MapFile{Data: []byte(strings.Repeat("<p>page</p>", 100))}
+	a, err := newAssets(fsys, fakeEncoders(&calls))
+	if err != nil {
+		t.Fatal(err)
+	}
+	built := calls
+	if built == 0 {
+		t.Fatal("nothing was compressed at build time")
+	}
+	for range 50 {
+		for _, as := range a.byName {
+			for _, ae := range []string{"", "gzip", "br", "gzip, br", "identity;q=0, br"} {
+				do(as.content, http.MethodGet, "Accept-Encoding", ae)
+				do(as.content, http.MethodHead, "Accept-Encoding", ae, "If-None-Match", as.content.identity.etag)
+			}
+		}
+	}
+	if calls != built {
+		t.Errorf("%d compressions at request time", calls-built)
+	}
+}
+
+// Over HTTP, each real file decodes back to the embedded bytes.
+func TestEmbedGzipRoundTrip(t *testing.T) {
+	h := testServer(t)
+	a, _ := embeddedAssets()
+	for name, as := range a.byName {
+		w := get(h, http.MethodGet, "/embed/"+name, "Accept-Encoding", "gzip")
+		if w.Header().Get("Content-Encoding") != "gzip" {
+			if as.content.identity.coding == "" && len(as.content.encoded) == 0 {
+				continue
+			}
+			t.Errorf("%s: not gzipped", name)
+			continue
+		}
+		if w.Header().Get("Content-Length") != strconv.Itoa(w.Body.Len()) {
+			t.Errorf("%s: Content-Length %s, body %d", name, w.Header().Get("Content-Length"), w.Body.Len())
+		}
+		zr, err := gzip.NewReader(w.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(zr)
+		if err != nil || !bytes.Equal(got, as.content.identity.body) {
+			t.Errorf("%s: gzip does not round-trip (%v)", name, err)
+		}
 	}
 }

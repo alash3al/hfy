@@ -25,7 +25,7 @@ var embeddedAssets = sync.OnceValues(func() (*assets, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newAssets(sub)
+	return newAssets(sub, encoders)
 })
 
 type embedConfig struct {
@@ -120,7 +120,7 @@ func (s *Server) buildPage() (*content, string, error) {
 		}
 	}
 	csp := "default-src 'self'; script-src 'self' 'sha256-" + base64.StdEncoding.EncodeToString(scriptHash[:]) + "'; style-src 'self'; img-src 'self' data: https:; connect-src " + connectSrc + "; font-src 'self'; frame-ancestors " + frameAncestors
-	c, err := newContent("text/html; charset=utf-8", body)
+	c, err := newContent("text/html; charset=utf-8", body, true, s.assets.encs)
 	return c, csp, err
 }
 

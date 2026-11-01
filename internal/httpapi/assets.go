@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -38,26 +40,66 @@ var fileTypes = map[string]struct {
 	".woff2": {"font/woff2", false},
 }
 
+// encoding is a Content-Encoding the server can pre-compress with.
+type encoding struct {
+	name     string
+	compress func([]byte) ([]byte, error)
+}
+
+// encoders is every encoding offered, in order of preference. The bytes are
+// compressed once, when the registry is built, never per request.
+var encoders = []encoding{{"gzip", gzipBytes}}
+
+func gzipBytes(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := zw.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // representation is one exact byte sequence a client can be sent. Its ETag is
 // the hash of those bytes: the one rule for every file and every encoding.
 type representation struct {
-	body []byte
-	etag string
+	coding string // Content-Encoding; "" is the bytes as embedded
+	body   []byte
+	etag   string
 }
 
-func newRepresentation(body []byte) representation {
+func newRepresentation(coding string, body []byte) representation {
 	sum := sha256.Sum256(body)
-	return representation{body: body, etag: `"` + hex.EncodeToString(sum[:16]) + `"`}
+	return representation{coding: coding, body: body, etag: `"` + hex.EncodeToString(sum[:16]) + `"`}
 }
 
 // content is what one URL serves.
 type content struct {
 	ctype    string
 	identity representation
+	encoded  []representation // in order of preference; only encodings that came out smaller
 }
 
-func newContent(ctype string, raw []byte) (*content, error) {
-	return &content{ctype: ctype, identity: newRepresentation(raw)}, nil
+func newContent(ctype string, raw []byte, compressible bool, encs []encoding) (*content, error) {
+	c := &content{ctype: ctype, identity: newRepresentation("", raw)}
+	if !compressible {
+		return c, nil
+	}
+	for _, e := range encs {
+		body, err := e.compress(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", e.name, err)
+		}
+		if len(body) < len(raw) {
+			c.encoded = append(c.encoded, newRepresentation(e.name, body))
+		}
+	}
+	return c, nil
 }
 
 // asset is one embedded file.
@@ -70,12 +112,13 @@ type asset struct {
 // embedded tree: nothing here names a file, so a new file is served as soon as
 // it is in the directory.
 type assets struct {
+	encs     []encoding
 	byName   map[string]*asset
 	template []byte // pageName, nil when the tree has none
 }
 
-func newAssets(fsys fs.FS) (*assets, error) {
-	a := &assets{byName: map[string]*asset{}}
+func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
+	a := &assets{encs: encs, byName: map[string]*asset{}}
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -92,7 +135,7 @@ func newAssets(fsys fs.FS) (*assets, error) {
 		if !ok {
 			ft.ctype = "application/octet-stream"
 		}
-		c, err := newContent(ft.ctype, raw)
+		c, err := newContent(ft.ctype, raw, ft.compress, encs)
 		if err != nil {
 			return fmt.Errorf("embed %s: %w", name, err)
 		}
@@ -102,12 +145,18 @@ func newAssets(fsys fs.FS) (*assets, error) {
 	return a, err
 }
 
-// serveContent answers GET and HEAD for c. Range is not supported: a Range
-// header is ignored and the whole body is sent with 200. Headers the caller
-// set before the call (a CSP) are kept, 304 included.
+// serveContent answers GET and HEAD for c, in the encoding the client accepts
+// best. Range is not supported: a Range header is ignored and the whole body
+// is sent with 200. Headers the caller set before the call (a CSP) are kept, 304 included.
 func serveContent(w http.ResponseWriter, r *http.Request, c *content, cacheControl string) {
-	rep := c.identity
 	h := w.Header()
+	h.Add("Vary", "Accept-Encoding")
+	rep := c.pick(r.Header.Values("Accept-Encoding"))
+	if rep == nil {
+		h.Set("Cache-Control", "no-store")
+		http.Error(w, "no acceptable content encoding", http.StatusNotAcceptable)
+		return
+	}
 	h.Set("Cache-Control", cacheControl)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("ETag", rep.etag)
@@ -116,6 +165,9 @@ func serveContent(w http.ResponseWriter, r *http.Request, c *content, cacheContr
 		return
 	}
 	h.Set("Content-Type", c.ctype)
+	if rep.coding != "" {
+		h.Set("Content-Encoding", rep.coding)
+	}
 	h.Set("Content-Length", strconv.Itoa(len(rep.body)))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
@@ -148,4 +200,98 @@ func etagMatches(values []string, etag string) bool {
 		}
 	}
 	return false
+}
+
+// maxAcceptEncoding bounds what is parsed: a longer Accept-Encoding is
+// ignored, which means identity.
+const maxAcceptEncoding = 4 << 10
+
+// pick chooses the representation for an Accept-Encoding header: the highest
+// q wins, ties go to the earlier encoding, identity last. A missing, empty,
+// oversized or unparseable header means identity. nil means the client
+// refuses everything we have (406).
+func (c *content) pick(header []string) *representation {
+	q := parseAcceptEncoding(header)
+	if len(q) == 0 {
+		return &c.identity
+	}
+	var best *representation
+	bestQ := 0
+	try := func(rep *representation) {
+		if w := weight(q, rep.coding); w > bestQ {
+			best, bestQ = rep, w
+		}
+	}
+	for i := range c.encoded {
+		try(&c.encoded[i])
+	}
+	try(&c.identity)
+	return best
+}
+
+// weight is the q (thousandths) the header gives a coding: its own entry, else
+// "*", else 0. Identity is the exception: unlisted it stays acceptable, but
+// last choice, so a client that lists gzip gets gzip.
+func weight(q map[string]int, coding string) int {
+	name := coding
+	if name == "" {
+		name = "identity"
+	}
+	if w, ok := q[name]; ok {
+		return w
+	}
+	if w, ok := q["*"]; ok {
+		return w
+	}
+	if coding == "" {
+		return 1
+	}
+	return 0
+}
+
+// parseAcceptEncoding maps each coding to its q in thousandths. An entry that
+// does not parse is dropped, and the first entry for a coding wins.
+func parseAcceptEncoding(values []string) map[string]int {
+	total := 0
+	for _, v := range values {
+		total += len(v)
+	}
+	if total > maxAcceptEncoding {
+		return nil
+	}
+	q := map[string]int{}
+	for _, v := range values {
+		for entry := range strings.SplitSeq(v, ",") {
+			name, params, _ := strings.Cut(entry, ";")
+			name = strings.ToLower(strings.Trim(name, " \t"))
+			w, ok := 1000, name != ""
+			for p := range strings.SplitSeq(params, ";") {
+				k, val, isParam := strings.Cut(p, "=")
+				if isParam && strings.EqualFold(strings.Trim(k, " \t"), "q") {
+					w, ok = parseQ(strings.Trim(val, " \t"))
+				}
+			}
+			if _, seen := q[name]; ok && !seen {
+				q[name] = w
+			}
+		}
+	}
+	return q
+}
+
+// parseQ reads a qvalue: 0 or 1 with up to three decimals.
+func parseQ(s string) (int, bool) {
+	if s == "" || len(s) > 5 || (s[0] != '0' && s[0] != '1') || (len(s) > 1 && s[1] != '.') {
+		return 0, false
+	}
+	w := int(s[0]-'0') * 1000
+	scale := 100
+	for _, d := range []byte(s[min(2, len(s)):]) {
+		if d < '0' || d > '9' {
+			return 0, false
+		}
+		w += int(d-'0') * scale
+		scale /= 10
+	}
+	return w, w <= 1000
 }
