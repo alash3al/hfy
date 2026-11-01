@@ -934,3 +934,46 @@ func TestStaleHashServesCurrentBytes(t *testing.T) {
 		}
 	}
 }
+
+// A 48-bit prefix collision is not going to happen; if it does, startup
+// refuses to serve one file as the other.
+func TestHashedURLCollisionIsAnError(t *testing.T) {
+	old := shortHash
+	t.Cleanup(func() { shortHash = old })
+	// a.js -> a.b.c.js and a.b.js -> a.b.c.js
+	shortHash = func(raw []byte) string { return map[string]string{"1": "b.c", "2": "c", "3": "d"}[string(raw)] }
+	_, err := newAssets(fstest.MapFS{"a.js": {Data: []byte("1")}, "a.b.js": {Data: []byte("2")}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "share the hashed URL a.b.c.js") {
+		t.Errorf("collision: %v", err)
+	}
+	if _, err := newAssets(fstest.MapFS{"a.js": {Data: []byte("1")}, "a.b.js": {Data: []byte("3")}}, nil); err != nil {
+		t.Errorf("distinct hashed names: %v", err)
+	}
+}
+
+// The page is built, and compressed, by Handler: the first viewer waits for
+// nothing, and EnableFilesystem cannot come too late to be in the page.
+func TestHandlerBuildsThePage(t *testing.T) {
+	cfg := &config.Config{Server: config.Server{Secret: "s"}}
+	cfg.SetDefaults()
+	srv := New(cfg, nil, nil, nil)
+	if srv.page.content != nil {
+		t.Error("the page is built before Handler")
+	}
+	h := srv.Handler()
+	if srv.page.content == nil || len(srv.page.content.encoded) == 0 {
+		t.Fatal("Handler did not build and compress the page")
+	}
+	if srv.Handler() == nil || srv.page.content == nil {
+		t.Error("a second Handler call")
+	}
+	if w := get(h, http.MethodGet, "/embed", "Accept-Encoding", "br"); w.Code != 200 || w.Header().Get("Content-Encoding") != "br" {
+		t.Errorf("page: %d %v", w.Code, w.Header())
+	}
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "EnableFilesystem after Handler") {
+			t.Errorf("EnableFilesystem after Handler: recovered %v", r)
+		}
+	}()
+	srv.EnableFilesystem(nil)
+}

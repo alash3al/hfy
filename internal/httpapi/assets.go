@@ -135,11 +135,17 @@ type asset struct {
 	content *content
 }
 
-// hashedName puts the first 12 hex digits of the content's sha256 before the extension.
-func hashedName(name string, raw []byte) string {
+// shortHash is the first 12 hex digits of the content's sha256. A variable
+// so a test can force two files onto one hash.
+var shortHash = func(raw []byte) string {
 	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:6])
+}
+
+// hashedName puts the content hash before the extension.
+func hashedName(name string, raw []byte) string {
 	ext := path.Ext(name)
-	return strings.TrimSuffix(name, ext) + "." + hex.EncodeToString(sum[:6]) + ext
+	return strings.TrimSuffix(name, ext) + "." + shortHash(raw) + ext
 }
 
 // assets is the registry of every embedded file, built once from the
@@ -178,6 +184,9 @@ func newAssets(fsys fs.FS, encs []encoding) (*assets, error) {
 			return fmt.Errorf("embed %s: %w", name, err)
 		}
 		as := &asset{name: name, hashed: hashedName(name, raw), content: c}
+		if other := a.byHashed[as.hashed]; other != nil {
+			return fmt.Errorf("embed %s and %s share the hashed URL %s", other.name, name, as.hashed)
+		}
 		a.byName[name] = as
 		a.byHashed[as.hashed] = as
 		return nil

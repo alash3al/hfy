@@ -63,23 +63,15 @@ func (s *Server) embedUploads() *embedUploads {
 	return &embedUploads{Types: s.cfg.Filesystem.Types, MaxBytes: int64(s.cfg.Filesystem.MaxBytes)}
 }
 
-// embedPage is the document for this server's config, built on the first request.
+// embedPage is the document for this server's config, built by Handler.
 type embedPage struct {
-	once    sync.Once
 	content *content
 	csp     string
-	err     error
 }
 
 func (s *Server) serveEmbed(w http.ResponseWriter, r *http.Request) {
-	p := &s.page
-	p.once.Do(func() { p.content, p.csp, p.err = s.buildPage() })
-	if p.err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Security-Policy", p.csp)
-	serveContent(w, r, p.content, "no-cache")
+	w.Header().Set("Content-Security-Policy", s.page.csp)
+	serveContent(w, r, s.page.content, "no-cache")
 }
 
 func (s *Server) buildPage() (*content, string, error) {

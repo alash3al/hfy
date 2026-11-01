@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alash3al/hfy/internal/config"
@@ -35,11 +37,19 @@ type Server struct {
 	assets  *assets
 	page    embedPage
 	handler http.Handler
+	sealed  sync.Once // Handler ran: the page is built, EnableFilesystem is too late
+	built   atomic.Bool
 }
 
-// EnableFilesystem turns on filesystem uploads backed by b. Call it before the
-// first request: the embed page is built once, from this setting.
-func (s *Server) EnableFilesystem(b *blob.Bucket) { s.bucket = b }
+// EnableFilesystem turns on filesystem uploads backed by b. Call it before
+// Handler: the embed page is built there, from this setting, and a later call
+// panics rather than leave the page out of step.
+func (s *Server) EnableFilesystem(b *blob.Bucket) {
+	if s.built.Load() {
+		panic("httpapi: EnableFilesystem after Handler")
+	}
+	s.bucket = b
+}
 
 func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server {
 	a, err := embeddedAssets()
@@ -106,7 +116,19 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	return srv
 }
 
-func (s *Server) Handler() http.Handler { return s.handler }
+// Handler is the server's http.Handler. The first call builds the embed page
+// (compressing it once), so no viewer waits for that.
+func (s *Server) Handler() http.Handler {
+	s.sealed.Do(func() {
+		content, csp, err := s.buildPage()
+		if err != nil {
+			panic(err) // only the compressors can fail, on fixed input
+		}
+		s.page = embedPage{content: content, csp: csp}
+		s.built.Store(true)
+	})
+	return s.handler
+}
 
 // Healthz is liveness: the process serves requests. It never checks
 // dependencies, so a database outage does not restart every instance.
