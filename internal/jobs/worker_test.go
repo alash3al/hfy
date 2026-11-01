@@ -135,6 +135,7 @@ func TestWorkerRecordsFailuresWithCleanBoundedText(t *testing.T) {
 		"surrogate": errors.New("lone \xed\xa0\x80 surrogate and \xff"),
 		"huge":      errors.New(strings.Repeat("x", 100<<10)),
 		"runes":     errors.New(strings.Repeat("€", 100<<10)),
+		"typednil":  (*url.Error)(nil), // its Error method panics: the worker must survive
 		"url": &url.Error{Op: "Post", URL: "https://hook.example/p?token=SECRET&x=\"q\"",
 			Err: errors.New("connection refused")},
 	}
@@ -174,6 +175,9 @@ func TestWorkerRecordsFailuresWithCleanBoundedText(t *testing.T) {
 		if attempts != 1 || len(last) == 0 || len(last) > 2<<10 || strings.ContainsRune(last, 0) ||
 			!utf8.ValidString(last) || strings.Contains(last, "SECRET") || strings.Contains(last, "hook.example") {
 			t.Errorf("%s: attempts=%d last_error (%d bytes) %.80q", name, attempts, len(last), last)
+		}
+		if name == "typednil" && last != "error text unavailable" {
+			t.Errorf("typed-nil error recorded as %q", last)
 		}
 		if name == "url" && last != `Post "<url>": connection refused` {
 			t.Errorf("url error recorded as %q", last)
