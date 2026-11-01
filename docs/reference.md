@@ -375,12 +375,16 @@ event as stored.
   would expand past reason, so arguments holding any of them, or a number over
   1000 digits once written out, are answered as invalid arguments; a tool name
   holding them or over 256 bytes is an unknown tool, stored cleaned and cut; a
-  call id holding them, over 256 bytes or empty gets a generated one; a tool's
+  call id holding them, over 256 bytes, empty or already used in the turn gets a
+  generated unique one; a tool's
   structured result, card or questions that cannot be stored are dropped with a
-  warning; and model and tool text is stored with NUL characters removed. A number
-  counts at its written-out length, because Postgres writes `1e100000` out in full
-  on every read, so the arguments with their numbers written out must fit 64 KiB
-  too. A call that repeats an
+  warning; and model and tool text is stored with NUL characters removed. Every
+  string, key and number is checked, also under a repeated key (Postgres parses
+  them all and keeps the last), and nesting deeper than 64 levels is refused. The
+  size counted is what Postgres reads back: a space after every `,` and `:`, and
+  each number at its written-out length (it writes `1e100000` out in full), so
+  that must fit 64 KiB. Valid but extreme values are refused too (a number of
+  over 1000 digits, `0e1000`). A call that repeats an
   earlier one in the same turn (same tool and arguments; key order does not
   matter) is refused with advice from its third occurrence, and the sixth ends
   the turn. The count survives a resume: a turn that crashed, waited for approval
