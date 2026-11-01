@@ -79,6 +79,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	var out []provider.Message
 	var asst *provider.Message
 	pending := map[string]bool{}
+	var calls []string // call ids in event order, for a deterministic prompt
 	flush := func() {
 		if asst != nil {
 			out = append(out, *asst)
@@ -117,6 +118,9 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 			}
 			asst.ToolCalls = append(asst.ToolCalls, provider.ToolCall{
 				ID: c.CallID, Name: mcp.WireNameOf(c.Name), Arguments: argsText(c.Arguments)})
+			if !pending[c.CallID] {
+				calls = append(calls, c.CallID)
+			}
 			pending[c.CallID] = true
 		case types.EventToolResult:
 			r, err := e.Payload[types.ToolResult]()
@@ -145,8 +149,11 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 	}
 	flush()
 	// A call with no result at all (stopped mid-flight) must not break the API contract.
-	for id := range pending {
-		out = append(out, provider.Message{Role: "tool", ToolCallID: id, Content: interrupted})
+	for _, id := range calls {
+		if pending[id] {
+			delete(pending, id) // a reused id is answered once
+			out = append(out, provider.Message{Role: "tool", ToolCallID: id, Content: interrupted})
+		}
 	}
 	return out, nil
 }

@@ -747,3 +747,31 @@ func TestRefusedTextStoredWithinTheReplayBound(t *testing.T) {
 		t.Fatalf("a short refused text: %s %v", small, err)
 	}
 }
+
+// Calls that never got a result are answered in the order they were made, so
+// the same events always give the same prompt (provider caching depends on it).
+func TestDanglingCallsKeepTheirOrder(t *testing.T) {
+	var events []db.EventRow
+	for i := range 8 {
+		data, _ := json.Marshal(types.ToolCall{Name: "hfy.now", CallID: "call-" + strconv.Itoa(i), Arguments: json.RawMessage(`{}`)})
+		events = append(events, db.EventRow{Type: types.EventToolCall, V: 1, Data: data,
+			ActorType: string(types.ActorAgent), ActorRef: "helper"})
+	}
+	build := func() string {
+		msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(msgs)
+		return string(b)
+	}
+	want := build()
+	for range 100 {
+		if got := build(); got != want {
+			t.Fatalf("prompt changed between builds:\n%s\n%s", want, got)
+		}
+	}
+	if !strings.Contains(want, `"call-0"`) || strings.Index(want, `"ToolCallID":"call-0"`) > strings.Index(want, `"ToolCallID":"call-7"`) {
+		t.Fatalf("not in call order: %s", want)
+	}
+}
