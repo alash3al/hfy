@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/alash3al/hfy/internal/metrics"
@@ -579,6 +580,10 @@ func (a *assembler) add(c chunk) {
 	}
 }
 
+// callSeq makes ids for calls the provider sent without one unique across
+// responses: call_0 of every step would otherwise be the same call to a turn.
+var callSeq atomic.Int64
+
 func (a *assembler) done() *Response {
 	idx := make([]int, 0, len(a.calls))
 	for i := range a.calls {
@@ -588,7 +593,7 @@ func (a *assembler) done() *Response {
 	for _, i := range idx {
 		if tc := a.calls[i]; tc != nil && tc.Name != "" {
 			if tc.ID == "" {
-				tc.ID = fmt.Sprintf("call_%d", i)
+				tc.ID = fmt.Sprintf("call_%d_%d", callSeq.Add(1), i)
 			}
 			a.resp.ToolCalls = append(a.resp.ToolCalls, *tc)
 		}

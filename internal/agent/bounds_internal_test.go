@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/mcp/builtins"
 	"github.com/alash3al/hfy/internal/provider"
+	"github.com/alash3al/hfy/internal/svc"
+	"github.com/alash3al/hfy/internal/types"
 )
 
 // scripted answers each model request with the next reply and keeps the requests.
@@ -628,5 +631,68 @@ func TestKeepStoredChecksStructuredContent(t *testing.T) {
 		if got := keepStored(json.RawMessage(raw), maxStructured, "structured result", "files.x") != nil; got != kept {
 			t.Errorf("keepStored(%.50q) kept = %v, want %v", raw, got, kept)
 		}
+	}
+}
+
+// msgIDs are the call ids of the assistant messages, and of the tool messages.
+func msgIDs(l *loop) (calls, results []string) {
+	for _, m := range l.msgs {
+		for _, tc := range m.ToolCalls {
+			calls = append(calls, tc.ID)
+		}
+		if m.Role == "tool" {
+			results = append(results, m.ToolCallID)
+		}
+	}
+	return calls, results
+}
+
+// A turn finds its calls by id alone, so an id is used once: a repeat (in one
+// message or across steps), an empty or unstorable id, and a model that sends
+// the id the loop would generate all end up with distinct ids, and every
+// call gets exactly one result.
+func TestCallIDsAreUniqueWithinALoop(t *testing.T) {
+	n := 0 // distinct arguments, so the repeat guard stays out of it
+	now := func(id string) provider.ToolCall {
+		n++
+		return provider.ToolCall{ID: id, Name: "hfy__now", Arguments: `{"n":` + strconv.Itoa(n) + `}`}
+	}
+	c := &scripted{replies: []*provider.Response{
+		{ToolCalls: []provider.ToolCall{now("a"), now("a"), now("\x00"), now("call_2_0")}},
+		{ToolCalls: []provider.ToolCall{now("a"), now("call_2_0"), now("")}},
+		textReply("done"),
+	}}
+	l := testLoop(c, newTestEnv(), builtins.Now)
+	l.load(context.Background(), "sys", []provider.Message{{Role: "user", Content: "go"}})
+	if res, err := l.run(context.Background()); err != nil || res.Outcome != Done {
+		t.Fatalf("run: %+v %v", res, err)
+	}
+	calls, results := msgIDs(l)
+	seen := map[string]bool{}
+	for _, id := range calls {
+		if seen[id] {
+			t.Fatalf("id %q used twice: %v", id, calls)
+		}
+		seen[id] = true
+	}
+	// step 1: the repeat and the NUL id are renamed, a model's own call_2_0 is kept;
+	// step 2: the repeats are renamed, and the generated name that is taken gets a suffix
+	if got := strings.Join(calls, ","); got != "a,call_1_1,call_1_2,call_2_0,call_2_0_1,call_2_1,call_2_2" {
+		t.Fatalf("call ids: %s", got)
+	}
+	if strings.Join(results, ",") != strings.Join(calls, ",") {
+		t.Fatalf("results %v do not answer the calls %v one by one", results, calls)
+	}
+}
+
+// A resumed turn starts from the ids it already recorded.
+func TestSeedCountsMarksRecordedIDsUsed(t *testing.T) {
+	l := &loop{counts: map[string]int{}, used: map[string]bool{}}
+	l.seedCounts(svc.TurnView{Calls: []types.ToolCall{
+		{Name: "hfy.now", CallID: "x", Arguments: []byte(`{}`)},
+		{Name: svc.AskUserTool, CallID: "q", Arguments: []byte(`{}`)},
+	}, Decided: map[string]types.ApprovalDecided{"q": {CallID: "q", Approve: true}}})
+	if !l.used["x"] || !l.used["q"] || len(l.used) != 2 {
+		t.Fatalf("used: %v", l.used)
 	}
 }

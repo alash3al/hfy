@@ -127,7 +127,8 @@ type loop struct {
 	msgs      []provider.Message
 	activated map[string]bool // full names unlocked by tool_search
 	counts    map[string]int
-	steps     int // steps already taken (includes earlier runs of a resumed turn)
+	used      map[string]bool // call ids of this turn so far: a turn keys its calls by id alone
+	steps     int             // steps already taken (includes earlier runs of a resumed turn)
 
 	// The prompt's size in tokens when last measured, and len(msgs) then:
 	// what was added since is estimated on top (see promptSize).
@@ -143,7 +144,7 @@ type loop struct {
 
 func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv) *loop {
 	l := &loop{rt: rt, spec: spec, sink: sink, env: env,
-		activated: map[string]bool{}, counts: map[string]int{}}
+		activated: map[string]bool{}, counts: map[string]int{}, used: map[string]bool{}}
 	if spec.Top {
 		l.total = env.Total
 	} else {
@@ -278,10 +279,18 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		calls := make([]provider.ToolCall, 0, len(resp.ToolCalls))
 		tooLarge := make([]bool, 0, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
-			// An id the event log cannot hold (empty, NUL, too long) is replaced.
-			if tc.ID == "" || !storableText(tc.ID) {
-				tc.ID = fmt.Sprintf("call_%d_%d", l.steps, i)
+			// An id the event log cannot hold (empty, NUL, too long) or that this
+			// turn already used is replaced: approvals, results and resume all
+			// find a call by its id alone. The suffix is a number, so the id
+			// stays short however often a model collides.
+			if tc.ID == "" || !storableText(tc.ID) || l.used[tc.ID] {
+				base := fmt.Sprintf("call_%d_%d", l.steps, i)
+				tc.ID = base
+				for n := 1; l.used[tc.ID]; n++ {
+					tc.ID = fmt.Sprintf("%s_%d", base, n)
+				}
 			}
+			l.used[tc.ID] = true
 			big := len(tc.Arguments) > maxArgBytes
 			if big {
 				tc.Arguments = argsMarker(tc.Arguments)
@@ -635,8 +644,10 @@ func normalizeArgs(raw string) (json.RawMessage, error) {
 // seedCounts restores the repeat counts of a resumed turn from the calls it
 // already recorded: each tool_call event was counted when it was recorded. An
 // ask the viewer answered is not counted: answered asks never repeat-count.
+// The recorded call ids are marked used too, so a resumed turn never reuses one.
 func (l *loop) seedCounts(v svc.TurnView) {
 	for _, c := range v.Calls {
+		l.used[c.CallID] = true
 		if d, ok := v.Decided[c.CallID]; ok && d.Approve && c.Name == svc.AskUserTool {
 			continue
 		}

@@ -127,3 +127,25 @@ func TestRetryAfter(t *testing.T) {
 		}
 	}
 }
+
+// A call a server sends without an id gets one that is unique across
+// responses: every step's first call would otherwise be call_0, and a turn
+// finds its calls by id alone. Ids the server sends are kept.
+func TestCallsWithoutIDsGetUniqueOnes(t *testing.T) {
+	sse := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"x__one","arguments":"{}"}},{"index":1,"id":"kept","function":{"name":"x__two","arguments":"{}"}}]}}]}
+
+data: [DONE]
+`
+	seen := map[string]bool{}
+	for range 3 {
+		resp, err := readStream(strings.NewReader(sse), Opts{})
+		if err != nil || len(resp.ToolCalls) != 2 {
+			t.Fatalf("%+v %v", resp, err)
+		}
+		id := resp.ToolCalls[0].ID
+		if id == "" || seen[id] || resp.ToolCalls[1].ID != "kept" {
+			t.Fatalf("ids %q and %q (seen %v)", id, resp.ToolCalls[1].ID, seen)
+		}
+		seen[id] = true
+	}
+}

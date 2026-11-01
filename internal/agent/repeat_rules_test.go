@@ -48,7 +48,7 @@ func TestCallKeyIgnoresByteForm(t *testing.T) {
 // Seeding a resumed turn counts its recorded calls exactly as the live path
 // counted them, whatever order the stored arguments come back in.
 func TestSeedCountsMatchTheLiveKeys(t *testing.T) {
-	l := &loop{counts: map[string]int{}}
+	l := &loop{counts: map[string]int{}, used: map[string]bool{}}
 	l.seedCounts(svc.TurnView{Calls: []types.ToolCall{
 		{Name: "hfy.now", Arguments: []byte(`{"b":1,"a":2}`)},
 		{Name: "hfy.now", Arguments: []byte(`{"a": 2, "b": 1}`)},
@@ -65,7 +65,7 @@ func TestSeedCountsSkipsAnsweredAsks(t *testing.T) {
 	ask := func(id string) types.ToolCall {
 		return types.ToolCall{Name: svc.AskUserTool, CallID: id, Arguments: args}
 	}
-	l := &loop{counts: map[string]int{}}
+	l := &loop{counts: map[string]int{}, used: map[string]bool{}}
 	l.seedCounts(svc.TurnView{
 		Calls: []types.ToolCall{ask("answered"), ask("declined"), ask("timed_out"), ask("pending"),
 			{Name: "files.write", CallID: "held", Arguments: []byte(`{}`)}},
