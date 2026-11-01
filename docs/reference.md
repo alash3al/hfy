@@ -751,7 +751,8 @@ event as stored.
   changes (the `{file}` / `{url}` attachment payloads, the upload protocol and
   `GET /v1/conversation/config` are the same).
 
-  ```yaml nocheck
+  ```yaml
+  # docs:skip-validate
   # before (v1: refused by v2)
   attachments:
     allowed_hosts: [cdn.example.com]

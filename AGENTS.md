@@ -81,7 +81,7 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && make -C "$d" check
 - `internal/config/example.yaml`: the commented starter that `hfy config:example` prints. Update it when a setting is added, renamed, or its default changes. It must load (`TestExampleParses`), and its commented agent controls must still load once uncommented (`TestExampleControlsUncommented`).
 - `README.md`: the quick start and the CLI table. Update it when a command or flag changes. The Commands table in `docs/reference.md` changes with it.
 
-`llms.txt` is checked by `TestLLMsTxtIsFresh` and `TestLLMsTxtShape` (`docs_test.go`). Keeping `README.md` and `reference.md` in sync with the code is a review check.
+`llms.txt` is checked by `TestLLMsTxtIsFresh` and `TestLLMsTxtShape` (`docs_test.go`). `TestDocYAMLFences` (`docs_yaml_test.go`) parses and validates every ```` ```yaml ```` fence in `README.md`, `docs/reference.md` and `docs/llms.head.md`: a partial snippet is merged into a minimal valid config first, so a fence needs only the keys it shows (and a `<provider>/<model>` it names gets a stub provider). A fence that is meant to be invalid or only illustrative takes a `# docs:skip-validate` comment line inside it. Other snippets (curl, HTML, JS) and keeping `README.md` and `reference.md` in sync with the code are review checks.
 
 ## Config
 
