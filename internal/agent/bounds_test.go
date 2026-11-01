@@ -54,16 +54,20 @@ func TestArgumentsLimitIsExact(t *testing.T) {
 	}
 }
 
-// A NUL in arguments cannot be stored (Postgres refuses it in jsonb): the call
-// is answered as invalid and the turn goes on.
-func TestNULInArgumentsDoesNotWedgeTheTurn(t *testing.T) {
-	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "n", Name: "files__echo", Args: `{"text":"a\u0000b"}`}}},
-		fakeprov.Step{Content: "done"})
-	turn := e.post("go")
-	e.waitState(turn, types.StateCompleted)
-	if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["is_error"] != true {
-		t.Fatalf("results: %v\n%s", r, e.dump(turn))
+// Arguments the event log cannot hold (a NUL, an unpaired surrogate escape:
+// Postgres refuses both in jsonb) are answered as invalid, and the turn goes on.
+func TestUnstorableArgumentsDoNotWedgeTheTurn(t *testing.T) {
+	for _, args := range []string{`{"text":"a\u0000b"}`, `{"text":"a\ud800b"}`} {
+		t.Run(args, func(t *testing.T) {
+			e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+				fakeprov.Step{Calls: []fakeprov.Call{{ID: "n", Name: "files__echo", Args: args}}},
+				fakeprov.Step{Content: "done"})
+			turn := e.post("go")
+			e.waitState(turn, types.StateCompleted)
+			if r := e.find(turn, types.EventToolResult); len(r) != 1 || r[0]["is_error"] != true {
+				t.Fatalf("results: %v\n%s", r, e.dump(turn))
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -23,15 +24,50 @@ func argsMarker(raw string) string {
 }
 
 // storableJSON reports whether raw is JSON the event log can hold: valid,
-// UTF-8, and free of NUL, which Postgres refuses in jsonb even as \u0000.
+// UTF-8, free of NUL, and free of unpaired surrogate escapes. Postgres refuses
+// all three in jsonb, and an event that cannot be stored wedges the turn.
 func storableJSON(raw string) bool {
-	if !json.Valid([]byte(raw)) || !utf8.ValidString(raw) {
+	if !json.Valid([]byte(raw)) || !utf8.ValidString(raw) || hasLoneSurrogate(raw) {
 		return false
 	}
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.UseNumber()
 	var v any
 	return dec.Decode(&v) == nil && !jsonHasNUL(v)
+}
+
+// hasLoneSurrogate reports a \u escape of a surrogate without its pair. The
+// decoder would replace it silently, so the raw text is scanned. raw is valid
+// JSON, so every \u is followed by four hex digits.
+func hasLoneSurrogate(raw string) bool {
+	hex4 := func(at int) int {
+		n, _ := strconv.ParseUint(raw[at:at+4], 16, 32)
+		return int(n)
+	}
+	for i := 0; i+1 < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		if raw[i+1] != 'u' {
+			i++ // an escaped character, a backslash included, starts no escape
+			continue
+		}
+		switch r := hex4(i + 2); {
+		case r >= 0xDC00 && r <= 0xDFFF:
+			return true
+		case r >= 0xD800 && r <= 0xDBFF:
+			if i+12 > len(raw) || raw[i+6] != '\\' || raw[i+7] != 'u' {
+				return true
+			}
+			if lo := hex4(i + 8); lo < 0xDC00 || lo > 0xDFFF {
+				return true
+			}
+			i += 11
+		default:
+			i += 5
+		}
+	}
+	return false
 }
 
 func jsonHasNUL(v any) bool {

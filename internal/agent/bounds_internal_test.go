@@ -229,6 +229,11 @@ func TestStorableJSON(t *testing.T) {
 		`"\u0000"`:               false,
 		`{"\u0000":1}`:           false,
 		`{"a":"` + "\xff" + `"}`: false,
+		`{"a":"\ud800"}`:         false,
+		`{"a":"\udc00"}`:         false,
+		`{"a":"\ud800\u0041"}`:   false,
+		`{"a":"\ud83d\ude00"}`:   true, // a valid pair
+		`{"a":"\\ud800"}`:        true, // an escaped backslash, then text
 		`{`:                      false,
 	} {
 		if got := storableJSON(raw); got != want {
