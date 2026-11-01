@@ -387,12 +387,17 @@ event as stored.
   or asked the viewer is counted from its own recorded calls. Known limitation:
   numbers written in exponent form (`1e2` vs `100`) can get a different repeat key
   after a resume, because Postgres stores `1e2` as `100`. `hfy.ask_user` counts
-  too, so the same questions asked a third time are refused without pausing the
-  viewer again. Fixed bounds, not configurable: one call's arguments over 64 KiB
+  too unless the viewer answered it: an answered ask never counts, so a loop of
+  answered questions runs on, while a declined, timed-out or still-pending ask
+  counts, and the same questions asked a third time are refused without pausing
+  the viewer again. Fixed bounds, not configurable: one call's arguments over 64 KiB
   are not run, the model is told to send less, and only a marker is stored; a turn
   with 5,000 durable events ends failed; a request over 8 MiB of text is compacted
   first (main agent only, and only with a `summarizer` configured) and, if still
-  too large, the turn fails before sending. Sub-agents and the summarizer follow
+  too large, the turn fails before sending. `outbound_requests` stores the
+  provider's raw response, including full oversize arguments, until
+  `retention.trace` expires: the 64 KiB bound protects events and prompts, not
+  that trace. Sub-agents and the summarizer follow
   the same bounds, and their steps count toward the turn's events; a sub-agent's
   repeats are counted within its own run. Model calls retry on 429, 5xx and
   network errors, with at most `queue.max_attempts` attempts in all, but a call
