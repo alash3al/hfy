@@ -47,7 +47,7 @@ func (rt *Runtime) recorder(turnID *int64, kind types.OutboundKind) func(provide
 		defer cancel()
 		id, err := rt.Store.InsertOutbound(ctx, db.OutboundRow{
 			TurnEventID: turnID, Kind: kind, URL: r.URL, Request: r.Request, Response: r.Response,
-			StatusCode: r.Status, LatencyMS: r.LatencyMS, Attempt: r.Attempt, Error: r.Error,
+			StatusCode: r.Status, LatencyMS: r.LatencyMS, Attempt: r.Attempt, Error: types.Clean(r.Error),
 		})
 		if err != nil { // the call itself goes on; only its trace is lost
 			slog.Warn("record outbound request", "turn", turnID, "kind", kind, "url", r.URL, "err", err)

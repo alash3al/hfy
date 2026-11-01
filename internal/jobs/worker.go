@@ -8,10 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"runtime/debug"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,26 +16,6 @@ import (
 	"github.com/alash3al/hfy/internal/metrics"
 	"github.com/alash3al/hfy/internal/types"
 )
-
-const maxErrorBytes = 2 << 10
-
-// errorText is err as safe to store in last_error and to log: valid UTF-8
-// with no NUL (Postgres would reject the UPDATE and the job would sit
-// "running" until its lease expired), at most maxErrorBytes, and without the
-// URL of an *url.Error, which can carry a secret in its path or query.
-func errorText(err error) string {
-	msg := err.Error()
-	var ue *url.Error
-	if errors.As(err, &ue) && ue.URL != "" {
-		q := strconv.Quote(ue.URL)
-		msg = strings.NewReplacer(ue.URL, "<url>", q[1:len(q)-1], "<url>").Replace(msg)
-	}
-	msg = types.Clean(msg)
-	if len(msg) > maxErrorBytes {
-		msg = strings.ToValidUTF8(msg[:maxErrorBytes], "") // never cut inside a rune
-	}
-	return msg
-}
 
 type Handler func(ctx context.Context, job db.JobRow) error
 
@@ -181,7 +158,7 @@ func (w *Worker) run(parent context.Context, job db.JobRow) {
 
 func (w *Worker) fail(ctx context.Context, job db.JobRow, err error) {
 	ctx = context.WithoutCancel(ctx)
-	text := errorText(err)
+	text := types.ErrorText(err)
 	slog.Error("job failed", "job", job.ID, "type", job.Type, "attempt", job.Attempts,
 		"payload", string(job.Payload), "err", text)
 	delay := min(time.Duration(job.Attempts*job.Attempts)*2*time.Second, time.Minute)
@@ -270,7 +247,8 @@ func (w *Worker) reaper(ctx context.Context) {
 func safely(fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
+			slog.Error("panic", "value", fmt.Sprint(r), "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic: %v", r) // the stack stays in the log: errors reach users
 		}
 	}()
 	return fn()

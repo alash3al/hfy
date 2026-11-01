@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/alash3al/hfy/internal/config"
 	"github.com/alash3al/hfy/internal/db"
 	"github.com/alash3al/hfy/internal/db/dbtest"
+	"github.com/alash3al/hfy/internal/jobs"
 	"github.com/alash3al/hfy/internal/mcp"
 	"github.com/alash3al/hfy/internal/svc"
 	"github.com/alash3al/hfy/internal/types"
@@ -270,6 +275,64 @@ func TestStorableDepthFitsEveryWrapper(t *testing.T) {
 		}
 		if _, err := f.rt.Store.EventByID(ctx, f.rt.Store.Pool, row.ID); err != nil {
 			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+// A turn whose job fails for good ends with an error event that is clean,
+// bounded, and free of URLs and stack traces, whatever the job returned.
+func TestExhaustedTurnsRecordCleanBoundedErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	f := newPersistFixture(t)
+	hostile := map[string]func() error{
+		"nul":  func() error { return errors.New("bad\x00byte") },
+		"utf8": func() error { return errors.New("lone \xed\xa0\x80 and \xff") },
+		"huge": func() error { return errors.New(strings.Repeat("x", 100<<10)) },
+		"url": func() error {
+			return &url.Error{Op: "Post", URL: "https://hook.example/p?token=SECRET", Err: errors.New("refused")}
+		},
+		"flattened": func() error {
+			return fmt.Errorf("call failed: %v", errors.New("GET https://hook.example/p?token=SECRET: refused")) //nolint:errorlint // %v flattens on purpose
+		},
+		"panic":    func() error { panic("kaboom\x00") },
+		"typednil": func() error { var e *url.Error; return e },
+	}
+	turns := map[int64]string{}
+	for name := range hostile {
+		turn, err := f.rt.Store.AppendEvent(ctx, f.rt.Store.Pool, db.NewEvent{ConversationID: f.env.ConversationID,
+			ActorID: f.actor, Scope: "u1", Payload: types.Turn{Scope: "u1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		turns[turn.ID] = name
+		f.rt.Store.Enqueue(ctx, f.rt.Store.Pool, db.NewJob{Type: types.JobRunTurn, Queue: "turns",
+			Payload: svc.RunTurnPayload{TurnEventID: turn.ID}, MaxAttempts: 1})
+	}
+	w := jobs.NewWorker(f.rt.Store, time.Minute, []string{"turns"})
+	w.Handle(types.JobRunTurn, func(ctx context.Context, p svc.RunTurnPayload, _ db.JobRow) error {
+		return hostile[turns[p.TurnEventID]]()
+	})
+	w.OnExhausted(types.JobRunTurn, f.rt.onTurnExhausted)
+	go w.Run(ctx, 2)
+
+	for id, name := range turns {
+		var st *types.TurnStateEvent
+		for ctx.Err() == nil {
+			st, _ = f.rt.Store.TurnStateOf(ctx, f.rt.Store.Pool, id)
+			if st != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if st == nil {
+			t.Fatalf("%s: turn never ended", name)
+		}
+		e := st.Error
+		if st.State != types.StateFailed || len(e) > types.MaxErrorBytes+100 || strings.ContainsRune(e, 0) || !utf8.ValidString(e) ||
+			strings.Contains(e, "SECRET") || strings.Contains(e, "hook.example") ||
+			strings.Contains(e, "goroutine") || strings.Contains(e, ".go:") {
+			t.Errorf("%s: state %s, error (%d bytes) %.120q", name, st.State, len(e), e)
 		}
 	}
 }

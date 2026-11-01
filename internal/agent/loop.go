@@ -271,7 +271,7 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
 			}
-			return Result{Outcome: Failed, Reason: types.Clean("model call failed: " + err.Error())}, nil
+			return Result{Outcome: Failed, Reason: "model call failed: " + types.ErrorText(err)}, nil
 		}
 		l.steps++
 		l.addUsage(resp.Usage)
@@ -508,7 +508,7 @@ func (l *loop) exec(ctx context.Context, tool mcp.Tool, args json.RawMessage, ca
 		})
 	}
 	if err != nil {
-		res = errResult(err.Error())
+		res = errResult(types.ErrorText(err))
 	}
 	metrics.ToolCalls.WithLabelValues(tool.Server, metrics.Outcome(res.IsError)).Inc()
 	metrics.Since(metrics.ToolDuration.WithLabelValues(tool.Server), start)
