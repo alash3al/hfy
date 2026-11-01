@@ -10,8 +10,9 @@ import (
 	"github.com/alash3al/hfy/internal/db/dbtest"
 )
 
-// 00003 drops exactly the embeddings_<digits> tables of the current schema and
-// the embed_events jobs that would never run; it is safe to run again.
+// 00003 drops exactly the embeddings_<digits> tables of the current schema, the
+// embed_events jobs that would never run and the backfill's index; it is safe
+// to run again.
 func TestDropEmbeddingsMigration(t *testing.T) {
 	s := dbtest.New(t)
 	ctx := context.Background()
@@ -31,6 +32,9 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 	for _, n := range append(slices.Clone(gone), kept...) {
 		exec(`CREATE TABLE ` + pgx.Identifier{n}.Sanitize() + ` (id int)`)
 	}
+	// Fails if a fresh install still creates it: the index is v1's, made here as v1 made it.
+	exec(`CREATE INDEX conversation_events_message_text_idx ON conversation_events (id) WHERE type = 'message.text'`)
+	exec(`CREATE INDEX conversation_events_other_idx ON conversation_events (id) WHERE type = 'message.text'`)
 	exec(`CREATE VIEW embeddings_5 AS SELECT 1 AS id`)
 	exec(`CREATE SCHEMA other`)
 	exec(`CREATE TABLE other.embeddings_9 (id int)`)
@@ -83,6 +87,15 @@ func TestDropEmbeddingsMigration(t *testing.T) {
 		var view int
 		if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM embeddings_5`).Scan(&view); err != nil {
 			t.Fatalf("run %d: the view must survive: %v", run, err)
+		}
+		var idx []string
+		rows, err := s.Pool.Query(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()
+			AND indexname IN ('conversation_events_message_text_idx', 'conversation_events_other_idx') ORDER BY 1`)
+		if err == nil {
+			idx, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		}
+		if err != nil || !slices.Equal(idx, []string{"conversation_events_other_idx"}) {
+			t.Fatalf("run %d: indexes %q (%v), want only the decoy", run, idx, err)
 		}
 		if run == 1 {
 			if _, err := s.Migrate(ctx, "down"); err != nil { // so the same SQL runs again

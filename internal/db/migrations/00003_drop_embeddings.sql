@@ -23,6 +23,9 @@ $$;
 -- table is gone, and its later complete/retry no-ops (the lease guard finds no row).
 DELETE FROM jobs WHERE type = 'embed_events' AND state IN ('queued', 'running');
 
+-- Only the embeddings backfill read message.text events by id.
+DROP INDEX IF EXISTS conversation_events_message_text_idx;
+
 -- +goose Down
 -- Dropped embeddings cannot come back; v1 rebuilds nothing on its own either.
 SELECT 1;
