@@ -4,6 +4,7 @@ package types
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
@@ -80,8 +81,14 @@ const (
 )
 
 // ExtraKeysReserved are the request body keys an agent's settings.extra may
-// never set: hfy's own envelope.
-var ExtraKeysReserved = []string{"model", "messages", "tools", "stream", "stream_options"}
+// never set: hfy's own envelope, and n, since hfy reads one answer per call.
+var ExtraKeysReserved = []string{"model", "messages", "tools", "stream", "stream_options", "n"}
+
+// ExtraKeyReserved reports whether key is reserved in any letter case: servers
+// that decode JSON case-insensitively would read "Tools" as "tools".
+func ExtraKeyReserved(key string) bool {
+	return slices.ContainsFunc(ExtraKeysReserved, func(k string) bool { return strings.EqualFold(k, key) })
+}
 
 type OutboundKind string
 

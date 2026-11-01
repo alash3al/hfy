@@ -583,12 +583,18 @@ func (c *Config) Validate() error {
 		if s.MaxOutputTokens > 0 {
 			owner["max_tokens"], owner["max_completion_tokens"] = "max_output_tokens", "max_output_tokens"
 		}
-		for _, k := range slices.Sorted(maps.Keys(s.Extra)) {
-			switch {
-			case slices.Contains(types.ExtraKeysReserved, k):
+		keys := slices.Sorted(maps.Keys(s.Extra))
+		for i, k := range keys {
+			if types.ExtraKeyReserved(k) {
 				bad("%s.settings.extra.%s is set by hfy and cannot be set here", where, k)
-			case owner[k] != "":
-				bad("%s.settings.extra.%s clashes with settings.%s: set it there, not in extra", where, k, owner[k])
+			}
+			for name, by := range owner {
+				if strings.EqualFold(name, k) {
+					bad("%s.settings.extra.%s clashes with settings.%s: set it there, not in extra", where, k, by)
+				}
+			}
+			if j := slices.IndexFunc(keys[:i], func(o string) bool { return strings.EqualFold(o, k) }); j >= 0 {
+				bad("%s.settings.extra: %s and %s differ only in case", where, keys[j], k)
 			}
 		}
 	}

@@ -28,8 +28,12 @@ embeddings: {model: mockprov/emb, dimensions: 8}
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := rt.agents["main"].Client.(controlled).Adapter.(*provider.Mock); !ok {
-		t.Fatalf("main client = %T, want *provider.Mock", rt.agents["main"].Client)
+	main, ok := rt.agents["main"].Client.(controlled)
+	if !ok {
+		t.Fatalf("main client = %T, want controlled", rt.agents["main"].Client)
+	}
+	if _, ok := main.Adapter.(*provider.Mock); !ok {
+		t.Fatalf("main adapter = %T, want *provider.Mock", main.Adapter)
 	}
 	if _, ok := rt.embedder.(*provider.Mock); !ok {
 		t.Fatalf("embedder = %T, want *provider.Mock", rt.embedder)

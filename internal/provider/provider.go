@@ -412,8 +412,8 @@ func requestBody(r Request, maxParam string) ([]byte, error) {
 		return nil, err
 	}
 	for _, k := range slices.Sorted(maps.Keys(r.Controls.Extra)) {
-		if _, taken := m[k]; taken || slices.Contains(types.ExtraKeysReserved, k) {
-			return nil, fmt.Errorf("extra.%s collides with a field hfy sends", k)
+		if types.ExtraKeyReserved(k) || hasKeyFold(m, k) {
+			return nil, fmt.Errorf("extra.%s collides with a field hfy sends or another extra key", k)
 		}
 		raw, err := json.Marshal(r.Controls.Extra[k])
 		if err != nil {
@@ -422,6 +422,16 @@ func requestBody(r Request, maxParam string) ([]byte, error) {
 		m[k] = raw
 	}
 	return json.Marshal(m)
+}
+
+// hasKeyFold reports whether m has a key equal to k, ignoring case.
+func hasKeyFold(m map[string]json.RawMessage, k string) bool {
+	for o := range m {
+		if strings.EqualFold(o, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // signedURLRe finds a signature query parameter wherever it appears in a

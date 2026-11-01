@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -380,11 +381,18 @@ func TestModelRequestControls(t *testing.T) {
 		"agent: {model: p/m, settings: {context_window: 1, extra: {tools: []}}}":                                      "agent.settings.extra.tools is set by hfy",
 		"agent: {model: p/m, settings: {context_window: 1, extra: {stream: false}}}":                                  "agent.settings.extra.stream is set by hfy",
 		"agents: {x: {model: p/m, settings: {context_window: 1, extra: {stream_options: {}}}}}":                       "agents.x.settings.extra.stream_options is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {n: 2}}}":                                           "agent.settings.extra.n is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {Tools: []}}}":                                      "agent.settings.extra.Tools is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {MODEL: x}}}":                                       "agent.settings.extra.MODEL is set by hfy",
+		"agents: {x: {model: p/m, settings: {context_window: 1, extra: {Stream: true}}}}":                             "agents.x.settings.extra.Stream is set by hfy",
+		"agent: {model: p/m, settings: {context_window: 1, extra: {Foo: 1, foo: 2}}}":                                 "agent.settings.extra: Foo and foo differ only in case",
 		"subagents: {r: {description: d, model: p/m, settings: {extra: {model: x}}}}":                                 "subagents.r.settings.extra.model is set by hfy",
 		"summarizer: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                              "summarizer.settings.extra.messages is set by hfy",
 		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {reasoning_effort: high}}}":  "agent.settings.extra.reasoning_effort clashes with settings.reasoning_effort",
 		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}": "agent.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
 		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_tokens: 5}}}":            "agent.settings.extra.max_tokens clashes with settings.max_output_tokens",
+		"agent: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {MAX_TOKENS: 5}}}":            "agent.settings.extra.MAX_TOKENS clashes with settings.max_output_tokens",
+		"agent: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {Reasoning_Effort: high}}}":  "agent.settings.extra.Reasoning_Effort clashes with settings.reasoning_effort",
 		"agent: {model: p/m, settings: {context_window: 1, temperature: 0.2, extra: {temperature: 0.5}}}":             "agent.settings.extra.temperature clashes with settings.temperature",
 		"agents: {x: {model: p/m, settings: {context_window: 1, top_p: 0.9, extra: {top_p: 0.5}}}}":                   "agents.x.settings.extra.top_p clashes with settings.top_p",
 		"agent: {model: p/m, settings: {context_window: 1, extra: {bad: .inf}}}":                                      "agent.settings.extra: values must be JSON-serialisable",
@@ -403,5 +411,29 @@ func TestModelRequestControls(t *testing.T) {
 	if _, err := Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: tokens}}\n"+
 		"agent: {model: p/m, settings: {context_window: 1}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "providers.p.max_tokens_param must be") {
 		t.Errorf("bad max_tokens_param: %v", err)
+	}
+}
+
+// The example's request controls are commented out for users to copy; with
+// the comments removed the example must still load.
+func TestExampleControlsUncommented(t *testing.T) {
+	lines := strings.Split(ExampleYAML, "\n")
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "agent:") })
+	end := slices.Index(lines, "  system: |")
+	if start < 0 || end < start {
+		t.Fatal("example.yaml: the agent section is not where this test looks")
+	}
+	for i := start; i < end; i++ {
+		if strings.HasPrefix(lines[i], "    #") {
+			lines[i] = strings.Replace(lines[i], "# ", "", 1)
+		}
+	}
+	c, err := Parse([]byte(strings.Join(lines, "\n")), env(map[string]string{"HFY_SERVER_SECRET": "s", "DATABASE_URL": "u"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := c.Agent.Settings
+	if s.ReasoningEffort != "low" || s.MaxOutputTokens != 4096 || s.CallTimeout.D() != 90*time.Second || s.Extra["cache_control"] == nil {
+		t.Fatalf("uncommented controls parsed as %+v", s)
 	}
 }

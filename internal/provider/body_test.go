@@ -122,11 +122,16 @@ func TestExtraCannotReplaceCoreFields(t *testing.T) {
 		{"messages", withExtra(goldenRequest(), map[string]any{"messages": []any{}}), ""},
 		{"stream", withExtra(goldenRequest(), map[string]any{"stream": false}), ""},
 		{"stream_options", withExtra(goldenRequest(), map[string]any{"stream_options": map[string]any{}}), ""},
+		{"n", withExtra(goldenRequest(), map[string]any{"n": 2}), ""},
+		{"Tools", withExtra(goldenRequest(), map[string]any{"Tools": []any{}}), ""},
+		{"MODEL", withExtra(goldenRequest(), map[string]any{"MODEL": "x"}), ""},
+		{"Stream", withExtra(goldenRequest(), map[string]any{"Stream": true}), ""},
 		{"tools without tools", withExtra(Request{Model: "m", Messages: goldenRequest().Messages}, map[string]any{"tools": []any{}}), ""},
 		{"temperature", withExtra(goldenRequest(), map[string]any{"temperature": 1}), ""},
 		{"reasoning_effort", withEffort(goldenRequest(), "low", map[string]any{"reasoning_effort": "high"}), ""},
 		{"max_tokens", withCap(goldenRequest(), 10, map[string]any{"max_tokens": 5}), "max_tokens"},
 		{"max_completion_tokens", withCap(goldenRequest(), 10, map[string]any{"max_completion_tokens": 5}), "max_completion_tokens"},
+		{"MAX_TOKENS", withCap(goldenRequest(), 10, map[string]any{"MAX_TOKENS": 5}), "max_tokens"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			key := strings.TrimPrefix(c.name, "tools without ")
@@ -134,6 +139,12 @@ func TestExtraCannotReplaceCoreFields(t *testing.T) {
 				t.Fatalf("want an error naming extra.%s, got %v", key, err)
 			}
 		})
+	}
+}
+
+func TestExtraKeysDifferingOnlyInCaseCollide(t *testing.T) {
+	if _, err := requestBody(withExtra(goldenRequest(), map[string]any{"Foo": 1, "foo": 2}), ""); err == nil || !strings.Contains(err.Error(), "extra.foo") {
+		t.Fatalf("want an error naming extra.foo, got %v", err)
 	}
 }
 
