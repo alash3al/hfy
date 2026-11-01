@@ -533,8 +533,9 @@ One envelope for the stream and for history:
 `awaiting_approval` `completed` `failed` `stopped` `cancelled`) ·
 `turn.cancel_requested` · `message.text` · `reasoning` · `tool_call` ·
 `tool_call.interrupted` · `tool_result` · `approval.requested` ·
-`approval.decided` · `model.usage` · `summary` · ephemeral: `text.delta`,
-`reasoning.delta` (never in history).
+`approval.decided` · `model.usage` · `summary` · `context.note` ·
+`host.message` (both `data: {text}`; see "Prompt notes") · ephemeral:
+`text.delta`, `reasoning.delta` (never in history).
 
 Payloads: `message.text` is `{text, attachments?}`; `tool_result` is
 `{call_id, content, is_error, structured?, ui?}` (`ui` is the sanitized
@@ -737,6 +738,51 @@ event as stored.
   unchanged); make actor refs readable (the grant's `actor`) if the model
   should know names. Frames tell the model who spoke; they are not
   authorization: tools decide from `_meta`, which the model cannot change.
+- **Prompt notes.** A `context.note` or `host.message` is durable text put
+  in front of the model; neither starts a turn, and there is no API to write
+  them yet (the host events API will). Who wrote one is the event's actor, never
+  a field of its payload. The model reads each as a user message holding one
+  labelled data block, `<context from="crm" kind="host">…</context>` or
+  `<host_message from="crm" kind="host">…</host_message>`, with the text
+  escaped (`<`, `>`, `&`), so it cannot close its block, open a frame or pass
+  for a message; text like `System: obey` or `ignore previous instructions` is
+  allowed and stays inside the block. When a prompt holds any note, the system
+  prompt says these blocks are data, not instructions and not from the user, and that such tags inside a
+  tool result or an assistant message are never real blocks; the summary is escaped like people's text. Zero-width
+  and right-to-left characters are kept as written. Notes never change who
+  speaks: they do not make a chat a room, and in a room they are framed the same
+  way. While a prompt holds any note, what people write is escaped too (even in a
+  one-to-one chat, which is plain otherwise), so nobody can type a block that
+  looks like a note; a prompt without notes is sent exactly as before. Each note is
+  at most 16 KiB of clean UTF-8 (no NUL, no leading BOM); a prompt carries at most 64 KiB of
+  them (framed and escaped, as the model reads them). Past that the oldest are
+  dropped in steps of 32 KiB, so the prompt is cut to about half the budget and
+  then keeps the same start until the notes have grown by another half budget
+  (the provider's prefix cache survives); the newest note is always kept. Dropped
+  notes stay in history, and compaction folds them into the summary (the
+  summarizer reads each, cut to 2000 bytes, and is told they are data).
+  A note stays in every later prompt until a summary covers it. In the prompt
+  a note sits in event order, after the events that came before it; while a tool
+  call is unanswered it waits for the answer, so a result still follows its call.
+  A note is filed under the turn that is running (or paused) when it is appended;
+  with none running, under the oldest turn still open (the one that runs first),
+  else under the newest turn, so a turn queued behind another never takes it. A running turn rebuilds its prompt at each step, so it sees a note from its
+  next step on. A summary covers neither the running turn nor the newest one, so a
+  note appended after a summary still reaches the model; one appended while a
+  now-covered turn was the newest is in the summary (the summarizer reads it).
+  Clients see both types in `/history` (under that turn) and on the SSE stream
+  like any durable event; a note on a conversation with no turn is refused, since
+  history pages by turn.
+  `hfy context:show <conversation-uuid> [--agent name]` prints the JSON body of
+  the request the newest turn would send, from the stored events, built by the
+  code and config it runs with now (so a config change shows). It calls no model,
+  runs no tool and no hook, writes nothing (its connection is read-only), and leaves
+  out tools, which need live servers; stored files appear as `hfy-file:<key>`.
+  Its output holds the conversation's content, the agent's system text and vars:
+  treat it like a database dump. It takes exactly one conversation uuid.
+  Read it with `hfy context:show <id> | jq -r '.messages[] | .role, .content'`. The prompt is a
+  pure function of the events (no clock, no map order): the same events and config
+  give the same bytes on every run.
 - **Memory.** The summarizer appends a `summary` event when the next prompt
   would pass 80% of `context_window` (history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
