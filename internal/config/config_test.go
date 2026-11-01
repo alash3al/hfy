@@ -191,6 +191,14 @@ func TestEmbedValidation(t *testing.T) {
 	if _, err := Parse([]byte(base+"embed: {accent: red}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.accent") {
 		t.Errorf("bad accent must fail naming embed.accent, got %v", err)
 	}
+	for _, layout := range []string{"bubbles", "transcript", "whatsapp"} {
+		if c, err := Parse([]byte(base+"embed: {layout: "+layout+"}\n"), env(nil)); err != nil || c.Embed.Layout != layout {
+			t.Errorf("layout %s must be accepted, got %v", layout, err)
+		}
+	}
+	if _, err := Parse([]byte(base+"embed: {layout: chat}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "embed.layout") {
+		t.Errorf("unknown layout must fail naming embed.layout, got %v", err)
+	}
 	c, err := Parse([]byte(base), env(nil))
 	if err != nil {
 		t.Fatal(err)

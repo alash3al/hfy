@@ -33,6 +33,7 @@ var HFY_RTL = ['ar', 'he', 'fa', 'ur', 'dv', 'ps', 'sd', 'yi'];
 var HFY_DEFAULTS = { lang: '', dir: 'auto', theme: 'auto', accent: '#6366f1', density: 'comfortable', layout: 'bubbles', tool_calls: 'summary', uploads: null, parents: [] };
 var HFY_TERMINAL = ['completed', 'failed', 'stopped', 'cancelled'];
 var HFY_TOOL_MODES = ['hidden', 'summary', 'details'];
+var HFY_LAYOUTS = ['bubbles', 'transcript', 'whatsapp'];
 var HFY_ACTIVE = ['queued', 'running', 'awaiting_approval'];
 
 function hfyResolveConfig() {
@@ -41,6 +42,7 @@ function hfyResolveConfig() {
   var c = Object.assign({}, HFY_DEFAULTS, raw);
   if (!Array.isArray(c.parents)) c.parents = [];
   if (HFY_TOOL_MODES.indexOf(c.tool_calls) === -1) c.tool_calls = HFY_DEFAULTS.tool_calls;
+  if (HFY_LAYOUTS.indexOf(c.layout) === -1) c.layout = HFY_DEFAULTS.layout;
   // uploads: null when the server can't take files, else {types: [mime], max_bytes}
   var u = c.uploads;
   c.uploads = (u && Array.isArray(u.types) && u.types.length && u.max_bytes > 0)
@@ -776,8 +778,9 @@ window.hfyEmbed = function () {
       el.dataset.theme = this.resolvedTheme();
       el.dataset.density = this.config.density || 'comfortable';
       el.dataset.layout = this.config.layout || 'bubbles';
-      el.style.setProperty('--hfy-accent', accent);
-      el.style.setProperty('--hfy-on-accent', hfyOnColor(accent));
+      // whatsapp keeps its own accent (the palette's send green) in CSS, so no inline override there
+      if (this.config.layout === 'whatsapp') { el.style.removeProperty('--hfy-accent'); el.style.removeProperty('--hfy-on-accent'); }
+      else { el.style.setProperty('--hfy-accent', accent); el.style.setProperty('--hfy-on-accent', hfyOnColor(accent)); }
       Object.keys(HFY_STRINGS.en).forEach(function (k) { L[k] = self.t(k); });
       this.L = L;
       document.title = L.title;
@@ -821,9 +824,10 @@ window.hfyEmbed = function () {
     },
     applyConfigure: function (cfg) {
       var self = this;
-      ['lang', 'dir', 'theme', 'accent', 'density', 'layout'].forEach(function (k) {
+      ['lang', 'dir', 'theme', 'accent', 'density'].forEach(function (k) {
         if (cfg[k] != null) self.config[k] = cfg[k];
       });
+      if (HFY_LAYOUTS.indexOf(cfg.layout) !== -1) this.config.layout = cfg.layout;
       if (HFY_TOOL_MODES.indexOf(cfg.tool_calls) !== -1) this.config.tool_calls = cfg.tool_calls;
       if (cfg.strings && typeof cfg.strings === 'object') this.customStrings = Object.assign({}, this.customStrings, cfg.strings);
       this.applyDom();

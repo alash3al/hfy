@@ -65,6 +65,22 @@
 }
 [data-density="compact"]{ --hfy-fs:14px; --hfy-lh:1.42; --hfy-gap:8px; --hfy-gap-tight:2px; --hfy-pad-y:5px; --hfy-pad-x:9px; --hfy-avatar:26px; }
 :lang(ar),:lang(fa),:lang(ur){ --hfy-lh:1.7; }
+/* WhatsApp-style palette: fixed constants, not accent-derived; only layout=whatsapp uses them, retune here */
+[data-layout="whatsapp"]{
+  --hfy-wa-wall:#efeae2; --hfy-wa-dot:rgb(11 20 26/.06); --hfy-wa-out:#d9fdd3; --hfy-wa-in:#fff;
+  --hfy-wa-text:#111b21; --hfy-wa-muted:#667781; --hfy-wa-read:#53bdeb; --hfy-wa-bar:#f0f2f5;
+  --hfy-wa-pill:#fff; --hfy-wa-line:#e9edef; --hfy-wa-inset:#f0f2f5; --hfy-wa-send:#00a884;
+  --hfy-accent:var(--hfy-wa-send); --hfy-on-accent:#fff;
+  --hfy-wall:var(--hfy-wa-wall); --hfy-wall-dot:var(--hfy-wa-dot); --hfy-own:var(--hfy-wa-out); --hfy-surface:var(--hfy-wa-in);
+  --hfy-surface-2:var(--hfy-wa-inset); --hfy-text:var(--hfy-wa-text); --hfy-muted:var(--hfy-wa-muted);
+  --hfy-tick-read:var(--hfy-wa-read); --hfy-border:var(--hfy-wa-line);
+  --hfy-fs:14.2px; --hfy-gap:10px; --hfy-gap-tight:2px; --hfy-pad-y:6px; --hfy-pad-x:9px;
+}
+[data-layout="whatsapp"][data-theme="dark"]{
+  --hfy-wa-wall:#0b141a; --hfy-wa-dot:rgb(134 150 160/.07); --hfy-wa-out:#005c4b; --hfy-wa-in:#202c33;
+  --hfy-wa-text:#e9edef; --hfy-wa-muted:#8696a0; --hfy-wa-read:#53bdeb; --hfy-wa-bar:#202c33;
+  --hfy-wa-pill:#2a3942; --hfy-wa-line:#2a3942; --hfy-wa-inset:#111b21;
+}
 
 /* ---- base ---- */
 *,*::before,*::after{box-sizing:border-box}
@@ -99,7 +115,7 @@ button:disabled{cursor:default}
   scrollbar-width:thin;scrollbar-color:var(--hfy-surface-3) transparent;
   padding:max(var(--s3),env(safe-area-inset-top)) var(--hfy-gutter) calc(var(--s3) + var(--hfy-sheet-pad,0px))}
 /* wallpaper: two offset dot grids, behind opaque bubbles only */
-[data-layout="bubbles"] .hfy-messages{background-color:var(--hfy-wall);
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-messages{background-color:var(--hfy-wall);
   background-image:radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px),radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px);
   background-size:26px 26px;background-position:0 0,13px 13px}
 .hfy-older{display:flex;justify-content:center;padding-bottom:var(--s2)}
@@ -135,10 +151,10 @@ button:disabled{cursor:default}
 .hfy-col{display:flex;flex-direction:column;align-items:flex-start;flex:1;min-width:0}
 .hfy-name{margin:0 2px 3px;font-size:12px;font-weight:600;line-height:1.4;color:var(--hfy-muted)}
 
-/* bubbles layout: no avatar column, names live inside bubbles, own on the end side */
-[data-layout="bubbles"] .hfy-avatar-slot,[data-layout="bubbles"] .hfy-name{display:none}
-[data-layout="bubbles"] .hfy-block.is-own .hfy-col{align-items:flex-end}
-[data-layout="bubbles"] .hfy-block .hfy-col{padding-inline:8px}
+/* bubbles and whatsapp layouts: no avatar column, names live inside bubbles, own on the end side */
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-avatar-slot,:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-name{display:none}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-block.is-own .hfy-col{align-items:flex-end}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-block .hfy-col{padding-inline:8px}
 
 .hfy-msg{display:flex;align-items:center;gap:var(--s1);max-width:min(85%,640px);min-width:0}
 .hfy-bubble{--bub:var(--hfy-surface);position:relative;min-width:0;max-width:100%;padding:var(--hfy-pad-y) var(--hfy-pad-x);
@@ -148,13 +164,13 @@ button:disabled{cursor:default}
 .hfy-plain:empty{display:none}
 
 /* tails on the first bubble of a group: a triangle off the top corner, mirrored in RTL */
-[data-layout="bubbles"] .is-head .hfy-bubble::before,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-head .hfy-bubble::before,:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-typing-row.is-head .hfy-typing::before{
   content:"";position:absolute;top:0;width:8px;height:13px;background:var(--bub)}
-[data-layout="bubbles"] .is-other.is-head .hfy-bubble,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing{border-start-start-radius:0}
-[data-layout="bubbles"] .is-other.is-head .hfy-bubble::before,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{inset-inline-start:-8px;clip-path:polygon(100% 0,0 0,100% 100%)}
-[data-layout="bubbles"] .is-own.is-head .hfy-bubble{border-start-end-radius:0}
-[data-layout="bubbles"] .is-own.is-head .hfy-bubble::before{inset-inline-end:-8px;clip-path:polygon(0 0,100% 0,0 100%)}
-[dir="rtl"][data-layout="bubbles"] .is-head .hfy-bubble::before,[dir="rtl"][data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{transform:scaleX(-1)}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-other.is-head .hfy-bubble,:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-typing-row.is-head .hfy-typing{border-start-start-radius:0}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-other.is-head .hfy-bubble::before,:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-typing-row.is-head .hfy-typing::before{inset-inline-start:-8px;clip-path:polygon(100% 0,0 0,100% 100%)}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-own.is-head .hfy-bubble{border-start-end-radius:0}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-own.is-head .hfy-bubble::before{inset-inline-end:-8px;clip-path:polygon(0 0,100% 0,0 100%)}
+[dir="rtl"]:is([data-layout="bubbles"],[data-layout="whatsapp"]) .is-head .hfy-bubble::before,[dir="rtl"]:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-typing-row.is-head .hfy-typing::before{transform:scaleX(-1)}
 
 /* sender names (groups) in a stable per-sender hue */
 .hfy-bname{margin-bottom:2px;font-size:12.5px;font-weight:650;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -448,7 +464,7 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 
 /* ---- composer: pill input + round send ---- */
 .hfy-composer-wrap{padding:var(--s2) var(--hfy-gutter) max(var(--s2),env(safe-area-inset-bottom));background:var(--hfy-bg)}
-[data-layout="bubbles"] .hfy-composer-wrap{background:var(--hfy-wall)}
+:is([data-layout="bubbles"],[data-layout="whatsapp"]) .hfy-composer-wrap{background:var(--hfy-wall)}
 .hfy-composer{display:flex;align-items:flex-end;gap:var(--s2)}
 .hfy-pill{display:flex;align-items:flex-end;flex:1;min-width:0;padding:3px;border:1px solid var(--hfy-border);border-radius:24px;background:var(--hfy-surface);
   box-shadow:var(--hfy-shadow-1);transition:border-color .15s,box-shadow .15s}
@@ -595,6 +611,17 @@ details[open]>summary .hfy-chev{transform:rotate(90deg)}
 [data-layout="transcript"] .hfy-day span{padding:0;background:none;box-shadow:none}
 [data-layout="transcript"] .hfy-typing{box-shadow:none;background:none;padding:0}
 [data-layout="transcript"] .hfy-tool-sum,[data-layout="transcript"] .hfy-reasoning{box-shadow:none;border:1px solid var(--hfy-border)}
+
+/* ---- whatsapp layout: the bubbles rules above, a fixed palette and tighter geometry ---- */
+[data-layout="whatsapp"] .hfy-messages{padding-top:max(var(--s2),env(safe-area-inset-top))}
+[data-layout="whatsapp"] .hfy-msg{max-width:65%}
+[data-layout="whatsapp"] .hfy-bubble{border-radius:8px}
+[data-layout="whatsapp"] .hfy-day span{border-radius:7.5px;font-size:12.5px}
+[data-layout="whatsapp"] .hfy-composer-wrap{background:var(--hfy-wa-bar)}
+[data-layout="whatsapp"] .hfy-pill{background:var(--hfy-wa-pill)}
+[data-layout="whatsapp"] .hfy-attach{order:1}
+[data-layout="whatsapp"] .hfy-camera{order:2}
+@media (max-width:520px){ [data-layout="whatsapp"] .hfy-msg{max-width:80%} }
 
 /* ---- tool cards: a tool's hfy/ui block, rendered under its own row ---- */
 .hfy-card-host:empty{display:none}

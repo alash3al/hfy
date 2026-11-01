@@ -1,0 +1,11 @@
+[data-layout="bubbles"] .hfy-messages{background-color:var(--hfy-wall); background-image:radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px),radial-gradient(var(--hfy-wall-dot) 1.2px,transparent 1.6px); background-size:26px 26px;background-position:0 0,13px 13px}
+[data-layout="bubbles"] .hfy-avatar-slot,[data-layout="bubbles"] .hfy-name{display:none}
+[data-layout="bubbles"] .hfy-block.is-own .hfy-col{align-items:flex-end}
+[data-layout="bubbles"] .hfy-block .hfy-col{padding-inline:8px}
+[data-layout="bubbles"] .is-head .hfy-bubble::before,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{content:"";position:absolute;top:0;width:8px;height:13px;background:var(--bub)}
+[data-layout="bubbles"] .is-other.is-head .hfy-bubble,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing{border-start-start-radius:0}
+[data-layout="bubbles"] .is-other.is-head .hfy-bubble::before,[data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{inset-inline-start:-8px;clip-path:polygon(100% 0,0 0,100% 100%)}
+[data-layout="bubbles"] .is-own.is-head .hfy-bubble{border-start-end-radius:0}
+[data-layout="bubbles"] .is-own.is-head .hfy-bubble::before{inset-inline-end:-8px;clip-path:polygon(0 0,100% 0,0 100%)}
+[dir="rtl"][data-layout="bubbles"] .is-head .hfy-bubble::before,[dir="rtl"][data-layout="bubbles"] .hfy-typing-row.is-head .hfy-typing::before{transform:scaleX(-1)}
+[data-layout="bubbles"] .hfy-composer-wrap{background:var(--hfy-wall)}

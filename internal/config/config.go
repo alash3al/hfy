@@ -485,8 +485,8 @@ func (c *Config) Validate() error {
 	if !slices.Contains([]string{"comfortable", "compact"}, c.Embed.Density) {
 		bad("embed.density must be one of comfortable, compact")
 	}
-	if !slices.Contains([]string{"bubbles", "transcript"}, c.Embed.Layout) {
-		bad("embed.layout must be one of bubbles, transcript")
+	if !slices.Contains([]string{"bubbles", "transcript", "whatsapp"}, c.Embed.Layout) {
+		bad("embed.layout must be one of bubbles, transcript, whatsapp")
 	}
 	if !slices.Contains([]string{"hidden", "summary", "details"}, c.Embed.ToolCalls) {
 		bad("embed.tool_calls must be one of hidden, summary, details")
