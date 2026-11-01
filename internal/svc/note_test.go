@@ -143,6 +143,29 @@ func TestAppendNoteGoesToTheRunningTurn(t *testing.T) {
 	}
 }
 
+// With nothing running and two turns queued, the note is for the one that
+// runs first, not the newest: filed under the newer, it would reach the first
+// turn a turn late.
+func TestAppendNoteGoesToTheFirstQueuedTurn(t *testing.T) {
+	ctx, store, s, conv, actor := noteFixture(t)
+	var ids []int64
+	for _, text := range []string{"A", "B"} {
+		u, err := s.Post(ctx, svc.PostInput{ConversationID: conv.ID, Actor: actor, Scope: "u1", Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := store.TurnIDByUUID(ctx, conv.ID, u)
+		ids = append(ids, id)
+	}
+	n, err := s.AppendNote(ctx, svc.NoteInput{ConversationID: conv.ID, Actor: actor, Type: types.EventContextNote, Text: "for A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *n.ParentID != ids[0] {
+		t.Fatalf("filed under turn %d, want the first queued turn %d (not %d)", *n.ParentID, ids[0], ids[1])
+	}
+}
+
 // What is not a clean, bounded, non-blank note is a 400, whatever the type.
 func TestAppendNoteRefusesBadText(t *testing.T) {
 	ctx, store, s, conv, actor := noteFixture(t)
