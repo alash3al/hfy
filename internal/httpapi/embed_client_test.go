@@ -198,6 +198,85 @@ func TestEmbedClientExchangeChain(t *testing.T) {
 			assert.equal(w2.exchanges, 1, 'a closed client ignores it');
 		}
 
+		const lastMs = () => timers.filter((t) => !t.off).map((t) => t.ms);
+		const fireLast = async () => { const t = timers.filter((x) => !x.off).pop(); t.off = true; t.fn(); await flush(); };
+		const tooEarly = (secs) => () => ({ status: 429, body: { error: 'too early to renew', retry_after: secs } });
+
+		async function tooEarlyKeepsTheTokenAndWaits() {
+			const w = rig({ exchangeReply: tooEarly(40) });
+			await w.c.connect();
+			const states = [];
+			w.c.onState((st) => states.push(st));
+			await fire(); // the refresh timer: 429
+			assert.equal(w.exchanges, 1);
+			assert.deepEqual(w.hostCalls, ['initial'], 'a 429 does not ask the host');
+			assert.equal(w.sources.length, 1, 'the stream stands: the token did not change');
+			assert.equal(w.c.state, 'live');
+			assert.deepEqual(states.filter((x) => x !== 'refreshing' && x !== 'live'), []);
+			const next = lastMs();
+			assert.equal(next.length, 1, 'refresh is rescheduled');
+			assert.ok(next[0] >= 40000 - 100, 'not before retry_after: ' + next[0]);
+			await w.c.send('still works');
+			assert.equal(authOf(w, '/v1/conversation/messages').pop(), 'T1');
+			// visibility inside the wait window does nothing, even when the token is due
+			const v = rig({ hostTtl: 10, exchangeReply: tooEarly(40) });
+			await v.c.connect();
+			v.visible(); await flush();
+			assert.equal(v.exchanges, 1);
+			v.visible(); await flush();
+			assert.equal(v.exchanges, 1, 'no second exchange inside the retry window');
+			assert.deepEqual(v.hostCalls, ['initial']);
+		}
+
+		async function aSkewedClockDoesNotHammer() {
+			// the expiry is ten minutes in the past by this client's clock
+			const w = rig({ hostTtl: -600, exchangeReply: tooEarly(20) });
+			await w.c.connect();
+			assert.ok(lastMs()[0] >= 5000, 'an expiry in the past is not a 1 s loop: ' + lastMs()[0]);
+			for (let i = 1; i <= 3; i++) {
+				await fire();
+				assert.equal(w.exchanges, i, 'one exchange per timer');
+				assert.ok(lastMs()[0] >= 20000 - 100, 'the next one waits out the retry window: ' + lastMs()[0]);
+			}
+			assert.deepEqual(w.hostCalls, ['initial']);
+			// an expiry years away does not overflow setTimeout (which would fire at once)
+			const far = rig({ hostTtl: 60 * 60 * 24 * 365 * 5 });
+			await far.c.connect();
+			assert.ok(lastMs()[0] > 1000 && lastMs()[0] <= 2147483647, 'timer ' + lastMs()[0]);
+		}
+
+		async function legitTimingStaysAboveAQuarter() {
+			// a 60 s grant: the server needs a quarter (15 s) of age; a client clock up to
+			// half a lifetime fast must still ask no sooner
+			for (let fast = 0; fast <= 30; fast++) {
+				const w = rig({ hostTtl: 60 - fast });
+				await w.c.connect();
+				assert.ok(lastMs()[0] >= 15000 - 50, fast + ' s fast: refresh in ' + lastMs()[0] + ' ms');
+			}
+		}
+
+		async function reconnectExchangesAGoodTokenBeforeAskingTheHost() {
+			const w = rig();
+			await w.c.connect();
+			w.sources[0].readyState = 2; w.sources[0].onerror(); // the stream dropped
+			await fireLast(); // the reconnect timer
+			assert.deepEqual(w.exchangeCalls().map((f) => f.bearer), ['T1']);
+			assert.deepEqual(w.hostCalls, ['initial'], 'a good token is exchanged, not re-asked');
+			assert.match(w.live()[0].url, /token=T2/);
+			const e = rig({ hostTtl: -5 }); // a token that is past its expiry: only the host can help
+			await e.c.connect();
+			e.sources[0].readyState = 2; e.sources[0].onerror();
+			await fireLast();
+			assert.equal(e.exchanges, 0);
+			assert.deepEqual(e.hostCalls, ['initial', 'unauthorized']);
+			const d = rig({ exchangeReply: tooEarly(30) }); // a 429 keeps the token and the stream reconnects with it
+			await d.c.connect();
+			d.sources[0].readyState = 2; d.sources[0].onerror();
+			await fireLast();
+			assert.deepEqual(d.hostCalls, ['initial']);
+			assert.match(d.live()[0].url, /token=T1/);
+		}
+
 		async function noHook() {
 			const c = new HfyClient({ api: 'http://x', fetch: async () => ({ status: 200, text: async () => '{}' }), EventSource: function () { this.close = () => {}; },
 				onTokenNeeded: async () => 'tok' });
@@ -206,7 +285,8 @@ func TestEmbedClientExchangeChain(t *testing.T) {
 
 		(async () => {
 			for (const t of [exchangeBeforeHost, conflictStopsTrying, failureFallsBackToTheHost, atTheCap, staleTokenRetriesWithoutTheHost,
-				deadTokenAsksTheHost, oneExchangeAtATime, visibility, noHook]) {
+				deadTokenAsksTheHost, oneExchangeAtATime, visibility, tooEarlyKeepsTheTokenAndWaits, aSkewedClockDoesNotHammer,
+				legitTimingStaysAboveAQuarter, reconnectExchangesAGoodTokenBeforeAskingTheHost, noHook]) {
 				try { await t(); } catch (e) { console.log('FAIL ' + t.name + ': ' + e.stack); process.exitCode = 1; }
 			}
 			if (!process.exitCode) console.log('ok');

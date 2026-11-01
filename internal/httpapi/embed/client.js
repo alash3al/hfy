@@ -41,7 +41,11 @@ class HfyClient {
   #token = null;
   #expiresAtMs = null;
   #renewable = null; // null: unknown until the first exchange; false: this grant is at its cap
-  #neverRenew = false; // the server said 409: the host's grants are not renewable
+  // The server said 409: the host's grants are not renewable. Deliberately not
+  // reset when the host hands over a new grant: a host mints one kind, and
+  // guessing again would cost a request per refresh. A page reload tries afresh.
+  #neverRenew = false;
+  #notBefore = 0; // ms since epoch: the server said "too early" until then
   #acquiring = null;
   #eventListeners = new Set();
   #stateListeners = new Set();
@@ -185,26 +189,33 @@ class HfyClient {
     if (!token) throw new Error('onTokenNeeded returned no token');
     this.#token = token;
     this.#expiresAtMs = parseExpiryMs(result);
-    this.#renewable = null; // a new grant from the host: learn again whether it renews
+    this.#renewable = null; // a new grant from the host: learn again whether it is at its cap
+    this.#notBefore = 0;
   }
 
   // One acquisition at a time: a timer, a 401 and a tab coming back must not
-  // each exchange the same token. Only the timer and visibility try the
-  // exchange first; a 401 means the token is dead, which no exchange revives.
+  // each exchange the same token. Only a live token is exchanged; a 401 means
+  // it is dead, which no exchange revives. Resolves to 'exchanged', 'deferred'
+  // (too early: the token stays, asking again waits) or 'host'.
   #acquire(reason) {
     if (!this.#acquiring) {
       this.#acquiring = (async () => {
         try {
-          if (reason !== 'unauthorized' && await this.#exchange()) return;
+          if (reason !== 'unauthorized') {
+            var how = await this.#exchange();
+            if (how) return how;
+          }
           await this.#fetchToken(reason);
+          return 'host';
         } finally { this.#acquiring = null; }
       })();
     }
     return this.#acquiring;
   }
 
-  // true: the token was swapped. Anything else (409, 401, network, odd body) is
-  // false and leaves the token alone, so the caller asks the host.
+  // 'exchanged': the token was swapped. 'deferred': 429, the token stays and no
+  // exchange is tried before retry_after seconds pass. Anything else (409, 401,
+  // network, odd body) is false and leaves the token alone: ask the host.
   async #exchange() {
     var sent = this.#token;
     if (!sent || !this.#fetchFn || this.#neverRenew || this.#renewable === false) return false;
@@ -214,13 +225,19 @@ class HfyClient {
       var body = await readBody(res);
       var status = res.status != null ? res.status : (res.ok ? 200 : 0);
       if (status === 409) { this.#neverRenew = true; return false; }
+      if (status === 429) {
+        var secs = body && Number(body.retry_after);
+        this.#notBefore = Date.now() + Math.min(Math.max(secs >= 1 ? secs : 5, 1), 86400) * 1000;
+        return 'deferred';
+      }
       if (status < 200 || status >= 300 || !body || !body.token) return false;
       if (this.#token === sent) { // else the host answered meanwhile: keep that one
         this.#token = body.token;
         this.#expiresAtMs = parseExpiryMs(body);
         this.#renewable = body.renewable !== false;
+        this.#notBefore = 0;
       }
-      return true;
+      return 'exchanged';
     } catch (e) { return false; }
   }
 
@@ -228,6 +245,7 @@ class HfyClient {
   // is due or past due is renewed now, and the stream follows it.
   #onVisible() {
     if (this.#closed || this.#acquiring || !this.#token || this.#expiresAtMs == null) return;
+    if (Date.now() < this.#notBefore) return;
     if (this.#expiresAtMs - Date.now() <= this.#refreshSkewMs) this.#refreshStream();
   }
 
@@ -287,7 +305,11 @@ class HfyClient {
     if (this.#refreshTimer) { clearTimeout(this.#refreshTimer); this.#refreshTimer = null; }
     if (this.#closed || this.#expiresAtMs == null) return; // no expiry: no proactive refresh
     var remaining = this.#expiresAtMs - Date.now();
-    var delay = Math.max(remaining - Math.min(this.#refreshSkewMs, remaining / 2), 1000);
+    var delay = remaining - Math.min(this.#refreshSkewMs, remaining / 2);
+    // A wrong clock (an expiry already past, or years away) must not make this a
+    // loop: never sooner than 5 s or than the server allows, never beyond what
+    // setTimeout takes (it fires at once past 2^31 ms).
+    delay = Math.min(Math.max(delay, 5000, this.#notBefore - Date.now()), 2147483647);
     this.#refreshTimer = timer(() => {
       this.#refreshTimer = null;
       this.#refreshStream();
@@ -296,10 +318,16 @@ class HfyClient {
 
   async #refreshStream() {
     if (this.#closed) return;
+    var before = this.#state;
     this.#setState('refreshing');
     try {
-      await this.#acquire('expired');
+      var how = await this.#acquire('expired');
       if (this.#closed) return;
+      if (how === 'deferred') { // too early: the stream and token stand, try again later
+        this.#scheduleRefresh();
+        this.#setState(before);
+        return;
+      }
       this.#openStream();
       this.#scheduleRefresh();
       this.#reconnectAttempts = 0;
@@ -360,7 +388,8 @@ class HfyClient {
       this.#reconnectTimer = null;
       if (this.#closed) return;
       try {
-        await this.#acquire('unauthorized');
+        // a token that is still good may be exchanged before the host is asked
+        await this.#acquire(this.#expiresAtMs != null && this.#expiresAtMs > Date.now() ? 'expired' : 'unauthorized');
         if (this.#closed) return;
         this.#openStream();
         this.#scheduleRefresh();
