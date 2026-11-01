@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -102,13 +103,16 @@ func app() *cli.Command {
 				ArgsUsage: "<conversation-uuid>",
 				Flags:     []cli.Flag{&cli.StringFlag{Name: "agent", Usage: "build it for this agent (default: the agent of the newest turn)"}},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					cfg, err := load(cmd)
-					if err != nil {
-						return err
+					if cmd.NArg() != 1 {
+						return errors.New("usage: hfy context:show <conversation-uuid> [--agent name]")
 					}
 					id, err := uuid.Parse(cmd.Args().First())
 					if err != nil {
 						return fmt.Errorf("context:show wants a conversation uuid: %w", err)
+					}
+					cfg, err := load(cmd)
+					if err != nil {
+						return err
 					}
 					return contextShow(ctx, cfg, id, cmd.String("agent"), os.Stdout, os.Stderr)
 				},

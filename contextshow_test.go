@@ -198,3 +198,21 @@ func TestContextShowAcrossBuilds(t *testing.T) {
 		}
 	}
 }
+
+// context:show wants exactly one conversation uuid, and says so before it
+// reads the config or touches the database.
+func TestContextShowUsage(t *testing.T) {
+	for _, args := range [][]string{
+		{"hfy", "-c", "/nonexistent.yaml", "context:show"},
+		{"hfy", "-c", "/nonexistent.yaml", "context:show", uuid.New().String(), "extra"},
+	} {
+		err := app().Run(context.Background(), args)
+		if err == nil || !strings.Contains(err.Error(), "usage: hfy context:show <conversation-uuid>") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	err := app().Run(context.Background(), []string{"hfy", "-c", "/nonexistent.yaml", "context:show", "not-a-uuid"})
+	if err == nil || !strings.Contains(err.Error(), "wants a conversation uuid") {
+		t.Errorf("a bad uuid: %v", err)
+	}
+}
