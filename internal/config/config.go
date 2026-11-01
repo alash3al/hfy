@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -266,9 +267,8 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 	if err := expandNode(&root, lookup); err != nil {
 		return nil, err
 	}
-	if v := lookupKey(root.Content[0], "files", "dsn"); v != nil && v.Kind == yaml.ScalarNode && v.Value == "" {
-		// dsn is the uploads switch: an empty ${VAR} must not turn uploads off quietly.
-		return nil, fmt.Errorf("line %d: files.dsn is empty; remove the key to turn uploads off", v.Line)
+	if err := checkFilesNode(root.Content[0]); err != nil {
+		return nil, err
 	}
 	var c Config
 	if err := root.Decode(&c); err != nil {
@@ -281,8 +281,52 @@ func Parse(raw []byte, lookup func(string) (string, bool)) (*Config, error) {
 	return &c, nil
 }
 
-// lookupKey follows mapping keys from n, or returns nil.
+// checkFilesNode rejects, after ${VAR} expansion, what decoding would quietly
+// turn into "off" or "the default": an empty or null dsn (it is the uploads
+// switch), and an explicit zero (or a float, which yaml truncates) in the
+// limits. A key that is absent still means the default.
+func checkFilesNode(top *yaml.Node) error {
+	for _, k := range []string{"dsn", "max_count", "max_bytes", "upload_ttl", "download_ttl"} {
+		v := lookupKey(top, "files", k)
+		if v == nil || v.Kind != yaml.ScalarNode {
+			continue
+		}
+		if k == "dsn" {
+			if v.Value == "" || v.ShortTag() == "!!null" {
+				return fmt.Errorf("line %d: files.dsn is empty; remove the key to turn uploads off", v.Line)
+			}
+			continue
+		}
+		if v.Value == "" || v.ShortTag() == "!!null" {
+			continue // bare or null: unset
+		}
+		switch k {
+		case "max_count":
+			if n, err := strconv.Atoi(v.Value); err != nil || n <= 0 {
+				return fmt.Errorf("line %d: files.max_count must be a whole number greater than 0", v.Line)
+			}
+		case "max_bytes":
+			if n, err := ParseBytes(v.Value); err == nil && n == 0 {
+				return fmt.Errorf("line %d: files.max_bytes must be greater than 0", v.Line)
+			}
+		default:
+			if d, err := ParseDuration(v.Value); err == nil && d == 0 {
+				return fmt.Errorf("line %d: files.%s must be greater than 0", v.Line, k)
+			}
+		}
+	}
+	return nil
+}
+
+// lookupKey follows mapping keys from n (through YAML aliases), or returns nil.
 func lookupKey(n *yaml.Node, keys ...string) *yaml.Node {
+	deref := func(n *yaml.Node) *yaml.Node {
+		if n != nil && n.Kind == yaml.AliasNode {
+			return n.Alias
+		}
+		return n
+	}
+	n = deref(n)
 	for _, k := range keys {
 		if n == nil || n.Kind != yaml.MappingNode {
 			return nil
@@ -293,7 +337,7 @@ func lookupKey(n *yaml.Node, keys ...string) *yaml.Node {
 				next = kv[1]
 			}
 		}
-		n = next
+		n = deref(next)
 	}
 	return n
 }
@@ -383,15 +427,19 @@ var (
 
 // validAllowedHost accepts what url.Hostname() can return for an http(s) URL:
 // a lowercase DNS name (localhost included), an IP, or "*.name" with at least
-// two labels so "*.com" cannot happen by accident.
+// two labels so "*.com" cannot happen by accident. A name whose last label
+// starts with a digit is refused: no TLD does, and "*.0.0.1" or "1.2.3" would
+// be IPv4 in disguise ("127.0.0.1" matching a pattern).
 func validAllowedHost(h string) bool {
 	if net.ParseIP(h) != nil {
 		return true
 	}
-	if suffix, ok := strings.CutPrefix(h, "*."); ok {
-		return strings.Contains(suffix, ".") && hostLabelsRe.MatchString(suffix)
+	name, wild := strings.CutPrefix(h, "*.")
+	if wild && !strings.Contains(name, ".") {
+		return false
 	}
-	return hostLabelsRe.MatchString(h)
+	last := name[strings.LastIndexByte(name, '.')+1:]
+	return hostLabelsRe.MatchString(name) && last[0] > '9'
 }
 
 // Render substitutes {{var}} placeholders; unknown names are left as written.

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func env(m map[string]string) func(string) (string, bool) {
@@ -427,7 +429,26 @@ func TestFilesValidation(t *testing.T) {
 		"max_bytes text":       {"{" + ok + ", max_bytes: lots}", "invalid size"},
 		"max_bytes float":      {"{" + ok + ", max_bytes: 1e3}", "invalid size"},
 		"max_bytes overflow":   {"{" + ok + ", max_bytes: 9999999999GB}", "invalid size"},
-		"max_count negative":   {"{" + ok + ", max_count: -1}", "files.max_count must be greater than 0"},
+		"max_count negative":   {"{" + ok + ", max_count: -1}", "files.max_count must be a whole number greater than 0"},
+		"max_count zero":       {"{" + ok + ", max_count: 0}", "files.max_count must be a whole number greater than 0"},
+		"max_count float":      {"{" + ok + ", max_count: 1.5}", "files.max_count must be a whole number greater than 0"},
+		"max_count exp":        {"{" + ok + ", max_count: 1e3}", "files.max_count must be a whole number greater than 0"},
+		"max_count text":       {"{" + ok + ", max_count: many}", "files.max_count must be a whole number greater than 0"},
+		"max_count zero env":   {"{" + ok + ", max_count: \"${ZERO}\"}", "files.max_count must be a whole number greater than 0"},
+		"max_bytes zero":       {"{" + ok + ", max_bytes: 0}", "files.max_bytes must be greater than 0"},
+		"max_bytes zero unit":  {"{" + ok + ", max_bytes: 0MB}", "files.max_bytes must be greater than 0"},
+		"max_bytes MiB":        {"{" + ok + ", max_bytes: 10MiB}", "invalid size"},
+		"max_bytes decimal":    {"{" + ok + ", max_bytes: 1.5MB}", "invalid size"},
+		"upload_ttl zero":      {"{" + ok + ", upload_ttl: 0s}", "files.upload_ttl must be greater than 0"},
+		"upload_ttl bare 0":    {"{" + ok + ", upload_ttl: 0}", "files.upload_ttl must be greater than 0"},
+		"download_ttl zero":    {"{" + ok + ", download_ttl: 0d}", "files.download_ttl must be greater than 0"},
+		"dsn null tilde":       {"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: ~}", "files.dsn is empty"},
+		"dsn null word":        {"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: null}", "files.dsn is empty"},
+		"host wildcard ipv4":   {"{types: [image/png], allowed_hosts: [\"*.0.0.1\"]}", "files.allowed_hosts"},
+		"host numeric name":    {"{types: [image/png], allowed_hosts: [1.2.3]}", "files.allowed_hosts"},
+		"host numeric wild":    {"{types: [image/png], allowed_hosts: [\"*.1.2.3\"]}", "files.allowed_hosts"},
+		"host numeric tld":     {"{types: [image/png], allowed_hosts: [cdn.example.123]}", "files.allowed_hosts"},
+		"host hex last label":  {"{types: [image/png], allowed_hosts: [127.0.0.0x1]}", "files.allowed_hosts"},
 		"ttl negative":         {"{" + ok + ", upload_ttl: -5m}", "files.upload_ttl"},
 		"ttl too long":         {"{" + ok + ", upload_ttl: 2h}", "files.upload_ttl"},
 		"ttl days":             {"{" + ok + ", download_ttl: 30d}", "files.download_ttl"},
@@ -442,7 +463,7 @@ func TestFilesValidation(t *testing.T) {
 		"dsn unset env":        {"{types: [image/png], dsn: \"${NOPE}\"}", "NOPE"},
 		"public_url empty env": {"{" + ok + ", public_url: \"${EMPTY}\"}", ""},
 	} {
-		_, err := Parse([]byte(filesBase+"files: "+tc.files+"\n"), env(map[string]string{"EMPTY": ""}))
+		_, err := Parse([]byte(filesBase+"files: "+tc.files+"\n"), env(map[string]string{"EMPTY": "", "ZERO": "0"}))
 		switch {
 		case name == "public_url empty env":
 			if err != nil {
@@ -456,6 +477,7 @@ func TestFilesValidation(t *testing.T) {
 		"null":           "null",
 		"bare":           "",
 		"unset env host": "{types: [image/png], allowed_hosts: [\"${H:-cdn.x.com}\"]}",
+		"host digits ok": "{types: [image/png], allowed_hosts: [v1.example.com, \"*.cdn2.example.com\", a1.b2]}",
 		"s3":             "{types: [image/png], dsn: \"s3://b?region=eu-west-1\"}",
 		"hosts":          "{types: [image/png, application/pdf, image/svg+xml], allowed_hosts: [localhost, 127.0.0.1, \"::1\", xn--bcher-kva.de, cdn.example.com, \"*.s3.amazonaws.com\"]}",
 		"size forms":     "{" + ok + ", max_bytes: \"5 mb\"}",
@@ -475,9 +497,26 @@ func TestFilesValidation(t *testing.T) {
 	if _, err := Parse([]byte(filesBase+"Files: {"+ok+"}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), `unknown key "Files"`) {
 		t.Errorf("Files: %v", err)
 	}
-	// 0 means unset (the default), as it always did.
-	if c, err := Parse([]byte(filesBase+"files: {"+ok+", max_bytes: 0, max_count: 0}\n"), env(nil)); err != nil || c.Files.MaxBytes != 10<<20 || c.Files.MaxCount != 10 {
-		t.Errorf("zero means default: %v %+v", err, c.Files)
+	// Absent (or null) is the default; only an explicit zero is refused.
+	if c, err := Parse([]byte(filesBase+"files: {"+ok+", max_bytes: ~, max_count: , upload_ttl: null}\n"), env(nil)); err != nil || c.Files.MaxBytes != 10<<20 || c.Files.MaxCount != 10 || c.Files.UploadTTL.D() != 5*time.Minute {
+		t.Errorf("null limits mean default: %v %+v", err, c.Files)
+	}
+	// A value that reaches the node check through a YAML alias is still checked.
+	const aliased = "server: {secret: s, listen: &z \"\"}\nqueue: {workers: &zero 0}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\nagents: {main: {model: p/m, settings: {context_window: 1}}}\n"
+	for set, want := range map[string]string{
+		"{types: [image/png], allowed_hosts: [cdn.x.com], dsn: *z}": "files.dsn is empty",
+		"{" + ok + ", max_count: *zero}":                            "files.max_count must be a whole number greater than 0",
+	} {
+		if _, err := Parse([]byte(aliased+"files: "+set+"\n"), env(nil)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("alias %s: want %q, got %v", set, want, err)
+		}
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte("x: &f {dsn: ''}\nfiles: *f\n"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if v := lookupKey(doc.Content[0], "files", "dsn"); v == nil || v.Value != "" {
+		t.Errorf("lookupKey must follow an aliased files block: %v", v)
 	}
 }
 
@@ -485,7 +524,7 @@ func TestFilesValidation(t *testing.T) {
 // shape or value, and an old key beats a mistake in the new block.
 func TestRemovedAttachmentsAndFilesystemKeys(t *testing.T) {
 	const (
-		att = "attachments was removed in v2; merge it into files: allowed_hosts, types and max_count move there (max_bytes never limited anything, so it is dropped)"
+		att = "attachments was removed in v2; merge it into files: allowed_hosts, types and max_count move there (attachments.max_bytes capped uploads only when filesystem.max_bytes was unset: set files.max_bytes to keep that limit)"
 		fsm = "filesystem was removed in v2; merge it into files: dsn, public_url, types, max_bytes, upload_ttl and download_ttl move there unchanged"
 	)
 	if _, err := Parse([]byte(filesBase), env(nil)); err != nil {

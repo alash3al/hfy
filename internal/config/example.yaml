@@ -55,12 +55,12 @@ providers:                           # OpenAI-compatible: URL + key + idle timeo
 
 # files:                             # optional; omit = no attachments at all
 #   types: [image/png, image/jpeg, application/pdf]  # required; lowercase MIME, for URLs and uploads
-#   max_count: 10                    # default; per message, URLs and files together
+#   max_count: 10                    # default; a whole number > 0; per message, URLs and files together
 #   max_bytes: 10MB                  # default; largest uploaded file (hfy never fetches URLs)
 #   allowed_hosts: [cdn.example.com, "*.s3.amazonaws.com"]  # set = URL attachments allowed
 #   dsn: s3://hfy-uploads?region=eu-central-1  # set = uploads on; region= is required for s3
-#   # dsn: file:///var/lib/hfy/files # alternative; requires public_url below
-#   public_url: https://hfy.example.com        # http(s) base of hfy-served file URLs; required for file://
+#   # dsn: file:///var/lib/hfy/files # alternative; set public_url below too
+#   public_url: https://hfy.example.com        # file:// only: where providers fetch stored images; unset = placeholders (startup warns)
 #   upload_ttl: 5m                   # default, at most 1h; slots are deleted after this + 1h
 #   download_ttl: 15m                # default, at most 24h; download signature lifetime
 

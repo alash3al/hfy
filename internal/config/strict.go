@@ -16,7 +16,7 @@ var removedKeys = map[string]string{
 	"config.embeddings": "embeddings was removed in v2; expose memory as an MCP tool",
 	"config.agent":      "agent was removed in v2; move it to agents.main",
 	"config.attachments": "attachments was removed in v2; merge it into files: allowed_hosts, types and max_count move there " +
-		"(max_bytes never limited anything, so it is dropped)",
+		"(attachments.max_bytes capped uploads only when filesystem.max_bytes was unset: set files.max_bytes to keep that limit)",
 	"config.filesystem": "filesystem was removed in v2; merge it into files: dsn, public_url, types, max_bytes, upload_ttl and " +
 		"download_ttl move there unchanged",
 }
