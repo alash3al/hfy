@@ -427,6 +427,82 @@ API base, actor, agent, vars) are never configurable from the client.
 A `configure` bridge message `{"v":1,"type":"configure", …}` may carry any of the
 `embed:` keys above, plus `strings` (an object overriding UI strings).
 
+#### The `--hfy-*` tokens
+
+The supported way to restyle the widget is to override these CSS custom
+properties (and nothing else) from `embed.custom_css`. They are set on
+`<html>`; a test (`TestTokenContract`) fails when a row here has no definition
+in the stylesheets, or when a `--hfy-*` property the stylesheets define or use
+is neither listed here nor one of the two internal ones. Each is defined for
+light and dark; `Layout` says where: `all` is `ui.css`, a layout name is that
+layout's sheet.
+
+| Token | Layout | What it sets |
+|---|---|---|
+| `--hfy-accent` | all | brand colour: send button, links, focus, approvals. The UI writes it inline from `embed.accent` (see below) |
+| `--hfy-on-accent` | all | text and icons on an accent fill, picked for contrast. Written inline like the accent |
+| `--hfy-bg` | all | widget background |
+| `--hfy-surface` | all | bubbles, cards, sheets |
+| `--hfy-surface-2` | all | code blocks, hover fills |
+| `--hfy-surface-3` | all | dividers, avatars, scrollbars |
+| `--hfy-border` | all | borders |
+| `--hfy-text` | all | body text |
+| `--hfy-muted` | all | secondary text: timestamps, hints |
+| `--hfy-accent-soft` | all | tinted fill behind accent items |
+| `--hfy-accent-text` | all | links and accent-coloured text (contrast-safe) |
+| `--hfy-ring` | all | focus ring |
+| `--hfy-own` | all | the viewer's own bubbles |
+| `--hfy-wall` | all | message area background |
+| `--hfy-wall-dot` | all | the wallpaper dots on it |
+| `--hfy-ok`, `--hfy-ok-soft` | all | success text and its tinted fill |
+| `--hfy-err`, `--hfy-err-soft` | all | error text and its tinted fill |
+| `--hfy-warn`, `--hfy-warn-soft` | all | warning text and its tinted fill |
+| `--hfy-tick-read` | all | the read tick |
+| `--hfy-scrim` | all | the overlay behind sheets and dialogs |
+| `--hfy-shadow-1` | all | shadow of bubbles and chips |
+| `--hfy-shadow-2` | all | shadow of sheets, menus and floating pills |
+| `--hfy-fs`, `--hfy-lh` | all | base font size and line height |
+| `--hfy-gap` | all | space between groups of messages |
+| `--hfy-gap-tight` | all | space between consecutive messages of one sender |
+| `--hfy-pad-y`, `--hfy-pad-x` | all | bubble padding |
+| `--hfy-avatar` | all | avatar size |
+| `--hfy-max` | all | widest the conversation column gets |
+| `--hfy-foot-w` | all | room a bubble keeps for its time and ticks |
+| `--hfy-gutter` | all | side margin of the conversation column |
+| `--hfy-sheet-gutter` | all | side margin of sheets and menus |
+| `--hfy-font`, `--hfy-mono` | all | text and code font stacks |
+| `--hfy-wa-wall` | whatsapp | wallpaper colour |
+| `--hfy-wa-dot` | whatsapp | wallpaper dots |
+| `--hfy-wa-out` | whatsapp | the viewer's bubbles (derived from the accent when `accent` is set) |
+| `--hfy-wa-in` | whatsapp | incoming bubbles |
+| `--hfy-wa-text`, `--hfy-wa-muted` | whatsapp | text and secondary text |
+| `--hfy-wa-read` | whatsapp | the read tick |
+| `--hfy-wa-bar` | whatsapp | header and composer bar |
+| `--hfy-wa-pill` | whatsapp | the composer's input pill |
+| `--hfy-wa-line` | whatsapp | borders and dividers |
+| `--hfy-wa-inset` | whatsapp | inset fills |
+| `--hfy-wa-send` | whatsapp | the accent while none is set |
+
+The `whatsapp` layout derives the general colours from its own tokens
+(`--hfy-own` is `--hfy-wa-out`, `--hfy-surface` is `--hfy-wa-in`, and so on), so
+override either; the layout's dark values are set at a higher specificity,
+which "Custom CSS" below shows how to beat. Layout tokens do nothing in other layouts.
+
+Hooks on `<html>`, for selectors that depend on the current look:
+
+| Attribute | Values |
+|---|---|
+| `data-theme` | `light` or `dark`: always the resolved theme, never `auto` |
+| `data-density` | `comfortable`, `compact` or `spacious` |
+| `data-layout` | `bubbles`, `transcript` or `whatsapp` |
+| `data-accent-set` | present in `whatsapp` only, when an accent was set |
+| `dir`, `lang` | the resolved direction and language |
+
+Everything else is unsupported and may change in any release: every `.hfy-*`
+class name, the DOM structure, and the properties `--s1`..`--s6`, `--r1`..`--r4`,
+`--bub*`, `--hfy-p` and `--hfy-sheet-pad`. A rule written against them can break
+on upgrade, and nothing here promises otherwise.
+
 ### Operations
 
 - `GET /healthz` liveness: the process answers (never checks dependencies).
@@ -976,6 +1052,7 @@ survive many contributors, so prefer adding a check to adding a sentence.
 | **No silent failure.** Errors are returned, or logged with conversation and turn when nothing can act on them. | `errcheck`; review |
 | **Current Go.** `slices`/`maps`, range-over-int, `new(expr)`, `t.Context()`, generic methods. | `modernize` |
 | **Every `//nolint` names its linter and says why.** | `nolintlint` |
+| **The restyling surface is the documented `--hfy-*` tokens.** Every token in the reference exists in the stylesheets, and every `--hfy-*` property they define or use is documented or one of two internal ones. | `TestTokenContract` |
 
 ### Design notes
 
