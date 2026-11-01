@@ -658,6 +658,9 @@ docker run -d -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hf
 golangci-lint run ./... && go test -race ./...   # exactly what CI runs
 ```
 
+`make check` runs the whole CI gate (`go mod tidy -diff`, lint, then the tests
+with `HFY_TEST_REQUIRE_DB=1`); `make db` starts the test database.
+
 Tests need a Postgres (`HFY_TEST_DB` overrides
 `postgres://postgres:hfy@127.0.0.1:54330/hfy`); each test gets its own
 database. Locally they skip without one; CI sets `HFY_TEST_REQUIRE_DB=1` so a
