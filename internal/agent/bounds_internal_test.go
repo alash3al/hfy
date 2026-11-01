@@ -705,9 +705,8 @@ func TestReplayClampsOversizeArguments(t *testing.T) {
 		data, _ := json.Marshal(types.ToolCall{Name: "hfy.now", CallID: id, Arguments: json.RawMessage(args)})
 		return db.EventRow{Type: types.EventToolCall, V: 1, Data: data, ActorType: string(types.ActorAgent), ActorRef: "helper"}
 	}
-	rt := &Runtime{}
-	msgs, err := rt.messagesFrom(context.Background(), []db.EventRow{
-		call("huge", huge), call("fits", fits), call("text", string(garbage))}, 0, &Spec{Name: "helper"}, false)
+	msgs, err := messagesFrom([]db.EventRow{
+		call("huge", huge), call("fits", fits), call("text", string(garbage))}, 0, &Spec{Name: "helper"}, false, nil)
 	if err != nil || len(msgs) == 0 {
 		t.Fatalf("messages: %v %v", msgs, err)
 	}
@@ -758,7 +757,7 @@ func TestDanglingCallsKeepTheirOrder(t *testing.T) {
 			ActorType: string(types.ActorAgent), ActorRef: "helper"})
 	}
 	build := func() string {
-		msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+		msgs, err := messagesFrom(events, 0, &Spec{Name: "helper"}, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -817,7 +816,7 @@ func TestReusedCallIDIsAnsweredAtItsLastUse(t *testing.T) {
 	events := []db.EventRow{callEvent("x"), resultEvent("x"), callEvent("y"), callEvent("x")}
 	var want string
 	for range 50 {
-		msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+		msgs, err := messagesFrom(events, 0, &Spec{Name: "helper"}, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -837,7 +836,7 @@ func TestReusedCallIDIsAnsweredAtItsLastUse(t *testing.T) {
 func TestDanglingCallOfAnEarlierTurnIsAnsweredInPlace(t *testing.T) {
 	events := []db.EventRow{userEvent("one"), callEvent("a"), callEvent("b"), resultEvent("a"),
 		userEvent("two"), callEvent("c"), userEvent("three")}
-	msgs, err := (&Runtime{}).messagesFrom(context.Background(), events, 0, &Spec{Name: "helper"}, false)
+	msgs, err := messagesFrom(events, 0, &Spec{Name: "helper"}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

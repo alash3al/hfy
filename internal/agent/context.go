@@ -15,8 +15,9 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// buildContext = the latest summary + the durable events of the turns after
-// the ones it covers, up to and including the current turn. One query.
+// buildContext loads what a prompt is made of (the latest summary and the
+// durable events of the turns after the ones it covers: one query) and hands
+// it to buildPrompt.
 func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn int64, spec *Spec) (system string, msgs []provider.Message, err error) {
 	summary, after, err := rt.summaryStart(ctx, conversationID)
 	if err != nil {
@@ -26,9 +27,29 @@ func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn
 	if err != nil {
 		return "", nil, err
 	}
+	return buildPrompt(promptInput{Events: events, Summary: summary, Current: currentTurn, Spec: spec,
+		Sign: func(key string) string { return rt.downloadURL(ctx, key) }})
+}
+
+// promptInput is everything a prompt is made of.
+type promptInput struct {
+	Events  []db.EventRow // loaded by LoadContext: grouped by turn, in event order
+	Summary *types.Summary
+	Current int64 // the running turn's id
+	Spec    *Spec
+	// Sign returns a provider-reachable URL for a stored file ("" for none).
+	// It is only asked for an image that is actually sent.
+	Sign func(key string) string
+}
+
+// buildPrompt is the one place a prompt is assembled: the system text
+// (template, room rules, summary) and the messages. It is pure: the same
+// input gives the same bytes, so provider caches hold and context:show shows
+// what a turn would send.
+func buildPrompt(in promptInput) (system string, msgs []provider.Message, err error) {
 	var vars map[string]string
-	for _, e := range events {
-		if e.Type == types.EventTurn && e.ID == currentTurn {
+	for _, e := range in.Events {
+		if e.Type == types.EventTurn && e.ID == in.Current {
 			t, err := e.Payload[types.Turn]()
 			if err != nil {
 				return "", nil, err
@@ -36,19 +57,19 @@ func (rt *Runtime) buildContext(ctx context.Context, conversationID, currentTurn
 			vars = t.Vars
 		}
 	}
-	room := inRoom(events, spec.Name)
-	system = config.Render(spec.System, vars)
+	room := inRoom(in.Events, in.Spec.Name)
+	system = config.Render(in.Spec.System, vars)
 	if room {
 		system += "\n\n" + strings.TrimSpace(promptRoom)
 	}
-	if summary != nil {
-		text := summary.Text
+	if in.Summary != nil {
+		text := in.Summary.Text
 		if room { // tag-like text in it must not read as a message
 			text = escText.Replace(text)
 		}
 		system += "\n\nSummary of the earlier conversation:\n" + text
 	}
-	msgs, err = rt.messagesFrom(ctx, events, currentTurn, spec, room)
+	msgs, err = messagesFrom(in.Events, in.Current, in.Spec, room, in.Sign)
 	return system, msgs, err
 }
 
@@ -75,7 +96,7 @@ func (rt *Runtime) summaryStart(ctx context.Context, conversationID int64) (*typ
 // model. The agent's own words and calls are its assistant turns; everyone
 // else's words are user turns, framed with who said them when room is set
 // (see inRoom). Other agents' tool calls are theirs and stay out.
-func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, currentTurn int64, spec *Spec, room bool) ([]provider.Message, error) {
+func messagesFrom(events []db.EventRow, currentTurn int64, spec *Spec, room bool, sign func(string) string) ([]provider.Message, error) {
 	var out []provider.Message
 	var asst *provider.Message
 	pending := map[string]bool{}
@@ -104,7 +125,7 @@ func (rt *Runtime) messagesFrom(ctx context.Context, events []db.EventRow, curre
 				asst = &provider.Message{Role: "assistant", Content: m.Text}
 				continue
 			}
-			msg := rt.userMessage(ctx, m, e.TurnID() == currentTurn, spec)
+			msg := userMessage(m, e.TurnID() == currentTurn, spec, sign)
 			if room {
 				msg = framed(msg, e)
 			}
@@ -256,7 +277,7 @@ func appendUser(out []provider.Message, m provider.Message) []provider.Message {
 // Only an image that is actually sent gets a signed URL: a stored file is
 // otherwise named by its key, and signatures must not land in prompts,
 // traces or summaries.
-func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current bool, spec *Spec) provider.Message {
+func userMessage(m types.MessageText, current bool, spec *Spec, sign func(string) string) provider.Message {
 	text := m.Text
 	if len(m.Attachments) == 0 {
 		return provider.Message{Role: "user", Content: text}
@@ -268,7 +289,10 @@ func (rt *Runtime) userMessage(ctx context.Context, m types.MessageText, current
 		if isImage && current && spec.Settings.Vision { // sign only what will be sent
 			url = a.URL
 			if a.File != "" {
-				url = rt.downloadURL(ctx, a.File)
+				url = ""
+				if sign != nil {
+					url = sign(a.File)
+				}
 			}
 		}
 		switch {

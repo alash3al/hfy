@@ -77,14 +77,15 @@ func TestUserMessageSignsOnlyWhatItSends(t *testing.T) {
 		{File: "conversations/c/a.pdf", Mime: "application/pdf"},
 	}}
 	spec := &Spec{Settings: config.Settings{Vision: true}}
+	sign := func(key string) string { return rt.downloadURL(ctx, key) }
 
-	later := rt.userMessage(ctx, m, false, spec)
+	later := userMessage(m, false, spec, sign)
 	if len(later.Parts) != 0 || strings.Contains(later.Content, "sig=") ||
 		strings.Contains(later.Content, "https://") || !strings.Contains(later.Content, "[image: image/png]") {
 		t.Fatalf("a later turn must use placeholders only: %+v", later)
 	}
 
-	now := rt.userMessage(ctx, m, true, spec)
+	now := userMessage(m, true, spec, sign)
 	if len(now.Parts) != 2 || now.Parts[1].ImageURL == nil {
 		t.Fatalf("the current turn must send the image: %+v", now)
 	}
@@ -97,7 +98,7 @@ func TestUserMessageSignsOnlyWhatItSends(t *testing.T) {
 		t.Fatalf("the pdf must stay key-named and unsigned: %q", text)
 	}
 
-	blind := rt.userMessage(ctx, m, true, &Spec{})
+	blind := userMessage(m, true, &Spec{}, sign)
 	if strings.Contains(blind.Content, "sig=") || strings.Contains(blind.Content, "https://") {
 		t.Fatalf("no vision, no signing: %+v", blind)
 	}

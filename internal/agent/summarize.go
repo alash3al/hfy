@@ -160,7 +160,7 @@ func (rt *Runtime) transcriptOf(ctx context.Context, events []db.EventRow) (stri
 			if err != nil {
 				return "", err
 			}
-			b.WriteString(frame(e, "message", rt.userMessage(ctx, m, false, rt.summ).Content) + "\n")
+			b.WriteString(frame(e, "message", userMessage(m, false, rt.summ, nil).Content) + "\n")
 		case types.EventToolCall:
 			c, err := e.Payload[types.ToolCall]()
 			if err != nil {
