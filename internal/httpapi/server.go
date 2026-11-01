@@ -32,14 +32,21 @@ type Server struct {
 	svc     *svc.Service
 	hub     *Hub
 	bucket  *blob.Bucket // filesystem storage; nil = uploads disabled
+	assets  *assets
+	page    embedPage
 	handler http.Handler
 }
 
-// EnableFilesystem turns on filesystem uploads backed by b.
+// EnableFilesystem turns on filesystem uploads backed by b. Call it before the
+// first request: the embed page is built once, from this setting.
 func (s *Server) EnableFilesystem(b *blob.Bucket) { s.bucket = b }
 
 func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server {
-	srv := &Server{cfg: cfg, store: store, svc: s, hub: hub}
+	a, err := embeddedAssets()
+	if err != nil {
+		panic(err) // the embedded tree is fixed at build time: a failure here is a bug in the binary
+	}
+	srv := &Server{cfg: cfg, store: store, svc: s, hub: hub, assets: a}
 	mux := http.NewServeMux()
 	// route serves pattern and answers its path's other methods: OPTIONS (a
 	// client route's CORS preflight) with 204, the rest with 405.
@@ -61,10 +68,7 @@ func New(cfg *config.Config, store *db.Store, s *svc.Service, hub *Hub) *Server 
 	route("GET /readyz", Readyz(store))
 
 	route("GET /embed", http.HandlerFunc(srv.serveEmbed))
-	route("GET /embed/client.js", serveEmbedAsset("client.js", "text/javascript"))
-	route("GET /embed/ui.js", serveEmbedAsset("ui.js", "text/javascript"))
-	route("GET /embed/ui.css", serveEmbedAsset("ui.css", "text/css"))
-	route("GET /embed/alpine.min.js", serveEmbedAsset("alpine.min.js", "text/javascript"))
+	route("GET /embed/{name...}", http.HandlerFunc(srv.serveEmbedAsset))
 
 	route("POST /v1/conversations", srv.requireSecret(srv.createConversation))
 	route("POST /v1/grants", srv.requireSecret(srv.createGrant))
