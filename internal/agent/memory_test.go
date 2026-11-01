@@ -65,6 +65,33 @@ func TestSummarizerFoldsOldTurns(t *testing.T) {
 	}
 }
 
+// Compaction leaves max_output_tokens its room: with 350 of 1000 reserved the
+// threshold is 80% of 650 = 520 tokens. Turn 2's prompt (about 410) is under it,
+// turn 3's (about 610) over, so the summary comes at turn 3, not earlier and
+// not never. Without the reserve the threshold is 800 and turn 3 would not compact.
+func TestCompactionReservesOutput(t *testing.T) {
+	long := strings.Repeat("word ", 160)
+	e := setup(t, func(c *config.Config) {
+		c.Main().Settings.ContextWindow = 1000
+		c.Main().Settings.MaxOutputTokens = 350
+		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 4000}, KeepRecent: 1}
+	},
+		fakeprov.Step{Content: "reply one"},
+		fakeprov.Step{Content: "reply two"},
+		fakeprov.Step{Content: "THE SUMMARY"},
+		fakeprov.Step{Content: "reply three"},
+	)
+	t1 := e.post("first " + long)
+	e.waitState(t1, types.StateCompleted)
+	t2 := e.post("second " + long)
+	e.waitState(t2, types.StateCompleted)
+	t3 := e.post("third " + long)
+	e.waitState(t3, types.StateCompleted)
+	if sm := e.find(t3, types.EventSummary); len(sm) != 1 || sm[0]["text"] != "THE SUMMARY" {
+		t.Fatalf("summary events: %v\n%s", sm, e.dump(t3))
+	}
+}
+
 // A summarizer that fails (a request it rejects, a retired model) costs the
 // turn its compaction, not its answer: the turn goes on uncompacted, without
 // a second try, and later turns still run.

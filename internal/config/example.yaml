@@ -73,7 +73,7 @@ agents:                              # required; "main" is the default agent
       context_window: 8192
       vision: false
       # reasoning_effort: low          # none | minimal | low | medium | high | xhigh | max
-      # max_output_tokens: 4096        # caps each call's output, reasoning included
+      # max_output_tokens: 4096        # caps each call's output, reasoning included; below context_window
       # call_timeout: 90s              # the whole call, retries included (timeout above is the silence)
       # extra:                         # merged into the request body; never model, messages, tools, stream, stream_options or n
       #   cache_control: { type: ephemeral }   # OpenRouter: prompt caching (Anthropic models); its reasoning object goes here, not with reasoning_effort

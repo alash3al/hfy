@@ -14,13 +14,14 @@ import (
 	"github.com/alash3al/hfy/internal/types"
 )
 
-// compactAt is the share of context_window (the model's real window) at
-// which history is summarized: the rest is room for the reply and the tool
-// results of the step, so a request never overflows before compaction.
+// compactAt is the share of the prompt room, context_window less
+// max_output_tokens (the reply's room), at which history is summarized: the
+// rest is headroom for the tool results of the step, so a request never
+// overflows before compaction.
 const compactAt = 0.8
 
 // summarizeHook triggers summarization before a model request once the
-// prompt reached compactAt of the agent's context_window, or when force is
+// prompt reached compactAt of the agent's prompt room, or when force is
 // set (a prompt over the byte cap), then rebuilds the loop's context. A failed
 // summary costs the turn its compaction, not its answer: it is logged, the
 // step goes on in the headroom compactAt leaves, and the turn does not try
@@ -31,7 +32,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop, bool
 	}
 	failed := false
 	return func(ctx context.Context, l *loop, force bool) error {
-		if failed || (!force && float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow)) {
+		if failed || (!force && float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow-l.spec.Settings.MaxOutputTokens)) {
 			return nil
 		}
 		changed, err := rt.summarize(ctx, env)

@@ -672,6 +672,13 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	// checkWindow keeps max_output_tokens below context_window in the settings
+	// at where. A block with no window (sub-agents need none) is not compared.
+	checkWindow := func(where string, s Settings) {
+		if s.MaxOutputTokens > 0 && s.ContextWindow > 0 && s.MaxOutputTokens >= s.ContextWindow {
+			bad("%s.settings: max_output_tokens (%d) must be smaller than context_window (%d)", where, s.MaxOutputTokens, s.ContextWindow)
+		}
+	}
 
 	if _, taken := c.MCP[BuiltinServer]; taken {
 		bad("mcp.%s: the name is reserved for hfy's built-in tools", BuiltinServer)
@@ -774,6 +781,7 @@ func (c *Config) Validate() error {
 		}
 		checkModel(where, a.Model)
 		checkControls(where, a.Settings)
+		checkWindow(where, a.Settings)
 		if a.Settings.ContextWindow < 1 {
 			bad("%s.settings.context_window is required", where)
 		}
@@ -819,6 +827,7 @@ func (c *Config) Validate() error {
 		}
 		checkModel(where, s.Model)
 		checkControls(where, s.Settings)
+		checkWindow(where, s.Settings)
 		checkMCP(where, s.MCP)
 		if strings.Contains(s.System, "{{") {
 			bad("%s.system: sub-agents receive no vars, so {{...}} is not allowed", where)
@@ -828,6 +837,7 @@ func (c *Config) Validate() error {
 	if s := c.Summarizer; s != nil {
 		checkModel("summarizer", s.Model)
 		checkControls("summarizer", s.Settings)
+		checkWindow("summarizer", s.Settings)
 		if s.Settings.ContextWindow < 1 {
 			bad("summarizer.settings.context_window is required")
 		}

@@ -663,7 +663,7 @@ func TestMCPServerUI(t *testing.T) {
 // with an error naming the agent and the key.
 func TestModelRequestControls(t *testing.T) {
 	base := "server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x}}\n"
-	c, err := Parse([]byte(base+"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: none, max_output_tokens: 512, call_timeout: 30s, extra: {cache_control: {type: ephemeral}, reasoning: {effort: high}}}}}\n"), env(nil))
+	c, err := Parse([]byte(base+"agents: {main: {model: p/m, settings: {context_window: 1024, reasoning_effort: none, max_output_tokens: 512, call_timeout: 30s, extra: {cache_control: {type: ephemeral}, reasoning: {effort: high}}}}}\n"), env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,9 +702,9 @@ func TestModelRequestControls(t *testing.T) {
 		"subagents: {r: {description: d, model: p/m, settings: {extra: {model: x}}}}":                                                                  "subagents.r.settings.extra.model is set by hfy",
 		"summarizer: {model: p/m, settings: {context_window: 1, extra: {messages: []}}}":                                                               "summarizer.settings.extra.messages is set by hfy",
 		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {reasoning_effort: high}}}}":                          "agents.main.settings.extra.reasoning_effort clashes with settings.reasoning_effort",
-		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}}":                         "agents.main.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
-		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {max_tokens: 5}}}}":                                    "agents.main.settings.extra.max_tokens clashes with settings.max_output_tokens",
-		"agents: {main: {model: p/m, settings: {context_window: 1, max_output_tokens: 9, extra: {MAX_TOKENS: 5}}}}":                                    "agents.main.settings.extra.MAX_TOKENS clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 10, max_output_tokens: 9, extra: {max_completion_tokens: 5}}}}":                        "agents.main.settings.extra.max_completion_tokens clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 10, max_output_tokens: 9, extra: {max_tokens: 5}}}}":                                   "agents.main.settings.extra.max_tokens clashes with settings.max_output_tokens",
+		"agents: {main: {model: p/m, settings: {context_window: 10, max_output_tokens: 9, extra: {MAX_TOKENS: 5}}}}":                                   "agents.main.settings.extra.MAX_TOKENS clashes with settings.max_output_tokens",
 		"agents: {main: {model: p/m, settings: {context_window: 1, reasoning_effort: low, extra: {Reasoning_Effort: high}}}}":                          "agents.main.settings.extra.Reasoning_Effort clashes with settings.reasoning_effort",
 		"agents: {main: {model: p/m, settings: {context_window: 1, temperature: 0.2, extra: {temperature: 0.5}}}}":                                     "agents.main.settings.extra.temperature clashes with settings.temperature",
 		"agents: {main: {model: p/m, settings: {context_window: 1}}, x: {model: p/m, settings: {context_window: 1, top_p: 0.9, extra: {top_p: 0.5}}}}": "agents.x.settings.extra.top_p clashes with settings.top_p",
@@ -724,6 +724,50 @@ func TestModelRequestControls(t *testing.T) {
 	if _, err := Parse([]byte("server: {secret: s}\ndatabase: {url: u}\nproviders: {p: {url: http://x, max_tokens_param: tokens}}\n"+
 		"agents: {main: {model: p/m, settings: {context_window: 1}}}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "providers.p.max_tokens_param must be") {
 		t.Errorf("bad max_tokens_param: %v", err)
+	}
+}
+
+// max_output_tokens must stay below context_window wherever both are set. Each
+// block is checked on its own, and the error names it and both values. The
+// want is the whole error, so a block that also gets the old clash error, or
+// no error, fails the case.
+func TestMaxOutputTokensBelowContextWindow(t *testing.T) {
+	const main = "agents: {main: {model: p/m, settings: {context_window: 100}}}\n"
+	agent := func(settings string) string {
+		return agentsBase + "agents: {main: {model: p/m, settings: {context_window: 100}}, x: {model: p/m, settings: {" + settings + "}}}\n"
+	}
+	cases := map[string]struct{ yaml, want string }{
+		"agent equal":            {agent("context_window: 100, max_output_tokens: 100"), "agents.x.settings: max_output_tokens (100) must be smaller than context_window (100)"},
+		"agent greater":          {agent("context_window: 100, max_output_tokens: 101"), "agents.x.settings: max_output_tokens (101) must be smaller than context_window (100)"},
+		"agent smaller":          {agent("context_window: 100, max_output_tokens: 99"), ""},
+		"agent unset":            {agent("context_window: 100"), ""},
+		"agent zero":             {agent("context_window: 100, max_output_tokens: 0"), ""},
+		"agent negative":         {agent("context_window: 100, max_output_tokens: -1"), "agents.x.settings.max_output_tokens must be greater than 0 (omit it for no cap)"},
+		"agent huge":             {agent("context_window: 100, max_output_tokens: 9223372036854775807"), "agents.x.settings: max_output_tokens (9223372036854775807) must be smaller than context_window (100)"},
+		"agent huge, both":       {agent("context_window: 9223372036854775807, max_output_tokens: 9223372036854775806"), ""},
+		"agent no window":        {agent("max_output_tokens: 100"), "agents.x.settings.context_window is required"},
+		"agent extra max_tokens": {agent("context_window: 100, extra: {max_tokens: 5000}"), ""},
+		"agent extra clash":      {agent("context_window: 100, max_output_tokens: 50, extra: {max_tokens: 5000}"), "agents.x.settings.extra.max_tokens clashes with settings.max_output_tokens: set it there, not in extra"},
+		"subagent equal":         {agentsBase + main + "subagents: {r: {description: d, model: p/m, settings: {context_window: 100, max_output_tokens: 100}}}\n", "subagents.r.settings: max_output_tokens (100) must be smaller than context_window (100)"},
+		"subagent greater":       {agentsBase + main + "subagents: {r: {description: d, model: p/m, settings: {context_window: 100, max_output_tokens: 200}}}\n", "subagents.r.settings: max_output_tokens (200) must be smaller than context_window (100)"},
+		"subagent smaller":       {agentsBase + main + "subagents: {r: {description: d, model: p/m, settings: {context_window: 100, max_output_tokens: 99}}}\n", ""},
+		"subagent no window":     {agentsBase + main + "subagents: {r: {description: d, model: p/m, settings: {max_output_tokens: 100}}}\n", ""},
+		"summarizer equal":       {agentsBase + main + "summarizer: {model: p/m, settings: {context_window: 100, max_output_tokens: 100}}\n", "summarizer.settings: max_output_tokens (100) must be smaller than context_window (100)"},
+		"summarizer greater":     {agentsBase + main + "summarizer: {model: p/m, settings: {context_window: 100, max_output_tokens: 200}}\n", "summarizer.settings: max_output_tokens (200) must be smaller than context_window (100)"},
+		"summarizer smaller":     {agentsBase + main + "summarizer: {model: p/m, settings: {context_window: 100, max_output_tokens: 99}}\n", ""},
+		"summarizer huge":        {agentsBase + main + "summarizer: {model: p/m, settings: {context_window: 100, max_output_tokens: 9223372036854775807}}\n", "summarizer.settings: max_output_tokens (9223372036854775807) must be smaller than context_window (100)"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(c.yaml), env(nil))
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != c.want {
+				t.Errorf("error = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
