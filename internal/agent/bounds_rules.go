@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -21,12 +22,22 @@ const maxNumberDigits = 1000
 // maxName bounds a tool name or call id stored in an event.
 const maxName = 256
 
+// maxDepth bounds how deep stored JSON nests. Postgres keeps any depth Go's
+// decoder reads (10,000), but every event payload wraps the value: arguments
+// sit one level down in a tool_call, structured and ui one in a tool_result,
+// and a held result's structured content two in an approval request. The HTTP
+// envelope around an event adds a few more. 64 plus those wrappers (about 70
+// at most) stays far under the 10,000 that Go reads back and that json.Valid
+// accepts; real arguments and structured results nest a handful of levels.
+const maxDepth = 64
+
 // Why storable refuses JSON. errTooLarge is also how arguments are refused
 // when their numbers, written out, would outgrow maxArgBytes.
 var (
 	errNotJSON  = errors.New("they are not valid JSON")
 	errNotText  = errors.New("they hold a NUL character, an unpaired surrogate escape or invalid UTF-8")
 	errNumber   = errors.New("number out of range: at most " + strconv.Itoa(maxNumberDigits) + " digits once written out")
+	errDepth    = errors.New("nested more than " + strconv.Itoa(maxDepth) + " levels")
 	errTooLarge = errors.New("too large")
 )
 
@@ -42,10 +53,16 @@ func argsMarker(raw string) string {
 
 // storable reports why raw cannot be stored in an event, or nil if it can. An
 // event that cannot be stored wedges the turn. Postgres refuses NUL and unpaired
-// surrogate escapes in jsonb, and it writes each number out in full on every
-// read: 1e100000 is 10 bytes in and 100,003 bytes out. So a number counts at its
-// written-out length, each is capped at maxNumberDigits, and raw plus what
-// writing the numbers out adds must fit limit.
+// surrogate escapes in jsonb, parses every value of an object even when keys
+// repeat (and keeps the last), and writes each number out in full on every
+// read: 1e100000 is 10 bytes in and 100,003 bytes out. It also prints a space
+// after every "," and ":" on read. So every token is looked at, one by one, so
+// that a value under a repeated key is checked too; nesting is capped at
+// maxDepth, with no recursion; and the size that counts is what is read back:
+// raw, plus a byte per separator, plus what writing the numbers out adds. That
+// must fit limit. This is deliberately conservative: it overcounts spaces raw
+// already has and repeated keys Postgres drops, and refuses valid numbers that
+// are too long written out (a 1001-digit integer, 0e1000, -0.0e-999).
 func storable(raw string, limit int) error {
 	if len(raw) > limit {
 		return errTooLarge
@@ -56,15 +73,38 @@ func storable(raw string, limit int) error {
 	if !utf8.ValidString(raw) || hasLoneSurrogate(raw) {
 		return errNotText
 	}
+	grown := separators(raw)
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.UseNumber()
-	var v any
-	if dec.Decode(&v) != nil {
-		return errNotJSON
-	}
-	grown := 0
-	if err := walkJSON(v, &grown); err != nil {
-		return err
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return errNotJSON
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			if t == '[' || t == '{' {
+				if depth++; depth > maxDepth {
+					return errDepth
+				}
+			} else {
+				depth--
+			}
+		case string: // a key or a value
+			if strings.ContainsRune(t, 0) {
+				return errNotText
+			}
+		case json.Number:
+			n, err := writtenLen(string(t))
+			if err != nil {
+				return err
+			}
+			grown += n - len(t)
+		}
 	}
 	if len(raw)+grown > limit {
 		return errTooLarge
@@ -72,37 +112,21 @@ func storable(raw string, limit int) error {
 	return nil
 }
 
-// walkJSON refuses NUL in any string or key, and every number too long once
-// written out. grown adds up what writing the numbers out adds to raw.
-func walkJSON(v any, grown *int) error {
-	switch v := v.(type) {
-	case string:
-		if strings.ContainsRune(v, 0) {
-			return errNotText
-		}
-	case json.Number:
-		n, err := writtenLen(string(v))
-		if err != nil {
-			return err
-		}
-		*grown += n - len(v)
-	case []any:
-		for _, x := range v {
-			if err := walkJSON(x, grown); err != nil {
-				return err
-			}
-		}
-	case map[string]any:
-		for k, x := range v {
-			if strings.ContainsRune(k, 0) {
-				return errNotText
-			}
-			if err := walkJSON(x, grown); err != nil {
-				return err
-			}
+// separators counts the "," and ":" outside strings in raw, which is valid
+// JSON: Postgres adds a space after each when it reads the value back.
+func separators(raw string) int {
+	n, inString := 0, false
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; {
+		case inString && c == '\\':
+			i++
+		case c == '"':
+			inString = !inString
+		case !inString && (c == ',' || c == ':'):
+			n++
 		}
 	}
-	return nil
+	return n
 }
 
 // writtenLen is the length of the JSON number s written out in plain decimal,

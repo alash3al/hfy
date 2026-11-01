@@ -99,7 +99,8 @@ func storedArgs(l *loop, id string) string {
 
 func TestArgsLimitIsExact(t *testing.T) {
 	c := &scripted{replies: []*provider.Response{
-		callReply("edge", "hfy__now", padArgs(maxArgBytes)),
+		callReply("edge", "hfy__now", padArgs(maxArgBytes-1)), // reads back at exactly the limit: one ":" gains a space
+		callReply("wide", "hfy__now", padArgs(maxArgBytes)),   // fits raw, reads back one byte over
 		callReply("big", "hfy__now", padArgs(maxArgBytes+1)),
 		textReply("done"),
 	}}
@@ -111,6 +112,9 @@ func TestArgsLimitIsExact(t *testing.T) {
 	}
 	if edge := toolMsg(l, "edge"); strings.Contains(edge, "too large") || !strings.Contains(edge, `"utc"`) {
 		t.Fatalf("a call at the limit must run: %s", edge)
+	}
+	if wide := toolMsg(l, "wide"); wide != "Error: arguments too large (limit 65536 bytes); send less" {
+		t.Fatalf("raw at the limit reads back over it: %s", wide)
 	}
 	if big := toolMsg(l, "big"); big != "Error: arguments too large (limit 65536 bytes); send less" {
 		t.Fatalf("over the limit: %s", big)
@@ -288,17 +292,18 @@ func TestStorable(t *testing.T) {
 }
 
 // Numbers count at their written-out length against the same bound as the raw
-// text: 1e100 is 5 bytes and 101 written out, so ten of them grow by 960.
+// text: 1e100 is 5 bytes and 101 written out, so ten of them grow by 960, and
+// the nine commas between them grow by a space each on read.
 func TestStorableCountsWrittenOutNumbers(t *testing.T) {
 	raw := "[" + strings.Repeat("1e100,", 9) + "1e100]"
 	if len(raw) != 61 {
 		t.Fatalf("fixture is %d bytes", len(raw))
 	}
-	if err := storable(raw, 1020); !errors.Is(err, errTooLarge) {
-		t.Errorf("1021 bytes written out must not fit 1020: %v", err)
+	if err := storable(raw, 1029); !errors.Is(err, errTooLarge) {
+		t.Errorf("1030 bytes read back must not fit 1029: %v", err)
 	}
-	if err := storable(raw, 1021); err != nil {
-		t.Errorf("1021 bytes written out fit 1021: %v", err)
+	if err := storable(raw, 1030); err != nil {
+		t.Errorf("1030 bytes read back fit 1030: %v", err)
 	}
 	if err := storable(strings.Repeat(" ", maxArgBytes)+"1", maxArgBytes); !errors.Is(err, errTooLarge) {
 		t.Errorf("raw size over the limit: %v", err)
@@ -520,5 +525,108 @@ func TestArgsMarkerDescribesTheCall(t *testing.T) {
 	}
 	if a == b {
 		t.Fatal("different oversize payloads share a marker")
+	}
+}
+
+// Every token is checked, so a value under a repeated key is too, and nesting
+// is bounded at maxDepth however it is written.
+func TestStorableChecksEveryTokenAndDepth(t *testing.T) {
+	for raw, want := range map[string]error{
+		`{"a":"\u0000","a":1}`:                   errNotText,
+		`{"a":1,"a":"\u0000"}`:                   errNotText,
+		`{"a":{"b":"\u0000"},"a":[]}`:            errNotText,
+		`{"a":"\ud800","a":1}`:                   errNotText,
+		`{"a":1e999999,"a":1}`:                   errNumber,
+		`{"a":1e100000,"a":1}`:                   errNumber,
+		`{"a":[1e100000],"a":1}`:                 errNumber,
+		`{"\u0000":1,"b":2}`:                     errNotText,
+		`{"a":1,"\u0000":2}`:                     errNotText,
+		`{"\ud800":1}`:                           errNotText,
+		"\ufeff{}":                               errNotJSON,
+		"{\"a\":\"\xff\"}":                       errNotText,
+		`{"a":1,"a":2}`:                          nil,
+		nested(maxDepth-1, false):                nil,
+		nested(maxDepth, false):                  nil,
+		nested(maxDepth+1, false):                errDepth,
+		nested(maxDepth-1, true):                 nil,
+		nested(maxDepth, true):                   nil,
+		nested(maxDepth+1, true):                 errDepth,
+		nested(10000, false):                     errDepth, // valid JSON, and what Go reads
+		nested(10001, false):                     errNotJSON,
+		`[` + nested(maxDepth, false) + `]`:      errDepth,
+		`[` + strings.Repeat(`[],`, 100) + `[]]`: nil, // wide is not deep
+	} {
+		if got := storable(raw, maxArgBytes); !errors.Is(got, want) {
+			t.Errorf("storable(%.50q) = %v, want %v", raw, got, want)
+		}
+	}
+}
+
+// The size counted is what Postgres reads back: a space after every "," and
+// ":" outside strings, none for those inside, and each number written out.
+func TestStorableCountsSeparatorsAsReadBack(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		back int // Postgres' read-back length
+	}{
+		{`[1,1,1]`, len(`[1, 1, 1]`)},
+		{`{"a":1,"b":2}`, len(`{"a": 1, "b": 2}`)},
+		{`["a,b:c",":",","]`, len(`["a,b:c", ":", ","]`)},
+		{`["\",:"]`, len(`["\",:"]`)}, // an escaped quote does not end the string
+		{`["\\",1]`, len(`["\\", 1]`)},
+		{`{"a":[1e10,2]}`, len(`{"a": [10000000000, 2]}`)},
+	} {
+		if err := storable(c.raw, c.back); err != nil {
+			t.Errorf("storable(%s, %d) = %v: it reads back as %d bytes", c.raw, c.back, err, c.back)
+		}
+		if err := storable(c.raw, c.back-1); !errors.Is(err, errTooLarge) {
+			t.Errorf("storable(%s, %d) = %v, want too large", c.raw, c.back-1, err)
+		}
+	}
+}
+
+// Empty, null and blank arguments are {} before any check; ordinary values
+// are kept byte for byte.
+func TestNormalizeArgsKeepsCommonValues(t *testing.T) {
+	for _, raw := range []string{"", "  \n\t ", "null", " null "} {
+		if got, err := normalizeArgs(raw); err != nil || string(got) != "{}" {
+			t.Errorf("normalizeArgs(%q) = %s, %v, want {}", raw, got, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"pi":3.14159,"e":1e10,"big":12345678901234567890,"neg":-0.5E-3}`,
+		`{"max":1.7976931348623157e308,"min":-1.7976931348623157e308,"tiny":5e-324}`,
+		`{"text":"héllo 日本語 \ud83d\ude00 \u00e9"}`,
+		`{"a":[1,2,{"b":null}],"c":{}}`,
+		nested(maxDepth, true),
+	} {
+		if got, err := normalizeArgs(raw); err != nil || string(got) != raw {
+			t.Errorf("normalizeArgs(%.50q) = %.50s, %v, want it unchanged", raw, got, err)
+		}
+	}
+	// A refusal keeps what the model said as a JSON string, within the replay bound.
+	got, err := normalizeArgs(`{"a":"\u0000","a":1}`)
+	if !errors.Is(err, errNotText) || string(got) != `"{\"a\":\"\\u0000\",\"a\":1}"` {
+		t.Errorf("duplicate key refusal: %s, %v", got, err)
+	}
+	if got, err = normalizeArgs(nested(maxDepth+1, false)); !errors.Is(err, errDepth) || !json.Valid(got) {
+		t.Errorf("too deep: %s, %v", got, err)
+	}
+}
+
+// What a tool server sends back is checked the same way: structured content
+// with a repeated key or too deep is dropped, not stored.
+func TestKeepStoredChecksStructuredContent(t *testing.T) {
+	for raw, kept := range map[string]bool{
+		`{"a":"\u0000","a":1}`:   false,
+		`{"a":1e999999,"a":1}`:   false,
+		nested(maxDepth+1, true): false,
+		nested(maxDepth, true):   true,
+		`{"a":1,"a":2}`:          true,
+		`{"rows":[{"id":1}]}`:    true,
+	} {
+		if got := keepStored(json.RawMessage(raw), maxStructured, "structured result", "files.x") != nil; got != kept {
+			t.Errorf("keepStored(%.50q) kept = %v, want %v", raw, got, kept)
+		}
 	}
 }

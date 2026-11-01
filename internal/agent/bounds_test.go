@@ -25,14 +25,15 @@ func (e *env) addMessage(turn int64, text string) {
 	}
 }
 
-// The argument limit is exact: a call of maxArgBytes runs, one byte more is
-// refused, and the event log keeps a marker instead of the arguments.
+// The argument limit is exact on what is read back, a space after each ":" and
+// ",": a call that reads back at maxArgBytes runs, one byte more is refused,
+// and the event log keeps a marker instead of the arguments.
 func TestArgumentsLimitIsExact(t *testing.T) {
 	const limit = 64 << 10 // maxArgBytes
 	pad := func(n int) string { return `{"text":"` + strings.Repeat("a", n-len(`{"text":""}`)) + `"}` }
 	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
 		fakeprov.Step{Calls: []fakeprov.Call{{ID: "big", Name: "files__echo", Args: pad(limit + 1)}}},
-		fakeprov.Step{Calls: []fakeprov.Call{{ID: "edge", Name: "files__echo", Args: pad(limit)}}},
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "edge", Name: "files__echo", Args: pad(limit - 1)}}},
 		fakeprov.Step{Content: "done"})
 	turn := e.post("go")
 	e.waitState(turn, types.StateCompleted)
@@ -95,6 +96,45 @@ func TestExponentArgumentsAreRefused(t *testing.T) {
 	if c, _ := r[2]["content"].(string); strings.HasPrefix(c, "invalid arguments") {
 		t.Fatalf("a small exponent was refused as invalid: %v", r[2])
 	}
+}
+
+// Hostile JSON the log would store but could not read back, or not store at
+// all, is answered as invalid and the turn goes on: a repeated key hides a NUL
+// or an exponent bomb from the decoder, and nesting past the bound makes the
+// payload unreadable. A next turn of the conversation proves the log reads back.
+func TestHostileJSONArgumentsDoNotWedgeTheConversation(t *testing.T) {
+	const maxDepth = 64 // the bound in bounds_rules.go
+	nested := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
+	hostile := []string{
+		`{"text":"x","n":"\u0000","n":1}`,
+		`{"text":"x","n":1e999999,"n":1}`,
+		`{"text":"x","n":"\ud800","n":1}`,
+		`{"text":"x","n":` + nested(maxDepth+1) + `}`,
+		`{"text":"x","n":` + nested(10000) + `}`,
+	}
+	var steps []fakeprov.Step
+	for i, a := range hostile {
+		steps = append(steps, fakeprov.Step{Calls: []fakeprov.Call{{ID: fmt.Sprint("h", i), Name: "files__echo", Args: a}}})
+	}
+	steps = append(steps,
+		fakeprov.Step{Calls: []fakeprov.Call{{ID: "deep", Name: "files__echo", Args: `{"text":"x","n":` + nested(maxDepth-1) + `}`}}},
+		fakeprov.Step{Content: "done"}, fakeprov.Step{Content: "again"})
+	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} }, steps...)
+	turn := e.post("go")
+	e.waitState(turn, types.StateCompleted)
+	r := e.find(turn, types.EventToolResult)
+	if len(r) != len(hostile)+1 {
+		t.Fatalf("results: %v\n%s", r, e.dump(turn))
+	}
+	for i := range hostile {
+		if c, _ := r[i]["content"].(string); r[i]["is_error"] != true || !strings.HasPrefix(c, "invalid arguments") {
+			t.Fatalf("hostile call %d: %v", i, r[i])
+		}
+	}
+	if c, _ := r[len(hostile)]["content"].(string); strings.HasPrefix(c, "invalid arguments") {
+		t.Fatalf("a call at the depth bound was refused: %v", c)
+	}
+	e.waitState(e.post("and again"), types.StateCompleted)
 }
 
 // A tool name or call id the log cannot hold (NUL, too long) does not wedge the
