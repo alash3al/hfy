@@ -127,7 +127,7 @@ type loop struct {
 	msgs      []provider.Message
 	activated map[string]bool // full names unlocked by tool_search
 	counts    map[string]int
-	used      map[string]bool // call ids of this turn so far: a turn keys its calls by id alone
+	used      map[string]bool // call ids of the conversation so far (history and this turn): a call is keyed by id alone
 	steps     int             // steps already taken (includes earlier runs of a resumed turn)
 
 	// The prompt's size in tokens when last measured, and len(msgs) then:
@@ -153,11 +153,20 @@ func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv) *loop {
 	return l
 }
 
-// load sets the system prompt and messages the loop sends. It measures them
-// at once (promptSize reads msgs from the last measurement on) and unlocks
-// the tools that earlier tool_search results found.
+// load sets the system prompt and messages the loop sends. It marks the call
+// ids already in them used (a provider may reject an id repeated in one
+// conversation), measures them at once (promptSize reads msgs from the last
+// measurement on) and unlocks the tools that earlier tool_search results found.
 func (l *loop) load(ctx context.Context, system string, msgs []provider.Message) {
 	l.system, l.msgs = system, msgs
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			l.used[tc.ID] = true
+		}
+		if m.ToolCallID != "" {
+			l.used[m.ToolCallID] = true
+		}
+	}
 	l.measure(0)
 	l.deriveActivated(ctx)
 }
@@ -279,9 +288,9 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		calls := make([]provider.ToolCall, 0, len(resp.ToolCalls))
 		tooLarge := make([]bool, 0, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
-			// An id the event log cannot hold (empty, NUL, too long) or that this
-			// turn already used is replaced: approvals, results and resume all
-			// find a call by its id alone. The suffix is a number, so the id
+			// An id the event log cannot hold (empty, NUL, too long) or that the
+			// conversation already used is replaced: approvals, results and resume
+			// all find a call by its id alone. The suffix is a number, so the id
 			// stays short however often a model collides.
 			if tc.ID == "" || !storableText(tc.ID) || l.used[tc.ID] {
 				base := fmt.Sprintf("call_%d_%d", l.steps, i)

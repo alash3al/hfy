@@ -375,7 +375,7 @@ event as stored.
   would expand past reason, so arguments holding any of them, or a number over
   1000 digits once written out, are answered as invalid arguments; a tool name
   holding them or over 256 bytes is an unknown tool, stored cleaned and cut; a
-  call id holding them, over 256 bytes, empty or already used in the turn gets a
+  call id holding them, over 256 bytes, empty or already used in the conversation gets a
   generated unique one; a tool's
   structured result, card or questions that cannot be stored are dropped with a
   warning; and model and tool text is stored with NUL characters removed. Every

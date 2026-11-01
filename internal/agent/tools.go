@@ -171,6 +171,7 @@ func (rt *Runtime) runSubagent(ctx context.Context, parent *loop, sub *Spec, tas
 	}
 	sink := &quietSink{rt: rt, env: parent.env, actor: actor}
 	l := newLoop(rt, sub, sink, parent.env)
+	l.used = parent.used // its approvals are keyed by id in the parent's turn: never collide with the parent's
 	l.load(ctx, sub.System, []provider.Message{{Role: "user", Content: task}})
 	res, err := l.run(ctx)
 	if err != nil {

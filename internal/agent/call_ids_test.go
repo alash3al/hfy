@@ -139,3 +139,121 @@ func TestAskUserWithARepeatedID(t *testing.T) {
 		t.Fatalf("results: %v\n%s", r, e.dump(turn))
 	}
 }
+
+// reqIDs lists the call ids a request carried: those the assistant made, then
+// those its tool results answer.
+func reqIDs(req map[string]any) (calls, results []string) {
+	for _, m := range req["messages"].([]any) {
+		m := m.(map[string]any)
+		tcs, _ := m["tool_calls"].([]any)
+		for _, tc := range tcs {
+			calls = append(calls, tc.(map[string]any)["id"].(string))
+		}
+		if id, ok := m["tool_call_id"].(string); ok {
+			results = append(results, id)
+		}
+	}
+	return calls, results
+}
+
+func allUnique(t *testing.T, what string, ids []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			t.Fatalf("%s reuses %q: %v", what, id, ids)
+		}
+		seen[id] = true
+	}
+}
+
+// A model that repeats an id from an earlier turn (alone, or twice in one
+// message beside a fresh one) gets new ids that are unique across the whole
+// conversation, and the ids stored, sent live and replayed next turn agree.
+func TestCallIDsAreUniqueAcrossTurns(t *testing.T) {
+	echo := func(id, text string) fakeprov.Call {
+		return fakeprov.Call{ID: id, Name: "files__echo", Args: `{"text":"` + text + `"}`}
+	}
+	e := setup(t, func(c *config.Config) { c.Agent.MCP = []string{"files"} },
+		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t1")}}, fakeprov.Step{Content: "one"},
+		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t2")}}, fakeprov.Step{Content: "two"},
+		fakeprov.Step{Calls: []fakeprov.Call{echo("dup", "t3a"), echo("dup", "t3b"), echo("fresh", "t3c")}}, fakeprov.Step{Content: "three"},
+		fakeprov.Step{Content: "four"})
+	var turns []int64
+	for _, text := range []string{"one", "two", "three", "four"} {
+		turn := e.post(text)
+		e.waitState(turn, types.StateCompleted)
+		turns = append(turns, turn)
+	}
+	var stored, storedResults []string
+	for _, turn := range turns {
+		for _, c := range e.find(turn, types.EventToolCall) {
+			stored = append(stored, c["call_id"].(string))
+		}
+		for _, r := range e.find(turn, types.EventToolResult) {
+			storedResults = append(storedResults, r["call_id"].(string))
+		}
+	}
+	allUnique(t, "stored calls", stored)
+	if len(stored) != 5 || stored[0] != "dup" || stored[4] != "fresh" || strings.Join(storedResults, ",") != strings.Join(stored, ",") {
+		t.Fatalf("stored %v, results %v", stored, storedResults)
+	}
+	reqs := e.fake.Reqs()
+	// Live: the prompt that followed each turn's calls carried the stored ids.
+	for turn, want := range map[int][]string{1: stored[:1], 3: stored[1:2], 5: stored[2:]} {
+		calls, results := reqIDs(reqs[turn])
+		_ = calls
+		if got := results[len(results)-len(want):]; strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("request %d answered %v, stored %v", turn, got, want)
+		}
+	}
+	// Replayed: the next turn's prompt holds exactly the stored ids, once each.
+	calls, results := reqIDs(reqs[6])
+	allUnique(t, "replayed calls", calls)
+	if strings.Join(calls, ",") != strings.Join(stored, ",") || strings.Join(results, ",") != strings.Join(stored, ",") {
+		t.Fatalf("replayed calls %v results %v, stored %v", calls, results, stored)
+	}
+}
+
+// A paused turn that resumes after a model repeated an id from an earlier turn
+// keeps the id it was stored under, and what it asks next stays unique.
+func TestCallIDsUniqueAcrossTurnsOnResume(t *testing.T) {
+	write := func(file string) fakeprov.Step {
+		return fakeprov.Step{Calls: []fakeprov.Call{{ID: "dup", Name: "files__write_file", Args: `{"text":"` + file + `"}`}}}
+	}
+	e := setup(t, func(c *config.Config) {
+		c.Agent.MCP = []string{"files"}
+		c.Agent.Approval = &config.Approval{Tools: []string{"files.write_*"}, Timeout: config.Duration(time.Minute)}
+	}, write("a.txt"), fakeprov.Step{Content: "one"}, // turn 1 asks (dup), then answers
+		write("b.txt"), write("c.txt"), fakeprov.Step{Content: "two"}) // turn 2: dup collides, pauses; resumed, dup again
+	t1 := e.post("one")
+	id1 := e.waitCalls(t1, 1)[0]
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: id1, Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(t1, types.StateCompleted)
+	t2 := e.post("two")
+	id2 := e.waitCalls(t2, 1)[0]
+	if id1 != "dup" || id2 == "dup" {
+		t.Fatalf("ids %q then %q", id1, id2)
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: id2, Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	ids := e.waitCalls(t2, 2)
+	if ids[0] != id2 {
+		t.Fatalf("the resumed turn renamed its recorded call: %v", ids)
+	}
+	allUnique(t, "conversation", []string{id1, ids[0], ids[1]})
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: ids[1], Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(t2, types.StateCompleted)
+	// The resumed turn's prompts show the stored ids.
+	reqs := e.fake.Reqs()
+	calls, results := reqIDs(reqs[len(reqs)-1])
+	want := strings.Join([]string{id1, ids[0], ids[1]}, ",")
+	if strings.Join(calls, ",") != want || strings.Join(results, ",") != want {
+		t.Fatalf("last prompt calls %v results %v, want %s", calls, results, want)
+	}
+}
