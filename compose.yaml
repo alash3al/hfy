@@ -4,7 +4,7 @@
 # separate services.
 services:
   db:
-    image: pgvector/pgvector:pg17          # pgvector 0.8.0+ is required
+    image: postgres:17
     environment:
       POSTGRES_PASSWORD: hfy
       POSTGRES_DB: hfy

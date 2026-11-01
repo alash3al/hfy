@@ -1,6 +1,6 @@
 # hfy
 
-> hfy is a self-hosted backend and embeddable chat UI for AI conversations: one Go binary plus Postgres (with pgvector), configured by one YAML file. The host app keeps its users and data. It creates conversations and short-lived access grants over HTTP. hfy runs the agent loop, calls tools from MCP servers, stores every step as an append-only event, streams the reply over SSE and serves a ready-made chat UI at `/embed` for iframes and mobile WebViews.
+> hfy is a self-hosted backend and embeddable chat UI for AI conversations: one Go binary plus Postgres, configured by one YAML file. The host app keeps its users and data. It creates conversations and short-lived access grants over HTTP. hfy runs the agent loop, calls tools from MCP servers, stores every step as an append-only event, streams the reply over SSE and serves a ready-made chat UI at `/embed` for iframes and mobile WebViews.
 
 This file is the complete integration guide for AI coding agents. It is self-contained, so you should not need any other page to integrate hfy into an app. Source: https://github.com/alash3al/hfy. Full human reference: https://github.com/alash3al/hfy/blob/main/docs/reference.md (canonical if anything here disagrees).
 
@@ -23,14 +23,14 @@ Choose the client surface first:
 - **Agent.** A configured assistant: model, system prompt, tools, limits. `agent:` is the default agent `main`; `agents:` adds named ones. The grant picks which agent answers that person.
 - **Turn.** One user message and everything the agent does in response. Turns run one at a time per conversation; later messages queue.
 - **Event.** Every step (message, tool call, tool result, state change, approval) is an append-only event. History and the live stream use the same envelope.
-- **Tools.** All external tools come from MCP servers (local stdio commands or remote Streamable HTTP). hfy also ships core built-ins: `hfy.now`, `hfy.math_calc`, `hfy.tool_search`, `hfy.conversation_search` (with embeddings), opt-in `hfy.ask_user`, and sub-agents as `hfy.<name>`.
+- **Tools.** All external tools come from MCP servers (local stdio commands or remote Streamable HTTP). hfy also ships core built-ins: `hfy.now`, `hfy.math_calc`, `hfy.tool_search`, opt-in `hfy.ask_user`, and sub-agents as `hfy.<name>`.
 - **Server secret.** `server.secret` (usually `${HFY_SERVER_SECRET}`). Backend-only. Backend routes never answer browsers (no CORS), so it cannot work from a page.
 
 ## Integration recipe
 
 ### 1. Run hfy
 
-Requirements: Postgres with pgvector 0.8.0+, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config).
+Requirements: Postgres 17, and an OpenAI-compatible model endpoint (OpenAI, OpenRouter, Ollama, vLLM, llama.cpp, …). For a first run without any model, use the built-in `mock` provider (see Config).
 
 Prebuilt binary (Linux, macOS, Windows; amd64 and arm64), from the latest GitHub release:
 
@@ -64,7 +64,7 @@ hfy -c hfy.yaml validate          # checks config, env expansion, startup rules
 hfy -c hfy.yaml serve --work      # API + workers in one process
 ```
 
-Commands: `serve [--work]`, `queue:work [-q turns,embeddings] [--workers N]` (workers only, scale separately), `validate`, `migrate [up|down|status]`, `config:example`, `version`. `-c` may also come from `HFY_CONFIG`.
+Commands: `serve [--work]`, `queue:work [-q turns,maintenance] [--workers N]` (workers only, scale separately), `validate`, `migrate [up|down|status]`, `config:example`, `version`. `-c` may also come from `HFY_CONFIG`.
 
 Health: `GET /healthz` (process alive), `GET /readyz` (Postgres reachable, else 503).
 
@@ -128,7 +128,7 @@ Grant fields:
 - `conversation` (required), `actor` (required, your user id).
 - `agent`: which configured agent answers this person (`main` default, or a key under `agents:`).
 - `vars`: values for the agent's declared `{{vars}}`, rendered into the system prompt. A var that is undeclared, or required but missing, is a 400. Backend-only, so the client can never set them. Every MCP server receives them in `_meta`, so never put secrets in vars.
-- `scope`: whose memory `hfy.conversation_search` searches (default: the actor).
+- `scope`: a label for whose data the conversation is (default: the actor). hfy does not interpret it; tool servers get it in `_meta`.
 - `expires_in`: seconds, default 3600, max 86400.
 
 Example backend endpoint (Node/Express; translate to the app's stack):
@@ -261,7 +261,7 @@ Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help ce
 
 ### Config sections
 
-`server`, `database`, `providers`, `mcp`, `agent` (required except `mcp`), plus optional `agents`, `subagents`, `queue`, `retention`, `embeddings`, `attachments`, `filesystem`, `summarizer`, `metrics`, `embed`.
+`server`, `database`, `providers`, `mcp`, `agent` (required except `mcp`), plus optional `agents`, `subagents`, `queue`, `retention`, `attachments`, `filesystem`, `summarizer`, `metrics`, `embed`.
 
 - `${VAR}` / `${VAR:-default}` expand in string values (never keys). A missing variable without a default stops startup and names it. `$$` is a literal `$`. Quote inside YAML flow maps: `{ a: "${X}" }`.
 - Unknown keys stop startup with their line number.
@@ -270,7 +270,6 @@ Knowledge / RAG: hfy has no document store. Expose your docs, catalog or help ce
 - Model request controls (optional, in any `settings`: `agent`, `agents.<name>`, `subagents.<name>`, `summarizer`; unset means not sent): `reasoning_effort` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; a provider may reject or ignore a value), `max_output_tokens` (caps each call's output, reasoning included), `call_timeout` (a whole call, retries included; past it the turn fails and is not retried; if it fires mid-stream, streamed text stays; distinct from the provider `timeout`), `extra` (a map merged into the request body; it cannot set `model`, `messages`, `tools`, `stream`, `stream_options` or `n` in any letter case, nor a field above; it is stored in `outbound_requests`, so never put secrets in it; `tool_choice: required` makes every reply a tool call, so the turn ends only at a `limits` field or a fixed loop bound).
   - Provider notes (details in docs/reference.md): Anthropic's OpenAI-compatible endpoint ignores `reasoning_effort`, so use `extra: {thinking: {type: enabled, budget_tokens: N}}` (N ≥ 1024, below the cap); DeepSeek's `thinking` in `extra` overrides `reasoning_effort`; the output cap covers reasoning, so a small one can return an empty reply (`finish_reason: length`); Ollama and DeepSeek read only `max_tokens`; OpenAI wants `max_tokens_param: max_completion_tokens`; newer reasoning models and Claude 4.7+ reject `temperature` below 1 or `top_p` other than 0.99, so leave them unset; Gemini's vendor extras nest under `extra_body`; a value outside the `reasoning_effort` list goes in `extra.reasoning_effort`; the `mock` provider ignores the controls and the timeout.
 - `subagents.<name>`: `description`, `model`, `settings`, `system`, `mcp`, `limits`. Every agent may call them as tool `hfy.<name>`. They are isolated (they get only the task text), depth 1, and their usage counts toward the parent turn.
-- `embeddings`: `{model: <provider>/<model>, dimensions: N}`. Enables `hfy.conversation_search` over earlier messages of the same `scope`.
 - `summarizer`: `{model, settings, keep_recent, system?}` (`settings` takes the same model request controls). History is summarized when the next prompt would pass 80% of `context_window`. Nothing is deleted.
 - `attachments`: `{allowed_hosts, types, max_bytes, max_count}` for attachments hosted by your app (by URL).
 - `filesystem`: `{dsn: "s3://bucket?region=…" | "file:///path", public_url, types, max_bytes (10MB), upload_ttl (5m), download_ttl (15m)}` enables uploads through hfy. `file://` needs `public_url`. S3 needs bucket CORS allowing PUT from embed origins.

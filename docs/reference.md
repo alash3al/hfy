@@ -22,7 +22,7 @@ plumbing (loop, tools, history, streaming, access) in every app.
 ```sh
 hfy config:example > hfy.yaml     # edit: provider, model, system prompt
 export HFY_SERVER_SECRET=$(openssl rand -hex 24)
-export DATABASE_URL=postgres://postgres:hfy@localhost:5432/hfy   # pgvector 0.8.0+
+export DATABASE_URL=postgres://postgres:hfy@localhost:5432/hfy
 hfy validate
 hfy serve --work                      # API + workers; migrations run on boot
 ```
@@ -48,7 +48,7 @@ curl -XPOST localhost:8080/v1/conversation/messages -H "Authorization: Bearer hf
 | Command | |
 |---|---|
 | `hfy -c hfy.yaml serve [--work]` | HTTP API and SSE; `--work` adds workers in the same process |
-| `hfy queue:work [-q turns,embeddings] [--workers N]` | workers only; `-q` is a priority-ordered list (default: all) |
+| `hfy queue:work [-q turns,maintenance] [--workers N]` | workers only; `-q` is a priority-ordered list (default: all) |
 | `hfy validate` | check config, env expansion and startup rules |
 | `hfy migrate [up\|down\|status]` | goose migrations (`serve` and `queue:work` also run `up` on boot) |
 | `hfy config:example` | print the commented starter config |
@@ -60,7 +60,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 ## Config
 
 `hfy config:example` is the reference. In short: `server`, `database`, `providers`,
-`mcp`, `agent`, plus optional `agents`, `queue`, `retention`, `embeddings`,
+`mcp`, `agent`, plus optional `agents`, `queue`, `retention`,
 `attachments`, `filesystem`, `subagents`, `summarizer`, `metrics`, `embed`.
 
 - Unknown keys stop startup with their line (`line 12: unknown key "aproval"
@@ -79,8 +79,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
   OpenAI-compatible HTTP client; `mock` is an in-process adapter for dev
   and testing. It never calls the network. It streams a deterministic
   reply (or an echo), with optional reasoning, one optional configured
-  tool call, `error_status` and delay, and returns deterministic
-  embeddings. It runs the full stack, the embedded UI included, with no
+  tool call, `error_status` and delay. It runs the full stack, the embedded UI included, with no
   model server:
 
   ```yaml
@@ -105,7 +104,7 @@ four optional controls. Each is sent only when set, and none has a default:
   the turn fails with "model call exceeded call_timeout" and the call is not retried,
   since the budget is spent. If it fires mid-stream, the text already streamed to
   clients stays and the turn fails, as it does on the provider's idle timeout.
-  Embeddings are not chat calls and are not affected. The provider's `timeout` is a
+  The provider's `timeout` is a
   different limit: the longest silence, which a long answer that keeps streaming never
   hits.
 - `extra`: a map merged into the request body after hfy's own fields, for the
@@ -179,7 +178,8 @@ Your backend (`Authorization: Bearer <server.secret>`):
   room gets their own grant.
   - `actor`: who this is (your user id; at most 256 bytes). It is recorded on
     their messages and is what other speakers and the model see.
-  - `scope`: whose memory `hfy__conversation_search` searches; default `actor`.
+  - `scope`: a label for whose data the conversation belongs to, default
+    `actor`. hfy does not interpret it; it reaches your MCP servers in `_meta`.
   - `agent`: which configured agent answers them (`agents.<name>`; default
     `main`), so one deployment can run, say, a store agent for buyers and an
     admin agent for staff.
@@ -322,7 +322,7 @@ API base, actor, agent, vars) are never configurable from the client.
 | `hfy_event_streams` | open SSE streams on the instance |
 | `hfy_turns_total` | `state` (final) |
 | `hfy_tokens_total` | `agent`, `kind` (`input` `output` `cached`) |
-| `hfy_provider_requests_total`, `hfy_provider_request_duration_seconds` | `provider`, `kind` (`chat` `embedding`), `outcome` |
+| `hfy_provider_requests_total`, `hfy_provider_request_duration_seconds` | `provider`, `kind` (`chat`), `outcome` |
 | `hfy_tool_calls_total`, `hfy_tool_call_duration_seconds` | `server`, `outcome` |
 | `hfy_jobs_total`, `hfy_job_duration_seconds` | `type`, `outcome` (`done` `retry` `failed` `lost` `released` `expired`) |
 | `hfy_jobs` | `queue`, `state` (`queued` `running`), across all instances |
@@ -417,7 +417,7 @@ event as stored.
   `approval.tools` only adds more. `mcp.<name>.approve_destructive: true`
   waits on tools whose annotations say destructive (readOnlyHint not true AND
   destructiveHint explicitly true); unannotated tools never count. The core
-  built-ins (hfy.now, hfy.math_calc, hfy.tool_search, hfy.conversation_search)
+  built-ins (hfy.now, hfy.math_calc, hfy.tool_search)
   never ask, even when a pattern like `hfy.*` matches. hfy.ask_user pauses the
   same way and never twice: it always asks the viewer, even if a pattern
   matched its name; it runs after `approval.timeout` (the agent's own if it
@@ -528,9 +528,9 @@ event as stored.
   would pass 80% of `context_window` (history is never deleted). It folds
   earlier turns, never the running one, so a single turn with very large tool
   results can still outgrow the window. If summarizing fails, hfy logs it and
-  the turn goes on uncompacted, without a second try in that turn. With
-  `embeddings` configured, `hfy__conversation_search` finds earlier messages
-  of the same `scope`.
+  the turn goes on uncompacted, without a second try in that turn. hfy has
+  no recall of its own: to let an agent search older conversations, expose
+  that as an MCP tool (filtered by `_meta.actor`).
 - **MCP servers.** A local server inherits only `PATH`, `HOME`, `USER`, locale,
   `TMPDIR` and `TZ` from hfy, never its secrets; give it anything else in
   `environment`. Each tool call has `timeout` (default 2m) to answer.
@@ -565,14 +565,26 @@ event as stored.
 - Tool names reach the provider as `<server>__<tool>` (`files.read` →
   `files__read`); events and approval patterns use `files.read`.
 
+## Upgrading to v2
+
+- The `embeddings:` config key and the `hfy.conversation_search` tool are gone.
+  A config that still sets `embeddings:` stops startup (also `migrate`) with
+  `embeddings was removed in v2; expose memory as an MCP tool`: delete the key,
+  and the mock provider's `embed_dimensions` with it. To keep recall, expose it
+  from your own MCP server as a tool.
+- Migration `00003` drops the old `embeddings_<dims>` tables and any unfinished
+  `embed_events` jobs when hfy starts. The `vector` extension is left in place
+  (`DROP EXTENSION vector` is yours to run if nothing else uses it). hfy now
+  runs on plain `postgres:17`; pgvector is no longer needed.
+
 ## Development
 
 ```sh
-docker run -d -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy pgvector/pgvector:pg17
+docker run -d -p 127.0.0.1:54330:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy postgres:17
 golangci-lint run ./... && go test -race ./...   # exactly what CI runs
 ```
 
-Tests need a Postgres with pgvector (`HFY_TEST_DB` overrides
+Tests need a Postgres (`HFY_TEST_DB` overrides
 `postgres://postgres:hfy@127.0.0.1:54330/hfy`); each test gets its own
 database. Locally they skip without one; CI sets `HFY_TEST_REQUIRE_DB=1` so a
 missing database fails instead. A scriptable fake OpenAI server
@@ -620,10 +632,10 @@ survive many contributors, so prefer adding a check to adding a sentence.
   the type, which is less code and easier to follow.
 - The `LISTEN` connection is opened separately instead of being held out of the
   pool (same effect, simpler lifecycle).
-- `embeddings:` is optional; sub-agent steps
+- Sub-agent steps
   are not stored as events (their `model.usage` and `outbound_requests` are);
   attachments on later turns are a placeholder; no secret rotation.
-- The provider package has one narrow `Adapter` interface (`Chat`, `Embed`)
+- The provider package has one narrow `Adapter` interface (`Chat`)
   with two implementations (`openai`, `mock`). This is the
   deliberate exception to preferring concrete types: config selects the
   implementation per provider name, so the agent runtime needs the seam.

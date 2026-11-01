@@ -40,10 +40,10 @@ go install github.com/alash3al/hfy@latest
 
 ## Run it
 
-You need Postgres with pgvector. One line starts one:
+You need Postgres. One line starts one:
 
 ```sh
-docker run -d --name hfy-db -p 5432:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy pgvector/pgvector:pg17
+docker run -d --name hfy-db -p 5432:5432 -e POSTGRES_PASSWORD=hfy -e POSTGRES_DB=hfy postgres:17
 ```
 
 Then:
