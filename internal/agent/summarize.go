@@ -48,6 +48,7 @@ func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop, bool
 			return err
 		}
 		l.load(ctx, system, msgs)
+		l.compactions++
 		return nil
 	}
 }

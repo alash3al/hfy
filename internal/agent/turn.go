@@ -94,7 +94,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	l := newLoop(rt, spec, sink, env)
 	l.steps = int(calls)
 	env.events.Store(int64(len(events)))
-	l.seedCounts(view.Calls)
+	l.seedCounts(view)
 
 	runErr := rt.resolveDangling(tctx, l, sink, view, job.Attempts)
 	var res Result

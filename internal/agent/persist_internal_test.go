@@ -47,6 +47,36 @@ func newPersistFixture(t *testing.T) persistFixture {
 	return persistFixture{rt: rt, env: env, actor: actor, turn: turn}
 }
 
+// Streamed deltas are rows of their turn but never count toward maxTurnEvents,
+// however many arrive: the live path counts exactly what the log counts.
+func TestStreamedDeltasDoNotCountTowardTheTurnCap(t *testing.T) {
+	ctx := context.Background()
+	f := newPersistFixture(t)
+	f.env.events.Store(maxTurnEvents - 3) // three events of headroom
+	sink := newTurnSink(ctx, f.rt, f.env, f.actor)
+	for range 20 {
+		sink.TextDelta("ab")
+		sink.flush(ctx)
+	}
+	sink.ReasoningDelta("r")
+	sink.flush(ctx)
+
+	if got := f.env.events.Load(); got != maxTurnEvents-3 {
+		t.Fatalf("events counted %d after the deltas, want %d", got, maxTurnEvents-3)
+	}
+	if why := (&loop{env: f.env}).eventsLimit(); why != "" {
+		t.Fatalf("deltas ended the turn: %s", why)
+	}
+	var n int
+	if err := f.rt.Store.Pool.QueryRow(ctx, "SELECT count(*) FROM conversation_events WHERE parent_id = $1 AND type = $2",
+		f.turn.ID, string(types.EventTextDelta)).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 20 {
+		t.Fatalf("text.delta rows: %d, want 20", n)
+	}
+}
+
 // A tool's output is stored cleaned: no NUL, and no invalid UTF-8.
 func TestToolResultTextIsStoredClean(t *testing.T) {
 	ctx := context.Background()

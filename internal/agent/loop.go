@@ -136,6 +136,9 @@ type loop struct {
 	// prepare may rebuild msgs before a model call (summarization). force asks
 	// for compaction whatever the token count says.
 	prepare func(ctx context.Context, l *loop, force bool) error
+	// compactions counts the summaries prepare has made, so run can tell an
+	// oversize prompt that compaction failed to shrink from one it never tried.
+	compactions int
 }
 
 func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv) *loop {
@@ -227,16 +230,23 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		}
 		defs, lookup := l.tools(ctx)
 		req := l.request(defs)
+		compacted := false
 		if requestBytes(req) > maxPromptBytes && l.prepare != nil {
 			// Compaction gets its chance whatever the token count says.
+			before := l.compactions
 			if err := l.prepare(ctx, l, true); err != nil {
 				return Result{}, err
 			}
+			compacted = l.compactions > before
 			defs, lookup = l.tools(ctx)
 			req = l.request(defs)
 		}
 		if n := requestBytes(req); n > maxPromptBytes {
-			return Result{Outcome: Failed, Reason: fmt.Sprintf("limit reached: prompt of %d bytes after compaction (limit %d)", n, maxPromptBytes)}, nil
+			how := "compaction unavailable"
+			if compacted {
+				how = "after compaction"
+			}
+			return Result{Outcome: Failed, Reason: fmt.Sprintf("limit reached: prompt of %d bytes, %s (limit %d)", n, how, maxPromptBytes)}, nil
 		}
 		kind := types.OutboundModel
 		if l.spec.Name == types.AgentSummarizer {
@@ -623,9 +633,13 @@ func normalizeArgs(raw string) (json.RawMessage, error) {
 }
 
 // seedCounts restores the repeat counts of a resumed turn from the calls it
-// already recorded: each tool_call event was counted when it was recorded.
-func (l *loop) seedCounts(calls []types.ToolCall) {
-	for _, c := range calls {
+// already recorded: each tool_call event was counted when it was recorded. An
+// ask the viewer answered is not counted: answered asks never repeat-count.
+func (l *loop) seedCounts(v svc.TurnView) {
+	for _, c := range v.Calls {
+		if d, ok := v.Decided[c.CallID]; ok && d.Approve && c.Name == svc.AskUserTool {
+			continue
+		}
 		l.counts[callKey(c.Name, c.Arguments)]++
 	}
 }

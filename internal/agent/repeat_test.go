@@ -130,8 +130,8 @@ func TestRepeatGuardSurvivesApprovalResumes(t *testing.T) {
 	}
 }
 
-// hfy.ask_user counts like any call: the same questions asked a third time are
-// refused without pausing the turn for the viewer again.
+// An ask the viewer declines counts like any call: the same questions asked a
+// third time are refused without pausing the turn for the viewer again.
 func TestRepeatedAsksAreCounted(t *testing.T) {
 	ask := func(id string) fakeprov.Step {
 		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "hfy__ask_user", Args: askQuestions}}}
@@ -146,10 +146,9 @@ func TestRepeatedAsksAreCounted(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	answer := json.RawMessage(`{"size":"m","extras":["wrap"]}`)
 	for _, id := range []string{"q1", "q2"} {
 		run()
-		if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: id, Approve: true, Answers: answer}); err != nil {
+		if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: id, Approve: false}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -162,6 +161,119 @@ func TestRepeatedAsksAreCounted(t *testing.T) {
 	}
 	if r := e.find(turn, types.EventToolResult); len(r) != 3 || !strings.Contains(fmt.Sprint(r[2]["content"]), "already made this exact call") {
 		t.Fatalf("third ask: %v", r)
+	}
+}
+
+// Answered asks never count: a legit loop of the same question, answered each
+// time ("Proceed with next item?"), runs to its end however often it repeats.
+func TestAnsweredAsksNeverRepeatCount(t *testing.T) {
+	steps := make([]fakeprov.Step, 0, 11)
+	for i := range 10 {
+		steps = append(steps, fakeprov.Step{Calls: []fakeprov.Call{{ID: fmt.Sprintf("q%d", i), Name: "hfy__ask_user", Args: askQuestions}}})
+	}
+	e := setup(t, func(c *config.Config) {
+		c.Agent.AskUser = true
+		c.Queue.Workers = 0
+	}, append(steps, fakeprov.Step{Content: "all proceeded"})...)
+	turn := e.post("proceed through the list")
+	answer := json.RawMessage(`{"size":"m","extras":["wrap"]}`)
+	for i := range 10 {
+		if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if e.state(turn) != types.StateAwaitingApproval {
+			t.Fatalf("ask %d did not pause: state %s\n%s", i+1, e.state(turn), e.dump(turn))
+		}
+		if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: fmt.Sprintf("q%d", i), Approve: true, Answers: answer}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if e.state(turn) != types.StateCompleted {
+		t.Fatalf("state %s, want completed\n%s", e.state(turn), e.dump(turn))
+	}
+	for _, r := range e.find(turn, types.EventToolResult) {
+		if strings.Contains(fmt.Sprint(r["content"]), "already made") {
+			t.Fatalf("an answered ask was refused: %v", r)
+		}
+	}
+}
+
+// Declined asks keep counting: the same question declined over and over ends
+// the turn, the sixth identical ask being the one that does.
+func TestDeclinedAsksEndTheTurn(t *testing.T) {
+	steps := make([]fakeprov.Step, 0, 10)
+	for i := range 10 {
+		steps = append(steps, fakeprov.Step{Calls: []fakeprov.Call{{ID: fmt.Sprintf("q%d", i), Name: "hfy__ask_user", Args: askQuestions}}})
+	}
+	e := setup(t, func(c *config.Config) {
+		c.Agent.AskUser = true
+		c.Queue.Workers = 0
+	}, steps...)
+	turn := e.post("proceed through the list")
+	for i := range 10 {
+		if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if e.state(turn) != types.StateAwaitingApproval {
+			break
+		}
+		if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: fmt.Sprintf("q%d", i), Approve: false}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if e.state(turn) != types.StateFailed {
+		t.Fatalf("state %s, want failed\n%s", e.state(turn), e.dump(turn))
+	}
+	states := e.find(turn, types.EventTurnState)
+	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "loop detected") {
+		t.Fatalf("reason: %s", r)
+	}
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 2 {
+		t.Fatalf("asks that paused: %d, want 2 (the third to sixth are refused)", n)
+	}
+}
+
+// A held result (a tool that asked its questions) counts once: its resume
+// serves the result and does not count the call again, so the second identical
+// call still runs and pauses, and only the third is refused.
+func TestHeldResultCountsOnce(t *testing.T) {
+	call := func(id string) fakeprov.Step {
+		return fakeprov.Step{Calls: []fakeprov.Call{{ID: id, Name: "files__ui_ask"}}}
+	}
+	e := setup(t, func(c *config.Config) {
+		askSettings(c)
+		c.Queue.Workers = 0
+	}, call("h1"), call("h2"), call("h3"), fakeprov.Step{Content: "done"})
+	turn := e.post("order it")
+	run := func() {
+		if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: turn}, db.JobRow{Attempts: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answer := []byte(`{"size":"large"}`)
+	run()
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "h1", Approve: true, Answers: answer}); err != nil {
+		t.Fatal(err)
+	}
+	run() // resumes h1, then the model asks for h2
+	if e.state(turn) != types.StateAwaitingApproval {
+		t.Fatalf("the second held call must pause after the resume: state %s\n%s", e.state(turn), e.dump(turn))
+	}
+	if n := len(e.find(turn, types.EventApprovalRequested)); n != 2 {
+		t.Fatalf("held pauses: %d, want 2: the resumed call was counted twice\n%s", n, e.dump(turn))
+	}
+	if err := e.rt.Svc.Approve(e.ctx, e.conv.ID, e.user, types.ApprovalDecided{CallID: "h2", Approve: true, Answers: answer}); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if e.state(turn) != types.StateCompleted {
+		t.Fatalf("state %s, want completed (the third identical call is refused)\n%s", e.state(turn), e.dump(turn))
+	}
+	if r := e.find(turn, types.EventToolResult); len(r) != 3 || !strings.Contains(fmt.Sprint(r[2]["content"]), "already made this exact call") {
+		t.Fatalf("results: %v", r)
 	}
 }
 

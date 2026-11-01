@@ -195,7 +195,7 @@ func TestPromptLimitFailsTheTurnCleanly(t *testing.T) {
 	t2 := e.post("second")
 	e.waitState(t2, types.StateFailed)
 	states := e.find(t2, types.EventTurnState)
-	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "prompt of") {
+	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "prompt of") || !strings.Contains(r, "compaction unavailable") {
 		t.Fatalf("reason: %s", r)
 	}
 	if n := len(e.fake.Reqs()); n != 1 {
@@ -236,6 +236,35 @@ func TestPromptLimitCompactsBeforeFailing(t *testing.T) {
 	}
 }
 
+// Compaction that runs but cannot bring the prompt under the cap says so. The
+// oversize message is in the current turn, which a summary never covers.
+func TestOversizeAfterCompactionIsSaid(t *testing.T) {
+	e := setup(t, func(c *config.Config) {
+		c.Agent.Settings.ContextWindow = 1 << 30
+		c.Summarizer = &config.Summarizer{Model: "fake/m", Settings: config.Settings{ContextWindow: 1 << 24}, KeepRecent: 0}
+		c.Queue.Workers = 0 // this test runs the turns itself
+	}, fakeprov.Step{Content: "first reply"}, fakeprov.Step{Content: "SUMMARY"})
+	t1 := e.post("first")
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: t1}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	t2 := e.post("second")
+	e.addMessage(t2, strings.Repeat("a", 9<<20))
+	if err := e.rt.RunTurn(e.ctx, svc.RunTurnPayload{TurnEventID: t2}, db.JobRow{Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if e.state(t2) != types.StateFailed {
+		t.Fatalf("state %s\n%s", e.state(t2), e.dump(t2))
+	}
+	states := e.find(t2, types.EventTurnState)
+	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "after compaction") {
+		t.Fatalf("reason: %s", r)
+	}
+	if n := len(e.fake.Reqs()); n != 2 {
+		t.Fatalf("model calls: %d, want the first reply and the summary only", n)
+	}
+}
+
 // When the summary fails, the turn fails cleanly at the cap: it does not send.
 func TestPromptLimitWhenCompactionFails(t *testing.T) {
 	e := setup(t, func(c *config.Config) {
@@ -250,7 +279,7 @@ func TestPromptLimitWhenCompactionFails(t *testing.T) {
 	t3 := e.post("third")
 	e.waitState(t3, types.StateFailed)
 	states := e.find(t3, types.EventTurnState)
-	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "prompt of") {
+	if r := states[len(states)-1]["reason"].(string); !strings.Contains(r, "prompt of") || !strings.Contains(r, "compaction unavailable") {
 		t.Fatalf("reason: %s", r)
 	}
 	if n := len(e.fake.Reqs()); n != 3 {

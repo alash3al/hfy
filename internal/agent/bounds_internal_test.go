@@ -478,6 +478,36 @@ func TestModelErrorReasonIsStoredClean(t *testing.T) {
 	}
 }
 
+// An oversize prompt names what compaction did: it was unavailable, or it ran
+// and was not enough.
+func TestOversizePromptSaysWhatCompactionDid(t *testing.T) {
+	ctx := context.Background()
+	huge := strings.Repeat("x", maxPromptBytes+1)
+	for name, c := range map[string]struct {
+		prepare func(context.Context, *loop, bool) error
+		want    string
+	}{
+		"no summarizer":   {nil, "compaction unavailable"},
+		"nothing to fold": {func(context.Context, *loop, bool) error { return nil }, "compaction unavailable"},
+		"ran, not enough": {func(_ context.Context, l *loop, force bool) error {
+			if force {
+				l.compactions++
+			}
+			return nil
+		}, "after compaction"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := testLoop(&scripted{}, newTestEnv())
+			l.prepare = c.prepare
+			l.load(ctx, "sys", []provider.Message{{Role: "user", Content: huge}})
+			res, err := l.run(ctx)
+			if err != nil || res.Outcome != Failed || !strings.Contains(res.Reason, c.want) {
+				t.Fatalf("run: %+v %v, want %q", res, err, c.want)
+			}
+		})
+	}
+}
+
 func TestArgsMarkerDescribesTheCall(t *testing.T) {
 	raw := padArgs(maxArgBytes + 1)
 	a, b := argsMarker(raw), argsMarker(strings.Replace(raw, "aaa", "bbb", 1))
