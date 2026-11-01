@@ -66,10 +66,11 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
 
-agent:
-  model: openai/gpt-4o-mini
-  settings: { context_window: 128000 }   # required: the model's context size
-  system: You are the support assistant for Acme.
+agents:
+  main:                                    # the default agent
+    model: openai/gpt-4o-mini
+    settings: { context_window: 128000 }   # required: the model's context size
+    system: You are the support assistant for Acme.
 ```
 
 No model yet? Use the built-in fake one. It replies instantly and needs no network:
@@ -77,9 +78,10 @@ No model yet? Use the built-in fake one. It replies instantly and needs no netwo
 ```yaml
 providers:
   mock: { type: mock, mock: { reply: "Hello from mock" } }
-agent:
-  model: mock/demo
-  settings: { context_window: 8192 }
+agents:
+  main:
+    model: mock/demo
+    settings: { context_window: 8192 }
 ```
 
 ## Put the chat in your app

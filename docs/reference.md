@@ -60,20 +60,22 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 ## Config
 
 `hfy config:example` is the reference. In short: `server`, `database`, `providers`,
-`mcp`, `agent`, plus optional `agents`, `queue`, `retention`,
+`mcp`, `agents` (with the required `main` agent), plus optional `queue`, `retention`,
 `attachments`, `filesystem`, `subagents`, `summarizer`, `metrics`, `embed`.
 
 - Unknown keys stop startup with their line (`line 12: unknown key "aproval"
-  in config.agent`): a typo never silently disables a setting.
+  in config.agents.main`): a typo never silently disables a setting.
 
 - `${VAR}` / `${VAR:-default}` expand from the environment in string values
   (never keys); a missing variable without a default stops startup and names
   it; `$$` is a literal `$`. Quote the value inside YAML flow maps (`{ a: "${X}" }`).
-- `agent.settings.context_window` is required (there is no auto-discovery):
+- `agents.main` is required: the default agent, which answers a grant that
+  names no `agent`. More agents sit next to it under `agents.<name>`.
+- `agents.<name>.settings.context_window` is required (there is no auto-discovery):
   the model's real window. History is compacted at 80% of it, leaving room
   for the reply and the step's tool results.
   Set it somewhat below the model's real limit.
-- `agent.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
+- `agents.<name>.mcp` omitted = all MCP servers, reached through `hfy__tool_search`
   (small prompt). Set it to restrict, and the tools are listed directly.
 - Providers have a `type`: `openai` (the default) is the current
   OpenAI-compatible HTTP client; `mock` is an in-process adapter for dev
@@ -91,7 +93,7 @@ events and `NOTIFY`; every `serve` instance pushes them to its own SSE clients.
 
 ### Model request controls
 
-`settings` on `agent`, `agents.<name>`, `subagents.<name>` and `summarizer` takes
+`settings` on `agents.<name>`, `subagents.<name>` and `summarizer` takes
 four optional controls. Each is sent only when set, and none has a default:
 
 - `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
@@ -126,13 +128,14 @@ four optional controls. Each is sent only when set, and none has a default:
     models, and Ollama ignores `tool_choice`.
 
 ```yaml
-agent:
-  model: openrouter/anthropic/claude-sonnet-5.5
-  settings:
-    context_window: 200000
-    max_output_tokens: 8192
-    call_timeout: 120s
-    extra: { cache_control: { type: ephemeral }, reasoning: { effort: low } }
+agents:
+  main:
+    model: openrouter/anthropic/claude-sonnet-5.5
+    settings:
+      context_window: 200000
+      max_output_tokens: 8192
+      call_timeout: 120s
+      extra: { cache_control: { type: ephemeral }, reasoning: { effort: low } }
 ```
 
 OpenRouter reads `reasoning_effort` and also its own `reasoning` object (options such
@@ -508,7 +511,7 @@ event as stored.
   silence allowed (before the answer starts, then between streamed chunks), so
   long answers are never cut off. `limits` (`steps`, `total_tokens`, `timeout`)
   end the turn when hit.
-- **Approvals.** Default is to never ask. Calls matching `agent.approval.tools`
+- **Approvals.** Default is to never ask. Calls matching `agents.<name>.approval.tools`
   (`<server>.<tool>` patterns, `hfy.*` works) pause the turn; nothing waits in
   a worker. After approval.timeout the call is rejected. Each agent has its own
   `approval`. A server's own `mcp.<name>.approval` (tool patterns without the
@@ -533,7 +536,7 @@ event as stored.
   does what models get wrong alone; anything touching data belongs to your
   MCP servers.
 - **Asking the viewer.** A top agent may opt into `hfy.ask_user`
-  (`agent.ask_user: true`, and the same field per entry under `agents:`): one
+  (`agents.<name>.ask_user: true`): one
   call pauses the turn with up to 10 structured questions (single/multi with
   2–20 options, free text, confirm) the viewer answers as a form. The model
   receives the answers as the tool's result: the JSON
@@ -666,6 +669,13 @@ event as stored.
 
 ## Upgrading to v2
 
+- The top-level `agent:` config key is gone; `agents:` is the only home for
+  agents. Move the contents of `agent:` under `agents.main:` (same fields,
+  indented one level). A config that still sets `agent:` stops EVERY command that
+  reads the config (`serve`, `queue:work`, `validate`, `migrate`) with
+  `agent was removed in v2; move it to agents.main`. `agents.main` is required:
+  grants that omit `agent` still run it, and existing grants and turns need no
+  migration. Error paths now read `agents.main.settings…`, not `agent.settings…`.
 - The `embeddings:` config key and the `hfy.conversation_search` tool are gone.
   A config that still sets `embeddings:` stops EVERY command that reads the
   config (`serve`, `queue:work`, `validate`, `migrate`) with
