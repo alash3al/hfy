@@ -119,9 +119,9 @@ four optional controls. Each is sent only when set, and none has a default:
   - `tool_choice`, `parallel_tool_calls`, `response_format`, `store` and `user` are
     not reserved, so they pass through unchecked. `tool_choice: required` (or a forced
     named tool) makes every reply call a tool, so the turn never ends on a text answer:
-    it runs until a `limits` field stops it. Anthropic's OpenAI-compatible endpoint
-    returns 400 on a forced `tool_choice` for the Claude 5.5 models, and Ollama ignores
-    `tool_choice`.
+    it runs until a `limits` field or a fixed loop bound stops it. Anthropic's
+    OpenAI-compatible endpoint returns 400 on a forced `tool_choice` for the Claude 5.5
+    models, and Ollama ignores `tool_choice`.
 
 ```yaml
 agent:
@@ -370,13 +370,28 @@ event as stored.
   (stalled, then reaped) is cancelled at its next heartbeat and can no longer
   complete or retry the job. Graceful shutdown hands running jobs straight back.
 - **Loop rules.** Tool errors, invalid arguments and unknown tools come back to
-  the model as error results (an unknown tool lists the valid names). The same
-  call a third time is refused with advice; a sixth ends the turn. Model calls
-  retry on 429, 5xx and network errors up to `queue.max_attempts`, but a call past
-  its `call_timeout` is not retried. A provider's `timeout` is the longest silence
-  allowed (before the answer starts, then between streamed chunks), so long answers
-  are never cut off. `limits`
-  (`steps`, `total_tokens`, `timeout`) end the turn when hit.
+  the model as error results (an unknown tool lists the valid names). NUL
+  characters and unpaired surrogate escapes in tool arguments are answered as
+  invalid arguments (the database cannot store them). A call that repeats an
+  earlier one in the same turn (same tool and arguments; key order does not
+  matter) is refused with advice from its third occurrence, and the sixth ends
+  the turn. The count survives a resume: a turn that crashed, waited for approval
+  or asked the viewer is counted from its own recorded calls. Known limitation:
+  numbers written in exponent form (`1e2` vs `100`) can get a different repeat key
+  after a resume, because Postgres stores `1e2` as `100`. `hfy.ask_user` counts
+  too, so the same questions asked a third time are refused without pausing the
+  viewer again. Fixed bounds, not configurable: one call's arguments over 64 KiB
+  are not run, the model is told to send less, and only a marker is stored; a turn
+  with 5,000 durable events ends failed; a request over 8 MiB of text is compacted
+  first (main agent only, and only with a `summarizer` configured) and, if still
+  too large, the turn fails before sending. Sub-agents and the summarizer follow
+  the same bounds, and their steps count toward the turn's events; a sub-agent's
+  repeats are counted within its own run. Model calls retry on 429, 5xx and
+  network errors, with at most `queue.max_attempts` attempts in all, but a call
+  past its `call_timeout` is not retried. A provider's `timeout` is the longest
+  silence allowed (before the answer starts, then between streamed chunks), so
+  long answers are never cut off. `limits` (`steps`, `total_tokens`, `timeout`)
+  end the turn when hit.
 - **Approvals.** Default is to never ask. Calls matching `agent.approval.tools`
   (`<server>.<tool>` patterns, `hfy.*` works) pause the turn; nothing waits in
   a worker. After approval.timeout the call is rejected. Each agent has its own
