@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alash3al/hfy/internal/mcp"
@@ -51,6 +52,17 @@ const (
 	// maxStructured bounds a tool's structuredContent, stored with its result
 	// for clients.
 	maxStructured = 1 << 20
+	// The bounds below are fixed, not configured: they stop a runaway or
+	// hostile model from growing one turn without limit.
+	// maxArgBytes bounds one call's arguments. Every stored byte is re-sent in
+	// later prompts, and no real tool call needs more than this.
+	maxArgBytes = 64 << 10
+	// maxTurnEvents bounds the durable events of one turn. A turn of 50 steps
+	// with 10 calls each is about 1,200 events.
+	maxTurnEvents = 5000
+	// maxPromptBytes bounds the text of one model request after compaction:
+	// about 2M tokens, far past the context windows in use.
+	maxPromptBytes = 8 << 20
 )
 
 // Outcome is how a loop run ended (cancellation is returned as an error).
@@ -99,6 +111,9 @@ type TurnEnv struct {
 	// started the turn, so tools can authorize the call themselves.
 	ConversationUUID, TurnUUID string
 	Actor                      mcp.ActorMeta
+	// The turn's durable events: seeded from its log, then counted as the
+	// agent appends them (maxTurnEvents).
+	events atomic.Int64
 }
 
 type loop struct {
@@ -118,8 +133,9 @@ type loop struct {
 	// what was added since is estimated on top (see promptSize).
 	lastPrompt int64
 	measuredAt int
-	// prepare may rebuild msgs before a model call (summarization).
-	prepare func(ctx context.Context, l *loop) error
+	// prepare may rebuild msgs before a model call (summarization). force asks
+	// for compaction whatever the token count says.
+	prepare func(ctx context.Context, l *loop, force bool) error
 }
 
 func newLoop(rt *Runtime, spec *Spec, sink Sink, env *TurnEnv) *loop {
@@ -175,7 +191,25 @@ func (l *loop) limitHit() string {
 			return fmt.Sprintf("limit reached: %d tokens", lim.TotalTokens)
 		}
 	}
+	return l.eventsLimit()
+}
+
+// eventsLimit is the reason to end a turn that holds maxTurnEvents events.
+func (l *loop) eventsLimit() string {
+	if l.env.events.Load() >= maxTurnEvents {
+		return fmt.Sprintf("limit reached: %d events in one turn", maxTurnEvents)
+	}
 	return ""
+}
+
+// request is the model request for the loop's current messages.
+func (l *loop) request(defs []provider.ToolDef) provider.Request {
+	return provider.Request{
+		Model:       l.spec.Model,
+		Messages:    append([]provider.Message{{Role: "system", Content: l.system}}, l.msgs...),
+		Tools:       defs,
+		Temperature: l.spec.Settings.Temperature, TopP: l.spec.Settings.TopP,
+	}
 }
 
 func (l *loop) run(ctx context.Context) (Result, error) {
@@ -187,16 +221,22 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 			return Result{Outcome: Failed, Reason: why}, nil
 		}
 		if l.prepare != nil {
-			if err := l.prepare(ctx, l); err != nil {
+			if err := l.prepare(ctx, l, false); err != nil {
 				return Result{}, err
 			}
 		}
 		defs, lookup := l.tools(ctx)
-		req := provider.Request{
-			Model:       l.spec.Model,
-			Messages:    append([]provider.Message{{Role: "system", Content: l.system}}, l.msgs...),
-			Tools:       defs,
-			Temperature: l.spec.Settings.Temperature, TopP: l.spec.Settings.TopP,
+		req := l.request(defs)
+		if requestBytes(req) > maxPromptBytes && l.prepare != nil {
+			// Compaction gets its chance whatever the token count says.
+			if err := l.prepare(ctx, l, true); err != nil {
+				return Result{}, err
+			}
+			defs, lookup = l.tools(ctx)
+			req = l.request(defs)
+		}
+		if n := requestBytes(req); n > maxPromptBytes {
+			return Result{Outcome: Failed, Reason: fmt.Sprintf("limit reached: prompt of %d bytes after compaction (limit %d)", n, maxPromptBytes)}, nil
 		}
 		kind := types.OutboundModel
 		if l.spec.Name == types.AgentSummarizer {
@@ -226,19 +266,25 @@ func (l *loop) run(ctx context.Context) (Result, error) {
 		}
 		asst := provider.Message{Role: "assistant", Content: text}
 		calls := make([]provider.ToolCall, 0, len(resp.ToolCalls))
+		tooLarge := make([]bool, 0, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
 			if tc.ID == "" {
 				tc.ID = fmt.Sprintf("call_%d_%d", l.steps, i)
 			}
+			big := len(tc.Arguments) > maxArgBytes
+			if big {
+				tc.Arguments = argsMarker(tc.Arguments)
+			}
 			calls = append(calls, tc)
+			tooLarge = append(tooLarge, big)
 		}
 		asst.ToolCalls = calls
 		l.msgs = append(l.msgs, asst)
 		if len(calls) == 0 {
 			return Result{Outcome: Done, Final: text}, nil
 		}
-		for _, tc := range calls {
-			out, err := l.handleCall(ctx, tc, lookup)
+		for i, tc := range calls {
+			out, err := l.handleCall(ctx, tc, tooLarge[i], lookup)
 			if err != nil {
 				return Result{}, err
 			}
@@ -257,7 +303,10 @@ type callOutcome struct {
 	abort  string
 }
 
-func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[string]mcp.Tool) (callOutcome, error) {
+func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, tooLarge bool, lookup map[string]mcp.Tool) (callOutcome, error) {
+	if why := l.eventsLimit(); why != "" {
+		return callOutcome{abort: why}, nil
+	}
 	tool, known := lookup[tc.Name]
 	name := tc.Name
 	if known {
@@ -294,6 +343,8 @@ func (l *loop) handleCall(ctx context.Context, tc provider.ToolCall, lookup map[
 		out.abort = fmt.Sprintf("loop detected: %s called %d times with the same arguments", name, n)
 	case !known:
 		res = errResult(fmt.Sprintf("unknown tool %q. Valid tools: %s. Use the exact name.", tc.Name, l.validNames(lookup)))
+	case tooLarge:
+		res = errResult(fmt.Sprintf("arguments too large (limit %d bytes); send less", maxArgBytes))
 	case !argsOK:
 		res = errResult("invalid arguments: they are not valid JSON. Send a JSON object. Schema: " + string(tool.Schema))
 	case v == verdictWarn:
@@ -557,7 +608,7 @@ func normalizeArgs(raw string) (json.RawMessage, bool) {
 	if raw == "" || raw == "null" {
 		return json.RawMessage(`{}`), true
 	}
-	if json.Valid([]byte(raw)) {
+	if storableJSON(raw) {
 		return json.RawMessage(raw), true
 	}
 	b, _ := json.Marshal(types.Clean(raw)) // keep what the model said, as a JSON string

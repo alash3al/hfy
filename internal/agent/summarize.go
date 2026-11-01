@@ -20,17 +20,18 @@ import (
 const compactAt = 0.8
 
 // summarizeHook triggers summarization before a model request once the
-// prompt reached compactAt of the agent's context_window, then rebuilds the
-// loop's context. A failed summary costs the turn its compaction, not its
-// answer: it is logged, the step goes on in the headroom compactAt leaves,
-// and the turn does not try again.
-func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop) error {
+// prompt reached compactAt of the agent's context_window, or when force is
+// set (a prompt over the byte cap), then rebuilds the loop's context. A failed
+// summary costs the turn its compaction, not its answer: it is logged, the
+// step goes on in the headroom compactAt leaves, and the turn does not try
+// again.
+func (rt *Runtime) summarizeHook(env *TurnEnv) func(context.Context, *loop, bool) error {
 	if rt.summ == nil {
 		return nil
 	}
 	failed := false
-	return func(ctx context.Context, l *loop) error {
-		if failed || float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow) {
+	return func(ctx context.Context, l *loop, force bool) error {
+		if failed || (!force && float64(l.promptSize()) < compactAt*float64(l.spec.Settings.ContextWindow)) {
 			return nil
 		}
 		changed, err := rt.summarize(ctx, env)
@@ -97,11 +98,12 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 	if prev != nil {
 		text = prev.Text
 	}
-	// The summarizer's input must fit its own window: fold the transcript in
-	// chunks, so the summary so far plus a chunk stay within context_window
-	// bytes, which fits even at 1.5 bytes a token (JSON, ids).
+	// The summarizer's input must fit its own window and the prompt cap: fold
+	// the transcript in chunks, so the summary so far plus a chunk stay within
+	// the smaller of context_window and half of maxPromptBytes (the rest is
+	// the system prompt and framing).
 	for rest := transcript; rest != ""; {
-		chunk := firstChunk(rest, max(rt.summ.Settings.ContextWindow-len(text), 2000))
+		chunk := firstChunk(rest, max(min(rt.summ.Settings.ContextWindow, maxPromptBytes/2)-len(text), 2000))
 		rest = rest[len(chunk):]
 		input := "New conversation to fold in:\n" + chunk
 		if text != "" {
@@ -138,7 +140,11 @@ func (rt *Runtime) summarize(ctx context.Context, env *TurnEnv) (bool, error) {
 		}
 		return rt.Store.SetSummary(ctx, tx, env.ConversationID, ev.ID)
 	})
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	env.events.Add(1)
+	return true, nil
 }
 
 // transcriptOf renders events for the summarizer, one framed line per

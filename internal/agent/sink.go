@@ -89,9 +89,13 @@ func (s *turnSink) appendRow(ctx context.Context, q db.DBTX, p types.Payload, re
 	if req != nil && *req != 0 {
 		rid = req
 	}
-	return s.rt.Store.AppendEvent(ctx, q, db.NewEvent{
+	row, err := s.rt.Store.AppendEvent(ctx, q, db.NewEvent{
 		ConversationID: s.env.ConversationID, ParentID: &s.env.TurnID, ActorID: s.actor,
 		Scope: s.env.Scope, Payload: p, RequestID: rid})
+	if err == nil && !types.Ephemeral(p.EventType()) {
+		s.env.events.Add(1)
+	}
+	return row, err
 }
 
 func (s *turnSink) TextDelta(t string) {
@@ -226,6 +230,9 @@ func (s *quietSink) Step(ctx context.Context, o StepOut) error {
 		ConversationID: s.env.ConversationID, ParentID: &s.env.TurnID, ActorID: s.actor, Scope: s.env.Scope,
 		Payload:   types.ModelUsage{Model: o.Model, Input: o.Usage.Input, Output: o.Usage.Output, Cached: o.Usage.Cached},
 		RequestID: rid})
+	if err == nil {
+		s.env.events.Add(1)
+	}
 	return err
 }
 

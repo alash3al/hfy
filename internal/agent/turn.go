@@ -93,6 +93,7 @@ func (rt *Runtime) RunTurn(ctx context.Context, p svc.RunTurnPayload, job db.Job
 	sink := newTurnSink(tctx, rt, env, mainActor)
 	l := newLoop(rt, spec, sink, env)
 	l.steps = int(calls)
+	env.events.Store(int64(len(events)))
 	l.seedCounts(view.Calls)
 
 	runErr := rt.resolveDangling(tctx, l, sink, view, job.Attempts)
